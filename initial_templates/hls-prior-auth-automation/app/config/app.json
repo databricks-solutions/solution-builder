@@ -1,0 +1,54 @@
+{
+  // MedVault Health Plan — Prior Auth Copilot. JSONC; ${VAR} placeholders are
+  // substituted from process.env at boot (.env locally, app.yaml when deployed).
+  // The Genie agent (ask_data tool + "Ask the policy"): the PA history tables + the medical-policy
+  // documents volume (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:hls-prior-auth-automation}",
+  "genieSpaceId": "${GENIE_SPACE_ID:}",
+
+  // Agent LLM — needs the Responses API.
+  "agentModel": "databricks-gpt-5-4",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (Ops view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId": "",
+  "warehouseId": "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl": "${APP_URL:}",
+  "mlModelName": "",
+  "pdfVolumePath": "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/policy_docs",
+
+  // Delta source for the boot-time Lakebase mirror (server/db/sync.ts reads the
+  // fixed table names pa_requests, ai_case_review, ai_criteria_evidence,
+  // clinical_notes, members, providers, medical_policies, policy_criteria).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema": "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "MedVault PA Copilot"
+  },
+
+  // Chat dock "Suggested next" chips (step N unlocks when the previous answer
+  // contains any triggerAfter substring).
+  "assistantScript": [
+    { "prompt": "What's on my plate this morning? Anything about to breach the 72-hour clock?" },
+    {
+      "prompt": "How many of these could the auto-approval rule clear right now? Show me before you do anything.",
+      "triggerAfter": ["expedited", "queue", "breach", "72"]
+    },
+    { "prompt": "Yes — release them.", "triggerAfter": ["Release", "release", "auto-approv"] },
+    {
+      "prompt": "Why do lumbar spine MRIs keep getting pended, and which practice group drives it?",
+      "triggerAfter": ["approved", "released"]
+    }
+  ]
+}

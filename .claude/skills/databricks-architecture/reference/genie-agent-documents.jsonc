@@ -1,0 +1,70 @@
+// =============================================================================
+// GENIE AGENT + DOCUMENTS — one Genie Agent answers questions over governed
+// tables AND over PDFs held in a dedicated UC volume. This replaces the old
+// Knowledge Assistant + Supervisor Agent pair (both deprecated).
+//
+// JSONC (JSON + // comments) for YOU to read. Emit PLAIN JSON (strip //) in the
+// architecture.md ```json fence.
+//
+// WHAT IT SHOWS:
+//   • Two sources, two routes into ONE agent:
+//       – tables: Postgres → medallion → Genie Agent (`@out-gold`, SQL answers)
+//       – documents: PDFs → a dedicated MANAGED UC volume → Genie Agent
+//         (edge label "content search": the agent searches the files and cites them)
+//   • The volume is the document feed; it is NOT routed through the medallion.
+//   • Genie One is the business-user front door; the app calls the same agent.
+//
+// STRUCTURE (reference/layout.md). The top level is a row: sources | platform box | Genie One.
+//   • The sources group is a column. `track: "tables"` and `track: "docs"` line each source
+//     up with the stage it feeds: Postgres with the medallion, the PDFs with the volume.
+//   • The platform box is a column: a banner row (the db-platform wordmark and the governance
+//     block, spread by `justify: "between"`), then a body row.
+//   • The body row is three columns: the data column (medallion over the UC volume), the
+//     answer column (Genie Agent over the Databricks Apps tile), and Genie One.
+//   • The two sources stay outside the platform box.
+//
+// AUTHOR STRUCTURE, NOT PIXELS. See the medallion catalog row for `@out-gold`.
+// =============================================================================
+[
+  {
+    "name": "Genie Agent + documents",
+    "story": "Ingest our Postgres data into a governed medallion (bronze→silver→gold). Our PDF policies and procedures land in a dedicated Unity Catalog volume. One Genie Agent answers both kinds of question: numbers from the gold tables, and policy or procedure questions from the documents, cited to the file. Business users reach it through Genie One, and our app calls the same agent.",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 90,
+    "nodes": [
+      {"id": "sources", "type": "group", "layout": "column", "gap": 60, "equal": "w", "children": [
+        {"id": "src-postgres", "type": "source", "label": "Postgres", "icon": "file:vendor/postgresql", "track": "tables"},
+        {"id": "src-pdf", "type": "source", "label": "PDF documents", "icon": "pdfLogo", "track": "docs"}
+      ] },
+      {"id": "platform-box", "type": "box", "pad": 40, "ai_reasoning": "Holds the on-platform tiles; the two sources stay outside so they read as external systems feeding in.", "layout": "column", "gap": 40, "align": "stretch", "children": [
+        {"id": "bar", "type": "group", "layout": "row", "justify": "between", "children": [
+          {"id": "db-platform", "type": "db-platform"},
+          {"id": "governance-block", "type": "governance-block", "params": {"ai_gateway": false, "genie_ontology": true}}
+        ] },
+        {"id": "body", "type": "group", "layout": "row", "gap": 100, "children": [
+          {"id": "data", "type": "group", "layout": "column", "gap": 60, "children": [
+            {"id": "medallion-table", "type": "medallion-table", "ai_reasoning": "Tables only. Genie Agent reads the GOLD layer (`@out-gold`) for SQL answers.", "track": "tables"},
+            {"id": "uc-volume", "type": "uc-volume", "ai_reasoning": "A DEDICATED managed volume that holds only the documents: the whole volume is indexed for content search, so nothing else goes in it.", "track": "docs"}
+          ] },
+          {"id": "answer", "type": "group", "layout": "column", "gap": 70, "children": [
+            {"id": "genie", "type": "genie", "ai_reasoning": "One agent for data AND documents: the tables and the documents volume feed it, the app asks it."},
+            {"id": "databricks-apps-work", "type": "databricks-apps-work", "ai_reasoning": "The custom business app: it calls Genie Agent (data + documents) rather than a separate document bot."}
+          ] },
+          {"id": "genie-one", "type": "genie-one", "ai_reasoning": "Business-user entry point; the persona pill is built into the tile."}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e-pg-med", "from": "src-postgres@r", "to": "medallion-table@l", "flow": true},
+      {"id": "e-pdf-vol", "from": "src-pdf@r", "to": "uc-volume@l", "flow": true, "label": "Upload PDFs"},
+      {"id": "e-med-genie", "from": "medallion-table@out-gold", "to": "genie@l", "flow": true, "label": "Query tables"},
+      {"id": "e-vol-genie", "from": "uc-volume@r", "to": "genie@l", "flow": true, "label": "content search"},
+      {"id": "e-app-genie", "from": "databricks-apps-work@t", "to": "genie@b", "label": "asks Genie"},
+      {"id": "e-genie-one", "from": "genie@r", "to": "genie-one@l"}
+    ]
+  }
+]

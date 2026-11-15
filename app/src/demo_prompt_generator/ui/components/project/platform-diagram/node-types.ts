@@ -12,9 +12,10 @@ import { DbPlatformBlock } from "./composite-db-platform";
 import { GenieOneBlock } from "./composite-genie-one";
 import { MedallionBlock } from "./composite-medallion";
 import { AIGatewayBlock } from "./composite-ai-gateway";
+import { MultiSourceBlock } from "./composite-multi-source";
 import { AnnotationNode } from "./annotations";
 import { FlowEdge } from "./edges/flow-edge";
 
-export const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCode: GenieCodeBlock, governance: GovernanceBlock, lakeflowGenie: LakeflowGenieBlock, agentBricks: AgentBricksBlock, dbPlatform: DbPlatformBlock, genieOne: GenieOneBlock, medallion: MedallionBlock, aiGateway: AIGatewayBlock, annotation: AnnotationNode };
+export const nodeTypes = { component: ComponentNode, composite: LakeflowBlock, genieCode: GenieCodeBlock, governance: GovernanceBlock, lakeflowGenie: LakeflowGenieBlock, agentBricks: AgentBricksBlock, dbPlatform: DbPlatformBlock, genieOne: GenieOneBlock, medallion: MedallionBlock, aiGateway: AIGatewayBlock, multiSource: MultiSourceBlock, annotation: AnnotationNode };
 
 export const edgeTypes = { flow: FlowEdge };

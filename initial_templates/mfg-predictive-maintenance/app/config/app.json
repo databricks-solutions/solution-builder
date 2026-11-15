@@ -1,0 +1,54 @@
+{
+  // TechRobotics PdM Copilot — app config (JSONC). ${VAR} placeholders are substituted from env
+  // (.env locally, app.yaml env when deployed). See server/server.ts loadAppConfig.
+
+  // Data backend: the agent reads GENIE_SPACE_ID (the Genie agent: tables + the manuals volume) from env
+  // directly (server/agent/pdmops.ts).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:mfg-predictive-maintenance}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Agent LLM — needs the Responses API.
+  "agentModel": "databricks-gpt-5-4",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (plant manager view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "${PIPELINE_ID:}",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.failure_risk_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/manuals",
+
+  // Delta sources for the boot-time Lakebase mirror (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": {
+      "assetHealth": "asset_health_current",
+      "features":    "asset_health_features",
+      "workOrders":  "maintenance_work_orders",
+      "failures":    "failure_events",
+      "spareParts":  "spare_parts",
+      "windows":     "maintenance_windows"
+    }
+  },
+
+  "branding": {
+    "appName": "PdM Control Room"
+  },
+
+  // Dock "Suggested next" chips — the 4-beat demo script.
+  "assistantScript": [
+    { "prompt": "Which machine should I worry about this week, and why?" },
+    { "prompt": "Is it just RA-207? Check which other robots got the same PM.", "triggerAfter": ["RA-207", "grease", "reducer"] },
+    { "prompt": "Plan the fix in Saturday's Line 2 window: work orders, technicians and parts for all exposed robots, with the downtime cost avoided.", "triggerAfter": ["RA-214", "RA-211", "campaign"] },
+    { "prompt": "Book it.", "triggerAfter": ["book it", "Book it"] }
+  ]
+}

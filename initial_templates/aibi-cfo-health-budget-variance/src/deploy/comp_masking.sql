@@ -36,7 +36,7 @@ ALTER TABLE `{{CATALOG}}`.`{{SCHEMA}}`.compensation
 -- 3) Also tag the sensitive columns with a governance tag so the sensitivity is
 --    discoverable in Catalog Explorer / lineage (documentation + ABAC-ready).
 --    NOTE: `sensitivity` may be a GOVERNED tag key with an allowed-value list on some
---    metastores (e.g. field-eng allows salary/pii/pci/... but not a free-form 'comp').
+--    metastores (e.g. one group allows salary/pii/pci/... but not a free-form 'comp').
 --    We use 'salary' — the allowed value that fits compensation. If your metastore has
 --    no tag policy, any value (e.g. 'comp') works; adjust to a permitted value if the
 --    ALTER ... SET TAGS statement is rejected. Tagging is optional for the mask to work

@@ -10,7 +10,7 @@ skill: spark.range + F.when + DataFrame joins only; no driver loops, no
 Story (single load-bearing thread that every table reinforces):
   - LuxeBeauty's VP Ops sees weekly refunds spike 3x to ~$180K.
   - Three Skincare SKUs (SKU-1001/1002/1003) all on one production lot —
-    LOT-2026-0430, Lyon facility — released despite a QC note flagging
+    LOT-2026-0531 in the reference build (LOT-{YYYY}-{MMDD}, derived from NOW), Lyon facility — released despite a QC note flagging
     pressure issues during emulsification (homogenizer HMG-03).
   - ~5000 units sold over ~2 weeks; ~80% return rate; EU-skewed cohort.
 
@@ -28,11 +28,15 @@ literal arrays. So no executor-side Python dependency is required.
 
 Time: rolling by default (NOW = datetime.now()) so the dashboard's last
 data point lands on yesterday-real every run. Set LUXE_PIN_TIME=1 to
-freeze NOW to STORY_PINNED_NOW (2026-06-12) for reproducible demos where
-every artefact (lot id, dates, KA docs) needs to match a recorded baseline.
+freeze NOW to STORY_PINNED_NOW (2026-07-13) for reproducible demos where
+every artefact (lot id, dates, document PDFs) needs to match a recorded baseline.
+The pinned date reproduces the reference build (bad lot LOT-2026-0531,
+last data point 2026-07-12) — the hand-authored document PDFs in src/documents/,
+the dashboard text and the Genie instructions all cite that lot, so if you
+change STORY_PINNED_NOW (or run rolling), update those references too.
 
-PDFs for the Knowledge Assistant are produced by the separate
-`src/documents/html_to_pdf.py` — run it after this script.
+Document PDFs for the Genie Agent are rendered by the separate
+`src/documents/html_to_pdf.py` (local step, independent of this script).
 
 Aligned with `references/example-luxebeauty/specifications/01-lakeflow.md`.
 """
@@ -51,7 +55,6 @@ import os
 from datetime import datetime, timedelta
 
 import numpy as np
-from databricks.connect import DatabricksSession
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
@@ -64,6 +67,10 @@ try:
     dbutils.widgets.text("schema",  "", "Schema")   # noqa: F821
     CATALOG = dbutils.widgets.get("catalog") or os.environ.get("DEMO_CATALOG") or "retail_consumer_goods"  # noqa: F821
     SCHEMA  = dbutils.widgets.get("schema")  or os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"        # noqa: F821
+    # Job param pin_time=1 (the DAB setup job always passes it) == env LUXE_PIN_TIME=1.
+    dbutils.widgets.text("pin_time", "", "Pin story time (1 = NOW 2026-07-13)")  # noqa: F821
+    if dbutils.widgets.get("pin_time") == "1":  # noqa: F821
+        os.environ["LUXE_PIN_TIME"] = "1"
 except NameError:
     CATALOG = os.environ.get("DEMO_CATALOG") or "retail_consumer_goods"
     SCHEMA  = os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"
@@ -83,8 +90,8 @@ N_BAD_ORDERS = 5_000          # bad-lot cohort size (≈ 5K units / 3 SKUs).
 # Default is ROLLING TIME (`datetime.now()`) so the dashboard always feels
 # "live" (last data point lands on yesterday-real). Set LUXE_PIN_TIME=1 to
 # freeze NOW to STORY_PINNED_NOW for reproducible demos where every artefact
-# (lot id, dates, KA docs) needs to match a recorded baseline across runs.
-STORY_PINNED_NOW = datetime(2026, 6, 12)
+# (lot id, dates, document PDFs) needs to match a recorded baseline across runs.
+STORY_PINNED_NOW = datetime(2026, 7, 13)  # → LOT-2026-0531 (matches the reference build + document PDFs)
 NOW = (
     STORY_PINNED_NOW
     if os.environ.get("LUXE_PIN_TIME") == "1"
@@ -96,7 +103,7 @@ SPIKE_PEAK      = NOW - timedelta(days=21)
 # peak ~5w later lands on) Black Friday week or the Dec holiday ramp, the
 # return spike would visually dissolve into the seasonal volume — slide
 # the lot back week-by-week until both anchors clear the peaks. With the
-# default pinned NOW = 2026-06-12 the lot is 2026-04-30, well off-peak.
+# default pinned NOW = 2026-07-13 the lot is 2026-05-31, well off-peak.
 def _is_peak_day(d: datetime) -> bool:
     m, day = d.month, d.day
     return (m == 11 and 20 <= day <= 30) or (m == 12 and 1 <= day <= 26)
@@ -135,6 +142,7 @@ print(f"SPIKE_PEAK:   {SPIKE_PEAK.date()}")
 try:
     spark  # noqa: F821
 except NameError:
+    from databricks.connect import DatabricksSession  # local runs only (not installed on serverless jobs)
     spark = DatabricksSession.builder.profile(os.environ.get("DATABRICKS_CONFIG_PROFILE", "DEFAULT")).serverless(True).getOrCreate()
 
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {CATALOG}.{SCHEMA}")
@@ -440,7 +448,7 @@ _save(cust_df, "raw_customers")
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. PRODUCTION LOTS  ───  spark.range × products; bad lot + recall/hold mix.
 # ═══════════════════════════════════════════════════════════════════════════
-# Each SKU gets ~18 lots over 6 months. The bad lot (LOT-2026-0430) is unioned
+# Each SKU gets ~18 lots over 6 months. The bad lot (BAD_LOT_ID) is unioned
 # in afterwards — it carries all 3 BAD_SKUs and the INCIDENT_SUMMARY note.
 # Status enum: released (~96%) / on_hold (~3%) / recalled (~1%). The bad lot
 # is status='released' (that's the whole point of the story).

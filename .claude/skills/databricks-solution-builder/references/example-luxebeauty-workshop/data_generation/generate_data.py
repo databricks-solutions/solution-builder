@@ -1,33 +1,39 @@
 """
-LuxeBeauty Returns Intelligence — Synthetic Data Generator (Spark + UDFs)
+LuxeBeauty Returns Intelligence — Synthetic Data Generator (pure Spark, no UDFs)
                                    ── WORKSHOP variant ──
 
 Produces the coherent LuxeBeauty demo dataset, but LANDS IT AS RAW PARQUET
 FILES IN A UC VOLUME rather than as Delta tables. That Volume is the "bronze
 landing zone" the workshop attendee builds the SDP pipeline on top of — silver
 + gold are NOT built here (the SA builds them LIVE with Genie Code during the
-workshop; see `notebooks/02_build_pipeline.py`. The target table/column contract
-lives in `CONTEXT.md` + `specifications/01-lakeflow.md` — no SDP SQL is shipped).
+workshop; see the 02_build_pipeline page of notebooks_html/workshop.html. The
+target table/column contract lives in `CONTEXT.md` + `specifications/01-lakeflow.md`
+— no SDP SQL is shipped).
 
 Uses Databricks Connect Serverless. Follows the databricks-synthetic-data-gen
 skill: spark.range + F.when + DataFrame joins only; no driver loops, no
 .collect(), no .cache().
 
 Story (single load-bearing thread that every table reinforces):
-  - LuxeBeauty's VP Ops sees weekly refunds spike 3x to ~$180K.
+  - LuxeBeauty's VP Ops sees weekly refunds spike ~4-5x to ~$140K (baseline ~$30K).
   - Three Skincare SKUs (SKU-1001/1002/1003) all on one production lot —
     LOT-2026-0430, Lyon facility — released despite a QC note flagging
     pressure issues during emulsification (homogenizer HMG-03).
-  - ~5000 units sold over ~2 weeks; ~80% return rate; EU-skewed cohort.
+  - ~5,000 affected orders (1-2 units each) placed 28-40 days ago; ~80% of them
+    come back; EU-skewed cohort.
 
 Raw parquet datasets produced (all written under the UC Volume
 `/Volumes/{CATALOG}/{SCHEMA}/raw_data/<dataset>/`):
-  products          ~90 rows   — SKU master, prices + cost.
-  customers         5K  rows   — region + tier + premium_status label.
-  production_lots   ~2K rows   — lot master, status + incident_summary.
-  orders            400K rows  — order header (1 row / order_id).
-  order_items       ~640K rows — line items (FK to orders + products).
-  returns           ~36K rows  — 8% baseline + 80% on bad lot.
+  products          90 rows    — SKU master, prices + cost.
+  customers         5,000 rows — region + tier; premium_status = premium /
+                                 not_premium / NULL (the ML page's label).
+  production_lots   ~1.6K rows — lot master (18 lots per SKU + the 3 affected
+                                 rows); incident_summary on those 3 rows only.
+  orders            ~345K rows — order header: ~340K everyday + 5,000 affected.
+  order_items       ~545K rows — line items (~1.6 per everyday order, 1 per
+                                 affected order).
+  returns           ~32K rows  — one per order (its first line): ~8% of everyday
+                                 orders (~10% in Dec) + 80% of affected orders.
 
 The subdir names (products / customers / production_lots / orders /
 order_items / returns) are the exact paths the SDP silver reads via
@@ -69,6 +75,7 @@ Aligned with `references/example-luxebeauty-workshop/specifications/01-lakeflow.
 from __future__ import annotations
 
 import os
+import zlib
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -98,9 +105,9 @@ RAW_VOL = "raw_data"
 RAW_VOL_ROOT = f"/Volumes/{CATALOG}/{SCHEMA}/{RAW_VOL}"
 
 N_CUSTOMERS = 5_000
-N_ORDERS    = 400_000        # ~4K orders/week × 100 weeks ≈ spec's $380K/mo
-N_LOTS_PER_SKU = 18           # 6 months × 3 lots/mo; ~1.6K lots total.
-N_BAD_ORDERS = 5_000          # bad-lot cohort size (≈ 5K units / 3 SKUs).
+N_ORDERS    = 400_000        # cap; the seasonal keep-filter yields ~340K everyday orders
+N_LOTS_PER_SKU = 18           # 6 months × 3 lots/mo; ~1.6K lots total (90 SKUs × 18 + 3).
+N_BAD_ORDERS = 5_000          # affected-lot order cohort (1-2 units each; SKU split ~40/30/30).
 
 # ── Story timeline ─────────────────────────────────────────────────────────
 # NOW is the single source of truth — every other date below derives from it.
@@ -141,7 +148,7 @@ INCIDENT_SUMMARY = (
     "Equipment: Homogenizer Unit HMG-03 at Lyon. Issue: pressure fluctuations "
     "(2.1-2.8 bar vs normal 2.4-2.6 bar) during emulsification. Cause: "
     "calibration drift in the pressure regulation valve. "
-    f"Affected SKUs: {', '.join(BAD_SKUS)} (~5,000 units). "
+    f"Affected SKUs: {', '.join(BAD_SKUS)} (~7,500 units). "
     "QC assessment: 'Minor texture variations due to pressure fluctuations "
     "during emulsification — cosmetic only; safety and efficacy unaffected.' "
     "Disposition: RELEASED."
@@ -191,8 +198,8 @@ def _save(df: DataFrame, table: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. PRODUCTS  ───  small dimension table; pure Python list → DataFrame.
 # ═══════════════════════════════════════════════════════════════════════════
-# Affected SKUs first — their names + prices appear verbatim in the incident
-# PDFs and the dashboard. Cost ~ 18% of price (cosmetics industry rule of
+# Affected SKUs first — their names + prices appear verbatim in the dashboard
+# and the Genie answers. Cost ~ 18% of price (cosmetics industry rule of
 # thumb). ~90 total products = Skincare 40 / Makeup 25 / Haircare 15 + 10
 # accent (Bodycare/Fragrance) to match the spec's category mix.
 
@@ -310,7 +317,7 @@ def _make_name_pool() -> list[tuple]:
     out: list[tuple] = []
     for country, locale in _FAKER_LOCALES.items():
         f = Faker(locale)
-        Faker.seed(hash(country) % 10_000)
+        Faker.seed(zlib.crc32(country.encode()) % 10_000)  # str hash() is randomized per process
         for i in range(NAMES_PER_LOCALE):
             out.append((country, i, f.first_name(), f.last_name()))
     return out
@@ -455,7 +462,7 @@ cust_df = (
     )
 )
 
-# Write base customers (premium_status NULL). Step 6 overwrites with labels.
+# Write base customers (premium_status NULL) — step 4 reads them back. Step 6 keeps cust_df in memory and overwrites with labels.
 _save(cust_df, "raw_customers")
 
 
@@ -515,7 +522,7 @@ lots_df = (
 
 # Union in the bad lot rows (one per BAD_SKU).
 bad_lot_rows = [
-    (BAD_LOT_ID, sku, BAD_FACILITY, BAD_LOT_PROD_DT.date(), 5000,
+    (BAD_LOT_ID, sku, BAD_FACILITY, BAD_LOT_PROD_DT.date(), 2500,  # ~7,500 units = what the 5K orders sell
      "released", INCIDENT_SUMMARY)
     for sku in BAD_SKUS
 ]
@@ -829,7 +836,7 @@ _save(orders_with_total, "raw_orders")
 # 5. RETURNS  ───  derived from order_items + orders; element_at for picks.
 # ═══════════════════════════════════════════════════════════════════════════
 # Three streams:
-#   normal:     8% of non-bad-lot order_items returned, 60/30/10 timing tiers.
+#   normal:     8% of everyday orders (first line) returned, 60/30/10 timing tiers.
 #   bad-lot:    80% of bad-lot orders returned, triangular peak at SPIKE_PEAK.
 #   bad-lot sub: 80/20 angry/neutral split inside the bad-lot returns.
 
@@ -864,7 +871,7 @@ bad_reasons = ["Product quality issue","Defective product","Texture issue","Not 
 bad_comments = [
     "This serum separated into two layers after two days of use, completely unusable.",
     "The cream texture is grainy and my skin feels worse after applying it. Very disappointed.",
-    "I'm furious — this $100 night treatment smells off and has a weird gritty texture.",
+    "I'm furious — this $68 serum smells off and has a weird gritty texture.",
     "Product arrived with a strange consistency, definitely not normal. Returning immediately.",
     "Worst LuxeBeauty product I've ever bought. The formula looks curdled.",
     "Not what I expected — the serum has a strange separation issue. Complete waste of money.",
@@ -875,7 +882,7 @@ bad_comments = [
     "Disappointing. The serum looks like oil and water separated. Returning for full refund.",
     "Product quality is unacceptable. Texture is grainy and product seems to have separated.",
     "I demanded a refund immediately. This is not the quality I expect from LuxeBeauty.",
-    "Outrageous — I paid $110 for face cream that separated in the bottle.",
+    "Outrageous — I paid $55 for a face cream that separated in the jar.",
 ]
 
 # Pure-Spark pickers via F.element_at against a literal array. No UDFs ⇒
@@ -886,7 +893,7 @@ def _pick_from(idx_col: "F.Column", pool: list[str]) -> "F.Column":
     n = F.lit(len(pool))
     return F.element_at(arr, (F.pmod(idx_col, n) + 1).cast("int"))
 
-# Normal returns: 8% baseline of non-bad-lot orders, with a 10.4% bump
+# Normal returns: 8% baseline of everyday orders, with a 10.4% bump
 # on Dec-ordered items so the post-Christmas gift-return surge shows up
 # in the Jan dashboard view (most Dec orders return 7-30d later, landing
 # in Jan 1-15). 10.4% = 8% × 1.3.
@@ -940,8 +947,10 @@ ret_bad = (
     .filter(F.col("_r_keep") < 0.80)
     .withColumn("_r_time", F.rand(seed=602))
     .withColumn("days_back", _triangular(F.col("_r_time"), 1.0, 21.0, 42.0).cast("int"))
-    .withColumn("return_date",
-        F.date_sub(F.lit(NOW.date().isoformat()), F.col("days_back")).cast("timestamp"))
+    # Never before the order: the few draws that would land earlier move to the day after it.
+    .withColumn("return_date", F.greatest(
+        F.date_sub(F.lit(NOW.date().isoformat()), F.col("days_back")).cast("timestamp"),
+        F.expr("order_date + INTERVAL 1 DAY")))
     .withColumn("_r_angry", F.rand(seed=603))
     .withColumn("sentiment_seed",
         F.when(F.col("_r_angry") < 0.80, F.lit("angry")).otherwise(F.lit("neutral")))
@@ -987,9 +996,9 @@ _save(returns_all, "raw_returns")
 #   2. ~10% of Silver-tier whose total_spend is in the top-40% of silver → premium
 #   3. ~1%  of Standard-tier → premium ("surprise tags", random)
 #   4. ~2%  of Standard whose total_spend is in the top-15% of standard → premium
-#   5. ~200 not_premium negatives drawn from silver/gold customers with
-#       lifetime_return_rate > 15%.
-# Re-writes raw_customers in place with premium_status populated.
+#   5. up to 200 not_premium negatives from silver/gold customers with
+#       lifetime_return_rate > 15% (only ~130 qualify in practice).
+# Overwrites raw_customers with premium_status populated (lineage = cust_df, not the Volume).
 
 print("\n[6/6] Tagging premium customers...")
 
@@ -1012,8 +1021,11 @@ per_cust = (
          .otherwise(F.lit(0.0)))
 )
 
+# Built from the in-memory customers DataFrame (cust_df), NOT read back from
+# raw_customers: the final save below overwrites that same path, and Spark refuses
+# to overwrite a path the same write's lineage is reading.
 cust_features = (
-    spark.read.parquet(_raw_path("raw_customers"))
+    cust_df
     .drop("premium_status")
     .join(per_cust, "customer_id", "left")
     .fillna(0, ["total_spend", "total_orders", "returns_lifetime"])
@@ -1092,4 +1104,4 @@ _save(cust_with_status, "raw_customers")
 
 print("\nData generation complete.")
 print(f"Raw parquet datasets written under: {RAW_VOL_ROOT}/")
-print("Next: open notebooks/00_introduction.py to start the workshop.")
+print("Next: back to workshop.html, step 01 — explore the raw data.")

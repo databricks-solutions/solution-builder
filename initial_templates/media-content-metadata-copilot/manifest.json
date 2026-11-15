@@ -1,0 +1,10 @@
+{
+  "id": "media-content-metadata-copilot",
+  "name": "Media — Content Metadata Copilot (AI metadata generation, enrichment & taxonomy)",
+  "customer": "Orbitline+",
+  "industry": "Media & Entertainment",
+  "narrative": "Nadia Brooks runs metadata for Orbitline+, a fictional streaming service. In April it bought the 420-title Harborlight Library, which arrived from a legacy vendor feed with 'Feature Film' as a genre, no moods, themes, talent or content warnings. Home rows and search are tag-driven, so Harborlight is 30% of the catalogue but 10% of impressions — yet viewers who find its titles finish them as often as anything else. A July pilot proved it: 40 hand re-tagged titles earned 4.7x the impressions, while the rest stayed flat.\n\nThe aha is one title: The Salt Road, a coastal crime thriller tagged only 'Drama', shown 6.3k times against 41.7k for a well-tagged thriller while 77% of viewers finish it. The Metadata Copilot reads its scenes with AI Functions, maps the tags onto the taxonomy, applies the Standards Guide (completeness 18 to 100, three new home rows, and a brand-safety fix from Family-Safe to Standard, cited by the Genie agent from the guide's documents), finds look-alikes and promo clips with Vector Search, and Nadia publishes the change to Lakebase with an audit trail. Next, Paper Lanterns: a TV-G film in the kids row whose scenes show a house fire and a parent's death — re-rated and pulled from 'Little Ones' before a parent notices.",
+  "dbdemos_tracker": {
+    "app_id": "media-content-metadata-copilot"
+  }
+}

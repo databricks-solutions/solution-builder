@@ -1,0 +1,68 @@
+// =============================================================================
+// STYLE: LIFECYCLE — process stages as columns. Read reference/style-lifecycle.md first.
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. The renderer parses plain JSON only.
+//
+// WHAT IT SHOWS: four stages of one ML lifecycle, left to right, with a drawn
+// retrain loop. Each stage is a titled `box` (the stage name is its ONLY title)
+// holding: a small numbered `callout`, a pictogram `logo` with no caption, and
+// stacked `card` items that share one explicit `size`.
+//
+// TRAPS THIS SHAPE SURVIVED:
+//   • One stage name per column: the box title. The pictogram has no caption and
+//     the callout is small (48px), so neither competes with the stage name.
+//   • Explicit `size` on every card: stacks stay equal height with short text.
+//   • The loop is a bottom-to-bottom edge (`i4c@b` → `i2b@b`). It runs under the stages it
+//     passes, so keep their bottoms clear. Stages 2 and 3 have two cards, so their boxes are
+//     shorter and leave the room.
+//   • Edges run pictogram → pictogram (leaf to leaf), never box → box.
+// =============================================================================
+[
+  {
+    "name": "ML lifecycle — stages",
+    "story": "One model, four stages: ingest and prepare the data, build and train, register and deploy behind a promotion gate, then monitor in production. Drift loops back to retraining.",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "frame": {"title":"Model lifecycle on Databricks","subtitle":"Ingest → train → deploy → monitor"},
+    "options": {"trademarkLogos":false},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "stage1", "type": "box", "title": "Ingest", "layout": "column", "gap": 54, "align": "center", "children": [
+        {"id": "n1", "type": "callout", "text": "1", "size": [48,48], "track": "line-n1"},
+        {"id": "p1", "type": "logo", "icon": "file:databricks-line/lakeflow-connect", "style": {"icon": "#FF5F46"}, "track": "line-p1"},
+        {"id": "i1a", "type": "card", "title": "Lakeflow Connect sources", "body": "<p><b>Raw → bronze</b></p>", "size": [280,64], "track": "line-i1a"},
+        {"id": "i1b", "type": "card", "title": "Silver feature tables", "body": "<p><b>Cleaned, typed, joined</b></p>", "size": [280,64], "track": "line-i1b"},
+        {"id": "i1c", "type": "card", "title": "Quality expectations", "body": "<p><b>Fail fast on bad rows</b></p>", "size": [280,64], "track": "line-i1c"}
+      ] },
+      {"id": "stage2", "type": "box", "title": "Build", "layout": "column", "gap": 54, "align": "center", "children": [
+        {"id": "n2", "type": "callout", "text": "2", "size": [48,48], "track": "line-n1"},
+        {"id": "p2", "type": "logo", "icon": "file:databricks-line/machine-learning", "style": {"icon": "#FF5F46"}, "track": "line-p1"},
+        {"id": "i2a", "type": "card", "title": "Feature store", "body": "<p><b>Point-in-time joins</b></p>", "size": [280,64], "track": "line-i1a"},
+        {"id": "i2b", "type": "card", "title": "Training job", "body": "<p><b>Serverless, tracked runs</b></p>", "size": [280,64], "track": "line-i1b"}
+      ] },
+      {"id": "stage3", "type": "box", "title": "Deploy", "layout": "column", "gap": 54, "align": "center", "children": [
+        {"id": "n3", "type": "callout", "text": "3", "size": [48,48], "track": "line-n1"},
+        {"id": "p3", "type": "logo", "icon": "file:databricks-line/model-registry", "style": {"icon": "#FF5F46"}, "track": "line-p1"},
+        {"id": "i3a", "type": "card", "title": "UC model registry", "body": "<p><b>Versioned, governed</b></p>", "size": [280,64], "track": "line-i1a"},
+        {"id": "i3b", "type": "card", "title": "Champion gate", "body": "<p><b>Promote only if better</b></p>", "size": [280,64], "track": "line-i1b"}
+      ] },
+      {"id": "stage4", "type": "box", "title": "Monitor", "layout": "column", "gap": 54, "align": "center", "children": [
+        {"id": "n4", "type": "callout", "text": "4", "size": [48,48], "track": "line-n1"},
+        {"id": "p4", "type": "logo", "icon": "file:databricks-line/mlops", "style": {"icon": "#FF5F46"}, "track": "line-p1"},
+        {"id": "i4a", "type": "card", "title": "Inference logs", "body": "<p><b>Every request, in a table</b></p>", "size": [280,64], "track": "line-i1a"},
+        {"id": "i4b", "type": "card", "title": "Drift dashboard", "body": "<p><b>Alerts on input shift</b></p>", "size": [280,64], "track": "line-i1b"},
+        {"id": "i4c", "type": "card", "title": "Retrain trigger", "body": "<p><b>Drift → retrain</b></p>", "size": [280,64], "track": "line-i1c"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "p1", "to": "p2", "label": "features", "flow": true, "color": "#FF5F46"},
+      {"id": "e2", "from": "p2", "to": "p3", "label": "candidate model", "flow": true, "color": "#FF5F46"},
+      {"id": "e3", "from": "p3", "to": "p4", "label": "live traffic", "flow": true, "color": "#FF5F46"},
+      {"id": "loop", "from": "i4c@b", "to": "i2b@b", "label": "retrain", "arrow": "end", "color": "#FF5F46"}
+    ]
+  }
+]

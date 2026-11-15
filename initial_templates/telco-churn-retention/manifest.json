@@ -1,0 +1,10 @@
+{
+  "id": "telco-churn-retention",
+  "name": "Telecom — Churn Retention Desk",
+  "customer": "Veridian Mobile",
+  "industry": "Media & Entertainment",
+  "narrative": "Priya Raman runs the retention desk at Veridian Mobile, a fictional US regional carrier. Postpaid churn jumped from ~0.94% to 1.73% a month in July, and her specialists answer every at-risk customer with the same 20% discount. The demo opens on her Retention Desk: an XGBoost churn model registered in Unity Catalog ranks 28K accounts, SHAP explains why each one is leaving, and AI Functions read the last care call for sentiment, intent and cancel threats.\n\nThe aha: churn is three problems, not one — a 5G core migration that broke five Southwest sites, a promo roll-off that shocked bills, and a competitor's $25/line offer. The next-best-offer agent picks the offer that fixes that reason inside a hard margin guardrail (the blanket discount breaches it on every account), drafts the outreach, and the specialist's accept/decline is written back to Lakebase and Delta — where the CMO dashboard and Genie see driver-matched offers saving 50% vs 30%.",
+  "dbdemos_tracker": {
+    "app_id": "telco-churn-retention"
+  }
+}

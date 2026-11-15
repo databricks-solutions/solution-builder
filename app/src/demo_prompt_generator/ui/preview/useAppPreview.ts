@@ -24,6 +24,9 @@ import type { PreviewLogLine, PreviewState } from "./types";
 const MAX_LOGS = 2000;
 const RECONNECT_AT_MS = 90_000;
 const RETRY_BACKOFF_MS = 500;
+// After consecutive failures (server down, restarting, 502): back off up to 15s,
+// so every open tab doesn't hammer a starting server twice a second.
+const MAX_RETRY_BACKOFF_MS = 15_000;
 const PING_INTERVAL_MS = 60_000;
 
 export interface UseAppPreviewReturn {
@@ -113,6 +116,7 @@ export function useAppPreview(projectId: string): UseAppPreviewReturn {
     let stopProactiveTimer: (() => void) | null = null;
 
     const loop = async (): Promise<void> => {
+      let failures = 0;
       while (activeRef.current) {
         const ac = new AbortController();
         abortRef.current = ac;
@@ -144,10 +148,24 @@ export function useAppPreview(projectId: string): UseAppPreviewReturn {
               }
             },
           );
+          failures = 0;
         } catch (err: unknown) {
           if (!activeRef.current) return;
           // Abort from our proactive timer is expected — don't surface.
-          if ((err as DOMException)?.name !== "AbortError") {
+          if ((err as DOMException)?.name === "AbortError") {
+            failures = 0;
+          } else if ((err as Error).message === "events HTTP 401") {
+            // The Apps login expired (the platform proxy answers 401, the app
+            // never sees it). Retrying can't fix that; only a reload re-auths.
+            setError("Session expired, reload the page");
+            return;
+          } else if ((err as Error).message === "events HTTP 403" || (err as Error).message === "events HTTP 404") {
+            // Forbidden or gone: the preview events endpoint won't answer on retry,
+            // and retrying forever from every open tab only adds load.
+            setError("Preview events unavailable, reload the page");
+            return;
+          } else {
+            failures++;
             setError((err as Error).message || "stream error");
           }
         } finally {
@@ -156,7 +174,12 @@ export function useAppPreview(projectId: string): UseAppPreviewReturn {
         }
 
         if (!activeRef.current) return;
-        await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
+        // Jittered, so tabs reopened by a restart don't all reconnect in lockstep
+        // (a clean close after a deploy would otherwise retry at the same 500 ms).
+        const wait = failures
+          ? Math.min(RETRY_BACKOFF_MS * 2 ** (failures - 1), MAX_RETRY_BACKOFF_MS) * (0.7 + Math.random() * 0.6)
+          : 500 + Math.random() * 1000;
+        await new Promise((r) => setTimeout(r, wait));
       }
     };
 

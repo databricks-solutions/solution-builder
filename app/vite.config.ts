@@ -33,11 +33,6 @@ export default defineConfig(({ mode: _mode }) => {
         isElectron ? "http://127.0.0.1:8765" : ""
       ),
       __IS_ELECTRON__: JSON.stringify(isElectron),
-      // Sage-embed integration. OFF unless the build sets SAGE_EMBED=1 (the
-      // FE-internal build that Sage iframes). Customer prod / Electron builds
-      // leave it unset, so the whole integration is dead-code-eliminated from
-      // the bundle. Never enable this for a customer-facing build.
-      __SAGE_EMBED__: JSON.stringify(process.env.SAGE_EMBED === "1" && !isElectron),
     },
     server: {
       // Listen port. Override with VITE_PORT to run a second instance in

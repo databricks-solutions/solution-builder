@@ -11,6 +11,9 @@ import {
   GripVertical,
   Type,
   Square,
+  LayoutGrid,
+  Code,
+  Circle,
   Shapes,
   Image as ImageIcon,
   StickyNote,
@@ -20,7 +23,20 @@ import {
 import { BrandMark } from "../brand-mark";
 import { AnyIcon, buildPickIndex, type PickItem } from "../annotations";
 import { type AnnotationVariant } from "@/lib/platform-architecture";
+import { SHAPE_KINDS, SHAPE_LABEL, shapePath, type ShapeKind } from "../shape-geometry";
 import { FILE_ICONS, type FileIcon, logoLabel, logoAliases, logoMetaForKey } from "../../../file-icons";
+
+/** A 14×11 preview of a flowchart shape for the palette row. Built from the SAME
+ *  `shapePath` the canvas draws, so a palette icon can never drift from the shape
+ *  it places (a hand-drawn set of 9 glyphs would). */
+function ShapeGlyph({ kind }: { kind: ShapeKind }) {
+  const w = 14, h = 11, stroke = 1.25;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: "block", overflow: "visible" }} aria-hidden>
+      <path d={shapePath(kind, { w, h, stroke })} fill="none" stroke="currentColor" strokeWidth={stroke} strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export const LibraryPalette = memo(function LibraryPalette({
   schema,
@@ -30,6 +46,7 @@ export const LibraryPalette = memo(function LibraryPalette({
   onPick,
   onCancelPick,
   onAddAnnotation,
+  onAddShape,
   onAddPreset,
   onAddLogo,
   onAddSource,
@@ -41,6 +58,8 @@ export const LibraryPalette = memo(function LibraryPalette({
   placedIds: Set<string>;
   onAdd: (componentId: string) => void;
   onAddAnnotation: (variant: AnnotationVariant) => void;
+  /** Add a flowchart `shape` annotation of the given kind (Process flow list). */
+  onAddShape?: (kind: ShapeKind) => void;
   /** Add a titled-box preset ("Databricks Architecture" section) by preset id. */
   onAddPreset: (presetId: string) => void;
   /** Add a logo annotation pre-set to a file-icon key (cloud / vendor mark). */
@@ -92,7 +111,12 @@ export const LibraryPalette = memo(function LibraryPalette({
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      {/* `overscroll-contain` keeps a two-finger / wheel scroll from CHAINING to
+          the diagram canvas when the list hits its top/bottom (the scroll would
+          otherwise bubble out and pan/zoom the ReactFlow pane). `onWheel` stops
+          the event propagating past the palette entirely, so a scroll here never
+          reaches the canvas's wheel handler regardless of boundary state. */}
+      <div className="flex-1 overflow-y-auto overscroll-contain p-2" onWheel={(e) => e.stopPropagation()}>
         {/* When searching, surface matching LOGOS + SOURCES.
             LOGOS come from the WHOLE pick index (Databricks marks — Genie,
             Genie Code, Genie One, … — AND file-icon vendor/cloud marks), so a
@@ -143,7 +167,7 @@ export const LibraryPalette = memo(function LibraryPalette({
             >
               <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
               <AnyIcon iconKey={i.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-              <span className="truncate">{i.label}</span>
+              <span className="min-w-0 leading-snug">{i.label}</span>
             </button>
           );
           const SourceRow = ({ f }: { f: FileIcon }) => (
@@ -158,7 +182,7 @@ export const LibraryPalette = memo(function LibraryPalette({
             >
               <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
               <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-              <span className="truncate">{logoLabel(f.name)}</span>
+              <span className="min-w-0 leading-snug">{logoLabel(f.name)}</span>
             </button>
           );
           return (
@@ -192,6 +216,15 @@ export const LibraryPalette = memo(function LibraryPalette({
             { v: "text" as const, icon: <Type className="h-4 w-4" />, label: "Text" },
             { v: "note" as const, icon: <StickyNote className="h-4 w-4" />, label: "Note" },
             { v: "box" as const, icon: <Square className="h-4 w-4" />, label: "Box" },
+            // A content card: header (icon + title), summary, description, chips,
+            // tags and a corner badge. Height is measured from its text.
+            { v: "card" as const, icon: <LayoutGrid className="h-4 w-4" />, label: "Card" },
+            // Free-form HTML: anything no component covers (KPI strip, table, timeline…).
+            // Starts as a small KPI strip; transparent unless framed.
+            { v: "html" as const, icon: <Code className="h-4 w-4" />, label: "HTML" },
+            // The big numbered circle that keys a spot on the diagram to a
+            // legend line (see LegendSpec / the `callout` variant).
+            { v: "callout" as const, icon: <Circle className="h-4 w-4" />, label: "Step number" },
             { v: "logo" as const, icon: <Shapes className="h-4 w-4" />, label: "Logo" },
             { v: "image" as const, icon: <ImageIcon className="h-4 w-4" />, label: "Image" },
           ]).filter((it) => matchText(it.label));
@@ -211,7 +244,7 @@ export const LibraryPalette = memo(function LibraryPalette({
               >
                 <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
                 <span className="grid h-4 w-4 place-items-center text-muted-foreground">{it.icon}</span>
-                <span className="truncate">{it.label}</span>
+                <span className="min-w-0 leading-snug">{it.label}</span>
               </button>
             ))}
           </div>
@@ -221,12 +254,17 @@ export const LibraryPalette = memo(function LibraryPalette({
             (Workspace / Metastore) + logo+label tiles (Catalog / Schema / Table).
             Filtered by the search box (matches label + default text). */}
         {!picking && (() => {
-          const presets = DBX_ARCH_PRESETS.filter((p) => matchText(`${p.label} ${p.annotation.text ?? ""} ${p.annotation.title ?? ""}`));
-          if (presets.length === 0) return null;
-          return (
-          <div className="mb-3">
-            <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Databricks Architecture</div>
-            {presets.map((p) => {
+          // The "note" preset duplicates the Annotations "Note" (same variant) → skipped.
+          const presets = DBX_ARCH_PRESETS.filter((p) => p.id !== "note" && matchText(`${p.label} ${p.annotation.text ?? ""} ${p.annotation.title ?? ""}`));
+          const sections = [
+            { key: "containers", title: "Containers & governance", items: presets.filter((p) => !p.id.startsWith("cloud-")) },
+            { key: "cloud", title: "Cloud boundaries", items: presets.filter((p) => p.id.startsWith("cloud-")) },
+          ].filter((s) => s.items.length > 0);
+          if (sections.length === 0) return null;
+          return sections.map((s) => (
+          <div key={s.key} className="mb-3">
+            <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{s.title}</div>
+            {s.items.map((p) => {
               const previewIcon = p.annotation.titleIcon ?? p.annotation.icon;
               return (
                 <button
@@ -244,12 +282,12 @@ export const LibraryPalette = memo(function LibraryPalette({
                   ) : (
                     <Square className="h-4 w-4 text-muted-foreground" />
                   )}
-                  <span className="truncate">{p.label}</span>
+                  <span className="min-w-0 leading-snug">{p.label}</span>
                 </button>
               );
             })}
           </div>
-          );
+          ));
         })()}
         {catalogBands().map((band) => {
           // Render from the RAW global catalog, never the override-merged
@@ -260,7 +298,9 @@ export const LibraryPalette = memo(function LibraryPalette({
           // Search matches label + sublabel + description + id + authoring
           // synonyms, so "warehouse", "rag", "postgres", etc. surface the right
           // tile even when the term isn't in the display label.
-          const items = band.components.filter((c) =>
+          // Deprecated components (replacedBy) are not offered for NEW placement;
+          // they still render on existing diagrams.
+          const items = band.components.filter((c) => !c.deprecated &&
             matchText(`${c.label} ${c.sublabel ?? ""} ${c.desc ?? ""} ${c.id} ${c.authoring ?? ""}`),
           );
           if (items.length === 0) return null;
@@ -301,7 +341,7 @@ export const LibraryPalette = memo(function LibraryPalette({
                     <span className="grid h-4 w-4 shrink-0 place-items-center">
                       <BrandMark iconKey={c.icon} label={c.label} bandColor={BAND_COLOR[band.id]} allowTrademark={!!schema.enableTrademarkLogos} className="h-4 w-4" mono />
                     </span>
-                    <span className="truncate text-foreground">{c.label}</span>
+                    <span className="min-w-0 leading-snug text-foreground">{c.label}</span>
                     {!picking && onCanvas && <Check className="ml-auto h-3 w-3 shrink-0 text-primary/60" />}
                   </button>
                 );
@@ -320,6 +360,40 @@ export const LibraryPalette = memo(function LibraryPalette({
             </div>
           );
         })}
+
+        {/* Process flow — the flowchart shape vocabulary (`variant:"shape"`).
+            Separate from Annotations because these are FLOW STEPS you wire
+            together with edges, not decoration: each is connectable, so
+            shape → shape → shape draws a process. Searchable by both the
+            flowchart role ("Decision") and the geometry ("diamond"). Placed
+            BELOW the Databricks Architecture bands (incl. Unified Governance),
+            since the Databricks vocabulary is the primary set. */}
+        {!picking && onAddShape && (() => {
+          const shapes = SHAPE_KINDS.filter((k) => matchText(`${SHAPE_LABEL[k]} ${k}`));
+          if (shapes.length === 0) return null;
+          return (
+          <div className="mb-3">
+            <div className="px-1 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Process flow</div>
+            {shapes.map((k) => (
+              <button
+                key={k}
+                type="button"
+                draggable
+                onDragStart={(e) => { e.dataTransfer.setData("application/x-shape", k); e.dataTransfer.effectAllowed = "copy"; }}
+                onDoubleClick={() => onAddShape(k)}
+                title={`Drag onto the canvas (or double-click to add): ${SHAPE_LABEL[k]} (${k})`}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] text-foreground hover:bg-muted"
+              >
+                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                <span className="grid h-4 w-4 shrink-0 place-items-center text-muted-foreground">
+                  <ShapeGlyph kind={k} />
+                </span>
+                <span className="min-w-0 leading-snug">{SHAPE_LABEL[k]}</span>
+              </button>
+            ))}
+          </div>
+          );
+        })()}
 
         {/* Cloud — AWS / GCP / Azure logos (file icons), grouped by provider.
             Shown at rest only; while searching, cloud marks come through the
@@ -352,7 +426,7 @@ export const LibraryPalette = memo(function LibraryPalette({
                     >
                       <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/40" />
                       <AnyIcon iconKey={f.key} className="h-4 w-4 [&_svg]:h-4 [&_svg]:w-4" />
-                      <span className="truncate">{f.name}</span>
+                      <span className="min-w-0 leading-snug">{f.name}</span>
                     </button>
                   ))}
                 </div>

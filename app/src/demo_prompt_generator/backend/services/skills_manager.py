@@ -9,6 +9,8 @@ Workflow:
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import logging
 import os
 import re
@@ -53,11 +55,15 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # - databricks-lakebase-provisioned: legacy name; we use branch-based
 #   Lakebase via app.md's own provisioning flow (databricks-lakebase).
 #   Kept here as a no-op guard in case the name reappears.
+# - databricks-agent-bricks: Knowledge Assistant + Supervisor Agent, both
+#   deprecated. Document Q&A is a UC volume attached to the Genie agent
+#   (databricks-genie-agents); this skill would steer builds back to KA/MAS.
 EXCLUDE_SKILLS: set[str] = {
     "TEMPLATE",
     "databricks-apps-python",
     "databricks-apps",
     "databricks-lakebase-provisioned",
+    "databricks-agent-bricks",
 }
 
 
@@ -65,7 +71,8 @@ def _iter_source_skill_dirs() -> list[Path]:
     """Every skill directory the DAS repo exposes to the generator, from BOTH
     roots the new repo (github.com/databricks/databricks-agent-skills) uses:
       - `skills/*` — the GA per-resource skills.
-      - `experimental/databricks-genie` — the one experimental skill we ship.
+      - `experimental/databricks-genie` — legacy location of the Genie skill
+        (now GA as `skills/databricks-genie-agents`); kept if it reappears.
     Returns the source dirs (excluded names + non-dirs filtered out here);
     callers still check for a SKILL.md. Missing roots are skipped silently."""
     root = Path(DATABRICKS_AGENT_SKILL_LOCAL)
@@ -136,17 +143,30 @@ def _parse_skill_frontmatter(content: str) -> tuple[Optional[str], Optional[str]
     return name, description
 
 
+# The repo-root marker files, in preference order. The root memory file is
+# AGENTS.md (the cross-agent convention); CLAUDE.md is still accepted because a
+# root symlink of that name is kept for older Claude Code builds, and because a
+# checkout predating the rename must keep resolving.
+#
+# NOTE this is a NAME probe, not a content check: renaming or moving the root
+# memory file without updating this list makes skill resolution silently return
+# None. Do not add a bare "CLAUDE.md" match for NESTED directories -- the
+# template app ships its own app_template/CLAUDE.md, so a nested match would
+# resolve the "repo root" to a generated demo's app directory.
+_ROOT_MARKERS = ("AGENTS.md", "CLAUDE.md")
+
+
 def _find_repo_root() -> Optional[Path]:
-    """Find the repository root by looking for CLAUDE.md."""
+    """Find the repository root by looking for AGENTS.md (or legacy CLAUDE.md)."""
     current_file = Path(__file__)
     # Direct path from this file: services/ -> backend/ -> demo_prompt_generator/ -> src/ -> app/ -> repo root
     project_root = current_file.parent.parent.parent.parent.parent.parent
-    if (project_root / "CLAUDE.md").exists():
+    if any((project_root / marker).exists() for marker in _ROOT_MARKERS):
         return project_root
 
-    # Fallback: walk up looking for CLAUDE.md
+    # Fallback: walk up looking for a root marker
     for parent in current_file.parents:
-        if (parent / "CLAUDE.md").exists():
+        if any((parent / marker).exists() for marker in _ROOT_MARKERS):
             return parent
 
     return None
@@ -210,43 +230,66 @@ _SKILL_COPY_IGNORE = shutil.ignore_patterns(
     "test-results",
     "__pycache__",
     "*.pyc",
+    # Critic review sidecars (`<file>.tone-review.md` and the like): notes about a file,
+    # written in a developer's checkout, never content the agent needs.
+    "*.*-review.md",
 )
 
 
 # The in-app replacement for the skill's local-render workflow. Inside Solution
-# Builder the Architecture tab renders architecture.md live in its own canvas, so
-# there is no HTML-copy / headless-Chrome render loop — the agent just writes the
-# `architecture.md` file and the app draws it.
-_ARCH_SKILL_IN_APP_WORKFLOW = """## Workflow — how to make a diagram
+# Builder there is no Node and no renderer/ copy in the project: rendering is the app's
+# own tool (`arch_tools.py`, mcp__arch__render_architecture), which runs the same viewer
+# as the Architecture tab and returns the layout check with the image.
+# No heading: it replaces the placeholder under SKILL.md section 3, which already has one.
+_ARCH_SKILL_IN_APP_WORKFLOW = """You are running inside Solution Builder. The Architecture tab renders the project's
+`architecture.md` live. To SEE what you drew, call the `mcp__arch__render_architecture`
+tool (also called `render_architecture` below). It renders the file with the same viewer
+as the canvas, runs the layout check, and returns the overview image plus a JSON summary:
+`clean`, `faults` (gated: each must be fixed) and `reported_not_gated` (advisories).
+Your skill files are in `.claude/skills/databricks-architecture/`. SKILL.md section 4 is the
+fault → fix table, and `reference/` holds the detail.
 
-You are running inside Solution Builder. The Architecture tab renders the
-project's `architecture.md` **live in the app's own canvas** — there is no HTML
-file to copy and no image to render. Just:
+1. **Write `architecture.md`** at the project root: one ```json fenced block holding the
+   tab object `{ name, story, aspect, theme, direction, layout, nodes[], edges[] }` (nodes
+   nested in `box` / `group` containers, `reference/layout.md`), or an ARRAY of those objects
+   for several tabs. Plain JSON, no `//` comments. Follow SKILL.md sections 1 and 2, and the
+   guide for the kind you chose.
+2. **Render it.** Call `render_architecture`. With several tabs, pass `tab` (a name or
+   1-based number) for the tab you changed; omit it to render every tab.
+3. **Fix each fault with a targeted edit.** For each entry in `faults`, find its fix in
+   SKILL.md section 4 and edit only the node, box or edge it names, with the Edit tool. Do
+   not rewrite the whole file to clear a list. Use `crop` (a region name such as `top-left`,
+   or `{x, y, w, h}` fractions of the overview) to read small text.
+4. **Advisories.** Act on `TEXT TOO SMALL` for text the reader has to read: narrow the
+   content or shorten the text (SKILL.md section 4). Fix `LABEL ON BOX BORDER` only if moving
+   the label is cheap and keeps its meaning. Leave the other advisories (alignment, row gap,
+   aspect) unless one structural change clears them.
+5. **Stop.** Stop when `faults` is empty, or when the tool says the render budget for this
+   turn is spent (3 renders per turn). Also stop when a fix does not lower the fault count.
+   **Never end on an edit you did not render.** If the budget is spent and your last edit is
+   unrendered, undo it, or say in the reply that it is unverified and which fault it targets.
+6. **Reply** in two to four sentences. Say what you checked, the last render's result, and
+   every fault or advisory still open, by name and node id. Do not say "clean" or "no
+   problems" while `faults` or `reported_not_gated` still list anything. Make the reply match
+   the file: if `story` rules a component out, it must not be in `nodes`. Name the choices the
+   user should confirm: roles you inferred, components you added, components you left out.
 
-1. **Write `architecture.md`** at the project root, containing a single ```json
-   fenced block with the `{ name, story, columns?, nodes[], edges[] }` schema
-   (or an ARRAY of those objects for multiple tabs). Plain JSON — no `//` comments.
-2. The app re-renders the diagram automatically as soon as the file is saved.
-3. **To see your result, read `architecture.png`** at the project root. The app
-   automatically renders a PNG of the live canvas into that file as part of the
-   feedback loop — it refreshes whenever the user has the Architecture tab open
-   and turns to the chat. Read it to check the diagram is right (components
-   present, wired correctly, laid out cleanly) and edit `architecture.md` to fix
-   anything. Repeat until it looks right. (If `architecture.png` is missing or
-   stale, the Architecture tab may not be open — proceed from the JSON; the user
-   sees the live canvas regardless.)
+If `render_architecture` is busy or returns an error, proceed from the JSON and say you
+could not render. `architecture.png` in the project root, if present, is the user's own
+canvas snapshot from when they last opened the chat. It can lag their canvas, so it is not
+your render.
 
-Start from the example in **The format** below (copy its `nodes`/`edges` and
-adapt), or from `reference/architecture-complete.jsonc` — the flagship
-end-to-end shape. **Strip the `//` comments** when you write the file.
+For the starting point, use SKILL.md section 1 (the kind and its guide) and its "Starting
+points by content" table. A diagram the user supplied is the spec, not a reference: follow
+`reference/redraw.md`.
 """
 
 
 def _localize_arch_skill_for_app(skill_md: Path) -> None:
     """Rewrite a project's copied architecture SKILL.md for the in-app context:
-    strip the local-only render-loop workflow (copy an HTML, run headless Chrome
-    → PNG — none of which exists inside Solution Builder, where the canvas renders
-    architecture.md natively) and inject a short in-app workflow in its place.
+    strip the standalone render-loop workflow (copy an editor HTML, edit its inline
+    JSON) and inject the in-app one, which renders the project's architecture.md
+    directly with the same renderer.
     A no-op if the markers aren't present (older skill versions)."""
     try:
         text = skill_md.read_text(encoding="utf-8")
@@ -303,9 +346,9 @@ def copy_skills_to_project(project_id: str) -> bool:
     # `.claude/skills/databricks-architecture/SKILL.md` for the flat
     # nodes/edges schema + component catalog + reference diagrams — without
     # this copy that path doesn't exist inside a project session.
-    # `renderer/` (the ~5MB standalone viewer/editor HTMLs + headless render
-    # loop) is excluded: inside the app the Architecture tab renders
-    # architecture.md natively, so the agent only needs SKILL.md + reference/.
+    # `renderer/` (the ~5MB standalone viewer/editor HTMLs + the Node render scripts) is
+    # EXCLUDED: inside the app the agent sees its diagram through the render_architecture
+    # tool (arch_tools.py), which renders in the backend. No Node, no per-project copy.
     arch_skill_path = _get_repo_skill_path("databricks-architecture")
     if arch_skill_path and arch_skill_path.exists():
         dest = skills_dest / "databricks-architecture"
@@ -315,7 +358,7 @@ def copy_skills_to_project(project_id: str) -> bool:
             arch_skill_path,
             dest,
             ignore=shutil.ignore_patterns(
-                "renderer", ".venv", ".DS_Store", "__pycache__", "*.pyc",
+                "renderer", ".venv", ".DS_Store", "__pycache__", "*.pyc", "*.*-review.md",
             ),
         )
         _localize_arch_skill_for_app(dest / "SKILL.md")
@@ -332,15 +375,60 @@ def copy_skills_to_project(project_id: str) -> bool:
         shutil.copytree(src, dest, ignore=_SKILL_COPY_IGNORE)
         copied += 1
 
+    try:
+        (skills_dest / SKILLS_STAMP_FILE).write_text(bundled_skills_stamp())
+    except OSError as e:
+        logger.warning(f"Could not write the skills stamp for {project_id}: {e}")
     logger.info(f"Copied {copied} skills to project {project_id}")
     return True
 
 
-def ensure_project_skills(project_id: str) -> bool:
-    """Ensure skills exist in project, copying if missing.
+# Written into a project's `.claude/skills/` by copy_skills_to_project. It names the
+# bundled skill version the copy came from, so a later skill change reaches projects
+# that already have a copy (code review 2026-10-20, finding 2).
+SKILLS_STAMP_FILE = ".sb-skills-stamp"
+_STAMP_SKIP_DIRS = {"node_modules", ".venv", "dist", "__pycache__", "renderer"}
 
-    Also heals projects created before the databricks-architecture skill was
-    added to the copy set — they have a populated skills dir but lack it.
+
+@functools.lru_cache(maxsize=1)
+def bundled_skills_stamp() -> str:
+    """A cheap fingerprint of the repo's own skills (solution-builder + architecture):
+    each file's path, size, and mtime. Computed once per process, since the bundled
+    skills only change with a deploy (or a dev restart)."""
+    digest = hashlib.sha256()
+    for name in ("databricks-solution-builder", "databricks-architecture"):
+        root = _get_repo_skill_path(name)
+        if not root or not root.exists():
+            continue
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(d for d in dirnames if d not in _STAMP_SKIP_DIRS)
+            for fname in sorted(filenames):
+                path = Path(dirpath) / fname
+                try:
+                    st = path.stat()
+                except OSError:
+                    continue
+                digest.update(f"{name}/{path.relative_to(root)}|{st.st_size}|{st.st_mtime_ns}\n".encode())
+    return digest.hexdigest()
+
+
+def _turn_running(project_id: str) -> bool:
+    from .active_stream import get_stream_manager
+
+    try:
+        return get_stream_manager().get_project_stream(project_id) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ensure_project_skills(project_id: str) -> bool:
+    """Ensure skills exist in project, copying if missing or stale.
+
+    Copies when the skills dir is empty, when it lacks the databricks-architecture
+    skill (projects created before it joined the copy set), or when its stamp no
+    longer matches the bundled skills. A stale copy waits for the end of a running
+    turn, so the agent never reads a half-replaced skill. The hot path is one
+    small file read.
     """
     skills_dir = Path(PROJECTS_BASE_DIR) / project_id / ".claude" / "skills"
     if (
@@ -348,6 +436,13 @@ def ensure_project_skills(project_id: str) -> bool:
         or not any(skills_dir.iterdir())
         or not (skills_dir / "databricks-architecture" / "SKILL.md").exists()
     ):
+        return copy_skills_to_project(project_id)
+    try:
+        current = (skills_dir / SKILLS_STAMP_FILE).read_text().strip()
+    except OSError:
+        current = ""
+    if current != bundled_skills_stamp() and not _turn_running(project_id):
+        logger.info(f"Refreshing stale skill copy for project {project_id}")
         return copy_skills_to_project(project_id)
     return True
 
@@ -540,11 +635,17 @@ def create_project_directory(
     return project_dir
 
 
-def build_initial_resources_json(capability_ids: list[str]) -> dict:
+def build_initial_resources_json(
+    capability_ids: list[str], resource_suffix: str | None = None
+) -> dict:
     """Build the initial resources.json content from selected capability IDs.
 
     Classifies each ID as buildable or talking_track using the ``buildable``
     flag in the capability markdown frontmatter.
+
+    ``resource_suffix`` (the project's short id — see models.resource_suffix) is
+    recorded so the build agent can stamp it onto every created resource name,
+    keeping two forks of the same template from colliding. Emitted only when set.
     """
     from ..core.constants import get_capabilities_by_id
 
@@ -560,10 +661,13 @@ def build_initial_resources_json(capability_ids: list[str]) -> dict:
         else:
             talking_track.append(cap_id)
 
-    return {
+    out: dict = {
         "capabilities": {
             "buildable": sorted(buildable),
             "talking_track": sorted(talking_track),
         },
-        "created_resources": {},
     }
+    if resource_suffix:
+        out["resource_suffix"] = resource_suffix
+    out["created_resources"] = {}
+    return out

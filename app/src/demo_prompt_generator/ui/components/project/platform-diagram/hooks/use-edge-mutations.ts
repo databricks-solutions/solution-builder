@@ -21,6 +21,10 @@ export interface EdgeMutations {
   setEdgeArrow: (id: string, arrow: "auto" | "none" | "end" | "start" | "both") => void;
   setEdgeLabel: (id: string, label: string) => void;
   setEdgeCenterX: (id: string, centerX: number | undefined) => void;
+  setEdgeLabelPos: (id: string, pos: { d?: number; from?: "source" | "target"; off?: number; t?: number } | undefined) => void;
+  setEdgeBezier: (id: string, enabled: boolean) => void;
+  setEdgeWaypoints: (id: string, points: { x: number; y: number }[] | undefined) => void;
+  setEdgeControlPoints: (id: string, points: [{ x: number; y: number }, { x: number; y: number }] | undefined) => void;
   removeEdge: (id: string) => void;
   retargetEdge: (edgeId: string, end: "source" | "target", nodeId: string, handle?: string) => void;
 }
@@ -131,6 +135,34 @@ export function useEdgeMutations({
     [mutateEdge],
   );
 
+  // Set/clear a MANUAL label position (from dragging the chip). `t` is a fraction
+  // along the path, `off` a perpendicular nudge — see PlatformEdge.labelPos.
+  // Passing undefined hands the label back to automatic placement, which is what
+  // the chip's double-click reset does.
+  const setEdgeLabelPos = useCallback(
+    (id: string, pos: { d?: number; from?: "source" | "target"; off?: number; t?: number } | undefined) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, labelPos: pos } })),
+    [mutateEdge],
+  );
+
+  const setEdgeBezier = useCallback(
+    (id: string, enabled: boolean) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, bezier: enabled, ...(enabled ? {} : { controlPoints: undefined }) } })),
+    [mutateEdge],
+  );
+
+  const setEdgeWaypoints = useCallback(
+    (id: string, points: { x: number; y: number }[] | undefined) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, waypoints: points } })),
+    [mutateEdge],
+  );
+
+  const setEdgeControlPoints = useCallback(
+    (id: string, points: [{ x: number; y: number }, { x: number; y: number }] | undefined) =>
+      mutateEdge(id, (e) => ({ ...e, data: { ...e.data, bezier: !!points, controlPoints: points } })),
+    [mutateEdge],
+  );
+
   const removeEdge = useCallback(
     (id: string) =>
       setEdges((eds) => {
@@ -150,6 +182,10 @@ export function useEdgeMutations({
     setEdgeArrow,
     setEdgeLabel,
     setEdgeCenterX,
+    setEdgeLabelPos,
+    setEdgeBezier,
+    setEdgeWaypoints,
+    setEdgeControlPoints,
     removeEdge,
     retargetEdge,
   };

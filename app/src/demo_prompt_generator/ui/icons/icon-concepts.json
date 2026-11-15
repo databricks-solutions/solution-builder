@@ -1,0 +1,786 @@
+{
+  "_comment": "Concept source for the architecture skill's icon index (scripts/gen-architecture-skill.ts). `preferred` = the one key the agent should use for a concept (generated into SKILL.md); a key may be an alias (ICON_ALIASES) that renders the canonical art. `concepts` = extra search words per key. Unity Catalog object icons follow the Catalog Explorer (verified against its SVGs). Keys must resolve; the generator fails the build otherwise.",
+  "preferred": {
+    "notebook": "file:databricks-line/notebook",
+    "dashboard (AI/BI)": "file:databricks-line/dashboards",
+    "SQL warehouse": "file:databricks-line/data-warehouse",
+    "Delta table": "file:databricks-line/delta-table",
+    "Delta Lake": "file:databricks-line/delta-lake",
+    "Delta Sharing": "file:databricks-line/data-sharing",
+    "Unity Catalog": "file:databricks-line/unity-catalog",
+    "catalog store / metastore": "file:databricks-line/catalog-store",
+    "Lakeflow Connect / ingestion": "file:databricks-line/lakeflow-connect",
+    "Jobs and pipelines": "file:databricks-line/data-pipelines",
+    "declarative pipeline (SDP / DLT)": "file:databricks-line/delta-live-tables",
+    "scheduled job": "file:databricks-line/scheduled-jobs",
+    "feature store": "file:databricks-line/feature-store",
+    "machine learning / ML model": "file:databricks-line/machine-learning",
+    "model registry": "file:databricks-line/model-registry",
+    "MLOps": "file:databricks-line/mlops",
+    "model serving": "file:db/serving",
+    "MLflow / experiments": "file:db/experiment",
+    "AI gateway": "file:db/ai-gateway",
+    "Lakebase": "file:db/lakebase",
+    "Genie": "file:db/genie-agent",
+    "agents / multi-agent supervisor": "file:db/agents",
+    "knowledge base / knowledge assistant": "file:databricks-line/knowledge-base",
+    "Databricks Apps": "file:databricks-line/apps-services",
+    "governance": "file:databricks-line/governance",
+    "security / compliance": "file:databricks-line/enterprise-security",
+    "chat / conversation": "file:databricks-line/chat",
+    "webhook": "file:databricks-line/webhook",
+    "people / team": "file:databricks-line/3-people",
+    "generic user (persona)": "file:persona/user",
+    "data analyst": "file:databricks-line/data-analyst-persona",
+    "data engineer": "file:databricks-line/data-engineer-persona",
+    "data scientist": "file:databricks-line/data-scientist-persona-1",
+    "ML engineer": "file:databricks-line/ml-engineer-persona",
+    "business decision maker": "file:databricks-line/business-decision-maker-persona",
+    "Kafka": "file:vendor/kafka",
+    "PostgreSQL": "file:vendor/postgresql",
+    "Amazon S3": "file:cloud/aws/storage/s3",
+    "Azure Blob / ADLS": "file:cloud/azure/storage/blob-storage",
+    "unnamed source system": "file:vendor/custom-source",
+    "catalog (UC object)": "file:db/catalog",
+    "schema": "file:db/schema",
+    "table": "file:db/table",
+    "view": "file:db/view",
+    "metric view": "file:db/metric-view",
+    "function (UDF)": "file:db/function",
+    "stored procedure": "file:db/stored-procedure",
+    "volume": "file:db/volume",
+    "registered model (UC)": "file:db/registered-model",
+    "streaming table": "file:db/streaming-table",
+    "vector index": "file:db/vector-index",
+    "MCP server": "file:db/mcp",
+    "materialized view": "file:db/materialized-view",
+    "foreign / federated table": "file:db/foreign-table",
+    "feature spec": "file:db/feature-spec",
+    "feature function": "file:db/feature-function",
+    "LakeWatch (agentic SIEM)": "lakeWatchBrand",
+    "CustomerLake (agentic CDP)": "customerLakeBrand"
+  },
+  "concepts": {
+    "file:databricks-line/data-warehouse": [
+      "sql warehouse",
+      "warehouse",
+      "sql endpoint"
+    ],
+    "file:db/experiment": [
+      "mlflow",
+      "experiment tracking",
+      "experiments"
+    ],
+    "file:db/ai-gateway": [
+      "llm gateway",
+      "model gateway"
+    ],
+    "file:db/genie-agent": [
+      "genie space",
+      "natural language analytics"
+    ],
+    "file:db/lakebase": [
+      "postgres",
+      "oltp",
+      "operational database"
+    ],
+    "file:databricks-line/machine-learning": [
+      "ml model",
+      "model",
+      "ai model"
+    ],
+    "file:databricks-line/apps-services": [
+      "databricks apps",
+      "app",
+      "web app"
+    ],
+    "file:databricks-line/knowledge-base": [
+      "knowledge assistant",
+      "rag",
+      "documents"
+    ],
+    "file:persona/user": [
+      "user",
+      "person",
+      "customer",
+      "avatar"
+    ],
+    "file:db/catalog": [
+      "unity catalog",
+      "catalog"
+    ],
+    "file:db/table-measure": [
+      "metric view",
+      "metric views",
+      "measure",
+      "semantic layer"
+    ],
+    "file:db/function": [
+      "udf",
+      "user defined function",
+      "ai function"
+    ],
+    "file:db/models": [
+      "registered model",
+      "uc model",
+      "model registry"
+    ],
+    "file:db/table-stream": [
+      "streaming table",
+      "stream"
+    ],
+    "file:db/table-vector": [
+      "vector index",
+      "vector search index",
+      "embeddings"
+    ],
+    "file:db/mcp": [
+      "mcp server",
+      "model context protocol"
+    ],
+    "file:db/file-document": [
+      "document",
+      "unstructured",
+      "pdf",
+      "file"
+    ],
+    "file:db/database": [
+      "data",
+      "database",
+      "dataset"
+    ],
+    "file:db/table": [
+      "table",
+      "tables",
+      "uc table"
+    ],
+    "file:db/table-view": [
+      "view",
+      "uc view"
+    ],
+    "file:db/folder-cloud": [
+      "volume",
+      "uc volume",
+      "files",
+      "cloud folder"
+    ],
+    "file:db/layer-graph": [
+      "feature spec",
+      "feature function",
+      "feature"
+    ],
+    "file:db/table-lightning": [
+      "materialized view",
+      "mv"
+    ],
+    "file:db/table-globe": [
+      "foreign table",
+      "federated table",
+      "lakehouse federation"
+    ],
+    "file:cloud/aws/management/cloudwatch": [
+      "cloud watch",
+      "logs",
+      "metrics",
+      "monitoring",
+      "alarms"
+    ],
+    "file:cloud/aws/management/cloudtrail": [
+      "audit",
+      "api logging",
+      "trail"
+    ],
+    "file:cloud/aws/security/kms": [
+      "key management",
+      "encryption key",
+      "kms key",
+      "customer managed key"
+    ],
+    "file:cloud/aws/security/sts": [
+      "security token service",
+      "assume role",
+      "temporary credentials"
+    ],
+    "file:cloud/aws/security/iam": [
+      "identity and access management",
+      "policies",
+      "iam"
+    ],
+    "file:cloud/aws/security/iam-role": [
+      "cross-account role",
+      "iam role",
+      "role"
+    ],
+    "file:cloud/aws/security/secrets-manager": [
+      "secrets",
+      "credentials vault"
+    ],
+    "file:cloud/aws/security/iam-identity-center": [
+      "sso",
+      "single sign-on",
+      "workforce identity"
+    ],
+    "file:cloud/aws/networking/nat-gateway": [
+      "nat",
+      "egress gateway"
+    ],
+    "file:cloud/aws/networking/internet-gateway": [
+      "igw",
+      "internet"
+    ],
+    "file:cloud/aws/networking/vpc-endpoint": [
+      "vpc endpoint",
+      "endpoint",
+      "private endpoint"
+    ],
+    "file:cloud/aws/networking/privatelink": [
+      "private link",
+      "aws privatelink"
+    ],
+    "file:cloud/aws/networking/transit-gateway": [
+      "tgw",
+      "transit gateway",
+      "hub"
+    ],
+    "file:cloud/aws/networking/direct-connect": [
+      "dx",
+      "direct connect",
+      "private connection",
+      "on-premises link"
+    ],
+    "file:cloud/aws/integration/appflow": [
+      "saas connector",
+      "saas ingestion",
+      "amazon appflow"
+    ],
+    "file:cloud/aws/migration/dms": [
+      "database migration",
+      "migration service",
+      "cdc",
+      "amazon dms"
+    ],
+    "file:cloud/aws/iot/iot-core": [
+      "iot",
+      "mqtt",
+      "devices",
+      "aws iot core"
+    ],
+    "file:cloud/aws/analytics/quicksight": [
+      "amazon quicksight",
+      "amazon quick",
+      "bi",
+      "dashboards"
+    ],
+    "lakeWatchBrand": [
+      "lakewatch",
+      "siem",
+      "security"
+    ],
+    "customerLakeBrand": [
+      "customerlake",
+      "cdp",
+      "marketing"
+    ],
+    "file:cloud/azure/networking/vpn-gateway": [
+      "vpn gateway",
+      "virtual network gateway",
+      "azure gateway",
+      "site-to-site vpn",
+      "s2s vpn",
+      "expressroute gateway"
+    ],
+    "file:cloud/azure/networking/expressroute": [
+      "expressroute",
+      "dedicated connection",
+      "private connection",
+      "on-premises link"
+    ],
+    "file:cloud/azure/networking/network-interface": [
+      "nic",
+      "network interface",
+      "managed nic"
+    ],
+    "file:cloud/azure/networking/subnet": [
+      "subnet",
+      "delegated subnet"
+    ],
+    "file:cloud/azure/networking/private-endpoint": [
+      "private endpoint",
+      "private link",
+      "azure private link"
+    ],
+    "file:cloud/azure/networking/firewall": [
+      "azure firewall",
+      "firewall",
+      "egress firewall"
+    ],
+    "file:cloud/azure/networking/nat-gateway": [
+      "nat gateway",
+      "nat",
+      "egress"
+    ],
+    "file:cloud/azure/networking/local-network-gateway": [
+      "local network gateway",
+      "on-premises gateway"
+    ],
+    "file:cloud/azure/networking/route-table": [
+      "route table",
+      "udr",
+      "user-defined route"
+    ],
+    "file:cloud/azure/networking/dns-private-resolver": [
+      "dns resolver",
+      "private dns",
+      "dns forwarding"
+    ],
+    "file:cloud/azure/networking/virtual-network": [
+      "vnet",
+      "virtual network",
+      "hub vnet",
+      "spoke vnet"
+    ],
+    "file:cloud/azure/networking/private-link-service": [
+      "private link service",
+      "pls",
+      "azure private link service",
+      "expose a service privately"
+    ],
+    "file:cloud/azure/networking/application-gateway": [
+      "application gateway",
+      "app gateway",
+      "azure application gateway",
+      "layer 7 load balancer",
+      "waf"
+    ],
+    "file:cloud/azure/networking/bastion": [
+      "bastion",
+      "azure bastion",
+      "jump host",
+      "remote access"
+    ],
+    "file:cloud/gcp/networking/cloud-router": [
+      "cloud router",
+      "gcp router",
+      "bgp",
+      "dynamic routing"
+    ],
+    "file:cloud/gcp/networking/cloud-vpn": [
+      "cloud vpn",
+      "gcp vpn",
+      "ha vpn",
+      "site-to-site vpn",
+      "s2s vpn"
+    ],
+    "file:cloud/gcp/networking/cloud-interconnect": [
+      "cloud interconnect",
+      "interconnect",
+      "dedicated interconnect",
+      "partner interconnect"
+    ],
+    "file:cloud/gcp/networking/private-service-connect": [
+      "private service connect",
+      "psc",
+      "service attachment",
+      "gcp private endpoint"
+    ],
+    "file:cloud/azure/general/subscription": [
+      "azure subscription",
+      "subscription"
+    ],
+    "file:cloud/aws/networking/site-to-site-vpn": [
+      "site-to-site vpn",
+      "s2s vpn",
+      "aws vpn",
+      "ipsec vpn",
+      "vpn tunnel"
+    ],
+    "file:cloud/aws/networking/client-vpn": [
+      "client vpn",
+      "remote access vpn",
+      "user vpn"
+    ],
+    "file:cloud/aws/networking/cloud-wan": [
+      "cloud wan",
+      "global network",
+      "wan"
+    ],
+    "file:cloud/aws/networking/global-accelerator": [
+      "global accelerator",
+      "anycast"
+    ],
+    "file:cloud/aws/networking/vpc-lattice": [
+      "vpc lattice",
+      "service network"
+    ],
+    "file:cloud/aws/networking/elastic-network-interface": [
+      "eni",
+      "elastic network interface",
+      "network interface",
+      "nic",
+      "managed interface"
+    ],
+    "file:cloud/aws/networking/vpn-connection": [
+      "vpn connection",
+      "ipsec tunnel"
+    ],
+    "file:cloud/aws/networking/vpn-gateway": [
+      "virtual private gateway",
+      "vgw",
+      "vpn gateway"
+    ],
+    "file:cloud/aws/networking/customer-gateway": [
+      "customer gateway",
+      "cgw",
+      "on-prem router",
+      "on-premises vpn device"
+    ],
+    "file:cloud/aws/networking/direct-connect-gateway": [
+      "direct connect gateway",
+      "dxgw",
+      "dx gateway"
+    ],
+    "file:cloud/aws/networking/peering-connection": [
+      "vpc peering",
+      "peering connection",
+      "peering"
+    ],
+    "file:cloud/aws/networking/transit-gateway-attachment": [
+      "tgw attachment",
+      "transit gateway attachment"
+    ],
+    "file:cloud/aws/networking/network-load-balancer": [
+      "nlb",
+      "network load balancer",
+      "layer 4 load balancer"
+    ],
+    "file:cloud/aws/networking/application-load-balancer": [
+      "alb",
+      "application load balancer",
+      "layer 7 load balancer"
+    ],
+    "file:cloud/aws/networking/gateway-load-balancer": [
+      "gwlb",
+      "gateway load balancer",
+      "appliance load balancer"
+    ],
+    "file:cloud/aws/networking/route-table": [
+      "route table",
+      "vpc route table",
+      "routes"
+    ],
+    "file:cloud/aws/networking/router": [
+      "vpc router",
+      "router"
+    ],
+    "file:cloud/aws/networking/network-acl": [
+      "nacl",
+      "network acl",
+      "network access control list"
+    ],
+    "file:cloud/aws/networking/flow-logs": [
+      "vpc flow logs",
+      "flow logs"
+    ],
+    "file:cloud/aws/networking/route53-resolver": [
+      "route 53 resolver",
+      "dns resolver",
+      "resolver endpoint",
+      "hybrid dns"
+    ],
+    "file:cloud/aws/networking/route53-hosted-zone": [
+      "hosted zone",
+      "private hosted zone",
+      "dns zone"
+    ],
+    "file:cloud/aws/security/network-firewall": [
+      "aws network firewall",
+      "network firewall",
+      "egress firewall"
+    ],
+    "file:cloud/aws/security/waf": [
+      "aws waf",
+      "waf",
+      "web application firewall"
+    ],
+    "file:cloud/aws/security/shield": [
+      "aws shield",
+      "ddos protection"
+    ],
+    "file:cloud/aws/security/network-firewall-endpoint": [
+      "firewall endpoint",
+      "network firewall endpoint"
+    ],
+    "file:cloud/aws/compute/ec2-instance": [
+      "ec2 instance",
+      "instance",
+      "virtual machine",
+      "vm",
+      "proxy instance"
+    ],
+    "file:cloud/aws/compute/ec2-instances": [
+      "ec2 instances",
+      "instances",
+      "fleet"
+    ],
+    "file:cloud/aws/general/private-subnet": [
+      "aws private subnet",
+      "private subnet"
+    ],
+    "file:cloud/aws/general/public-subnet": [
+      "aws public subnet",
+      "public subnet"
+    ],
+    "file:cloud/aws/general/region": [
+      "aws region",
+      "region"
+    ],
+    "file:cloud/aws/general/account": [
+      "aws account",
+      "account"
+    ],
+    "file:cloud/aws/general/aws-cloud": [
+      "aws cloud group",
+      "aws cloud"
+    ],
+    "file:cloud/aws/general/corporate-data-center": [
+      "corporate data center",
+      "on-premises",
+      "on-prem data center",
+      "datacenter"
+    ],
+    "file:cloud/aws/general/auto-scaling-group": [
+      "auto scaling group",
+      "asg"
+    ],
+    "file:cloud/aws/general/vpc-group": [
+      "vpc group",
+      "vpc container"
+    ],
+    "file:cloud/gcp/networking/cloud-nat": [
+      "cloud nat",
+      "gcp nat",
+      "egress nat"
+    ],
+    "file:cloud/gcp/networking/cloud-dns": [
+      "cloud dns",
+      "gcp dns",
+      "private zone"
+    ],
+    "file:cloud/gcp/networking/cloud-armor": [
+      "cloud armor",
+      "gcp waf",
+      "ddos protection"
+    ],
+    "file:cloud/gcp/networking/firewall-rules": [
+      "gcp firewall",
+      "firewall rules",
+      "vpc firewall"
+    ],
+    "file:cloud/gcp/networking/network-connectivity-center": [
+      "network connectivity center",
+      "ncc hub",
+      "gcp hub"
+    ],
+    "file:cloud/gcp/networking/traffic-director": [
+      "traffic director",
+      "envoy",
+      "proxy",
+      "envoy proxy"
+    ],
+    "file:cloud/gcp/networking/cloud-service-mesh": [
+      "cloud service mesh",
+      "service mesh",
+      "envoy",
+      "anthos service mesh"
+    ],
+    "file:cloud/gcp/networking/external-ip": [
+      "external ip",
+      "public ip",
+      "gcp ip address"
+    ],
+    "file:cloud/gcp/networking/partner-interconnect": [
+      "partner interconnect"
+    ],
+    "file:cloud/gcp/networking/cloud-routes": [
+      "cloud routes",
+      "gcp routes",
+      "route table"
+    ],
+    "file:cloud/gcp/networking/network-security": [
+      "gcp network security"
+    ],
+    "file:cloud/gcp/networking/cloud-ids": [
+      "cloud ids",
+      "intrusion detection"
+    ],
+    "file:cloud/gcp/networking/identity-aware-proxy": [
+      "identity-aware proxy",
+      "iap"
+    ],
+    "file:cloud/gcp/general/project": [
+      "gcp project",
+      "project"
+    ],
+    "file:cloud/azure/networking/network-security-group": [
+      "nsg",
+      "network security group"
+    ],
+    "file:cloud/azure/networking/public-ip": [
+      "azure public ip",
+      "public ip address"
+    ],
+    "file:cloud/azure/networking/dns-zone": [
+      "azure dns",
+      "private dns zone",
+      "dns zone"
+    ],
+    "file:cloud/azure/networking/connection": [
+      "azure connection",
+      "vpn connection",
+      "expressroute connection"
+    ],
+    "file:cloud/azure/networking/virtual-wan": [
+      "virtual wan",
+      "vwan"
+    ],
+    "file:cloud/azure/networking/virtual-wan-hub": [
+      "virtual wan hub",
+      "vwan hub",
+      "virtual hub"
+    ],
+    "file:cloud/azure/networking/traffic-manager": [
+      "traffic manager",
+      "dns load balancing"
+    ],
+    "file:cloud/azure/networking/ddos-protection": [
+      "azure ddos protection",
+      "ddos"
+    ],
+    "file:cloud/azure/networking/private-link": [
+      "azure private link",
+      "private link"
+    ],
+    "file:cloud/azure/networking/waf-policy": [
+      "azure waf",
+      "waf policy",
+      "web application firewall"
+    ],
+    "file:cloud/azure/networking/network-watcher": [
+      "network watcher"
+    ],
+    "file:cloud/azure/networking/virtual-router": [
+      "route server",
+      "virtual router"
+    ],
+    "file:cloud/azure/networking/firewall-manager": [
+      "firewall manager",
+      "firewall policy"
+    ],
+    "file:cloud/azure/networking/on-premises-data-gateway": [
+      "on-premises data gateway",
+      "data gateway"
+    ],
+    "file:cloud/azure/networking/route-filter": [
+      "route filter"
+    ],
+    "file:cloud/azure/networking/service-endpoint-policy": [
+      "service endpoint",
+      "service endpoint policy"
+    ],
+    "file:cloud/azure/networking/ip-groups": [
+      "ip groups"
+    ],
+    "file:databricks-line/databricks-workspace": [
+      "workspace",
+      "databricks workspace",
+      "workspaces"
+    ],
+    "file:databricks-line/identity": [
+      "identity",
+      "identity provider",
+      "idp",
+      "sso",
+      "scim",
+      "entra id",
+      "okta"
+    ],
+    "file:databricks-line/users": [
+      "users and groups",
+      "groups",
+      "account users"
+    ],
+    "file:db/user-badge": [
+      "service principal",
+      "service account (databricks)"
+    ],
+    "file:databricks-line/access-connector": [
+      "access connector",
+      "managed identity",
+      "azure storage credential"
+    ],
+    "file:db/cloud-key": [
+      "storage credential",
+      "credential",
+      "service credential"
+    ],
+    "file:databricks-line/cloud-storage": [
+      "cloud storage",
+      "object storage",
+      "bucket",
+      "storage account",
+      "managed storage",
+      "external location",
+      "workspace storage"
+    ],
+    "file:databricks-line/serverless": [
+      "serverless",
+      "serverless compute",
+      "serverless compute plane"
+    ],
+    "file:db/share": [
+      "delta sharing",
+      "share"
+    ],
+    "file:db/catalog-shared": [
+      "shared catalog",
+      "delta sharing recipient",
+      "catalog from a share"
+    ],
+    "file:db/connect": [
+      "connection",
+      "uc connection",
+      "federation connection"
+    ],
+    "file:databricks-line/asset-bundle": [
+      "asset bundle",
+      "bundle",
+      "dab",
+      "declarative automation bundle",
+      "ci/cd deploy"
+    ],
+    "file:databricks-line/catalog-store": [
+      "metastore",
+      "unity catalog metastore"
+    ],
+    "file:cloud/azure/storage/storage-account": [
+      "storage account",
+      "adls",
+      "adls gen2",
+      "azure data lake storage",
+      "data lake storage"
+    ],
+    "file:cloud/gcp/security/iam": [
+      "gcp iam",
+      "cloud iam",
+      "google service account"
+    ],
+    "file:cloud/aws/storage/s3": [
+      "s3 bucket",
+      "bucket"
+    ],
+    "file:cloud/gcp/storage/cloud-storage": [
+      "gcs bucket",
+      "gcs"
+    ]
+  }
+}

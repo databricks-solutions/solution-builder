@@ -1,0 +1,10 @@
+{
+  "id": "pubsec-eligibility-determination",
+  "name": "Eligibility Copilot — AI-Enabled SNAP & Medicaid Eligibility Determination",
+  "customer": "Westbrook Department of Human Services",
+  "industry": "Public Sector",
+  "narrative": "Keisha Jackson is on the State Surge Team sent to Tamarack County, where a paper-mill closure pushed SNAP and Medicaid applications up 60% just as the office lost 3 of its 7 caseworkers. Over the last three complete months only 38% of Tamarack's SNAP applications were decided within the 30-day federal standard (the rest of the state: 91%), and eligible families are being denied on paperwork. Her director, Marcus Webb, sees the collapse on the dashboard and asks Genie why; the answer is geographic, not demographic.\n\nThe aha is one case: Dana Whitfield, laid off from the mill, mailed in a pay stub that makes her look $770 over the income limit. The Eligibility Copilot reads her four documents with AI Functions, checks every SNAP rule with its CFR citation, asks the policy manual (searched by the Genie agent) whether terminated income counts, and finds she has $0 income and was owed expedited benefits 31 days ago. It drafts the plain-language approval notice for $994/month; Keisha reviews, clicks Approve, and the decision is written back to Lakebase with a full audit trail.",
+  "dbdemos_tracker": {
+    "app_id": "pubsec-eligibility-determination"
+  }
+}

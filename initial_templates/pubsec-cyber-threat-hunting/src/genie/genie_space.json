@@ -1,0 +1,167 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "7cf61b520a7aeae3eb32197bdc4eea95",
+        "question": [
+          "What is our mean time to detect and respond by incident category?"
+        ]
+      },
+      {
+        "id": "95c609b5589154f0fd455671bac8b2a9",
+        "question": [
+          "How many accounts were targeted by failed passwords from hosting networks in the last 30 days, and what is the most failures any account had in one day?"
+        ]
+      },
+      {
+        "id": "9ac37bc736eedb02daa0cf944fb651aa",
+        "question": [
+          "Which entities have the highest UEBA risk score this week?"
+        ]
+      },
+      {
+        "id": "c34c9584efa5d04fb5e031a8139f2236",
+        "question": [
+          "Which ATT&CK techniques in our playbook have no detection coverage?"
+        ]
+      },
+      {
+        "id": "d59a6f44dffc488ffb629035e8b05507",
+        "question": [
+          "Which detection rules have the lowest true-positive rate?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "Under the IR playbook, what severity is a confirmed identity compromise with FTI access, and who must be notified by when?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.assets"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.attack_techniques"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.auth_logs"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.dns_logs"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.endpoint_events"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.identities"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.incidents"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.investigation_leads"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.it_tickets"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.siem_alerts"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.travel_approvals"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.ueba_host_daily"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.ueba_user_daily"
+      },
+      {
+        "identifier": "cybersecurity.threat_hunting_copilot.vpn_sessions"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "1cb251ec0d568de6a929b520c4aed8d1",
+        "content": [
+          "Cascadia Security Operations Center (CSOC) \u2014 fictional state SOC protecting the Cascadia Department of Revenue (CDOR, 1,180 staff, taxpayer data). All data is synthetic; public IPs are documentation ranges and attacker domains end in .example.\n",
+          "TIME: every *_ts column is agency local time. The log telemetry (auth, VPN, endpoint, DNS, SIEM alerts, UEBA) covers the 90 days ending at the latest event; the incidents table covers the last 18 months \u2014 for MTTD / MTTR use ALL incidents unless the user names a period; interpret \"today\", \"this week\", \"last 30 days\" relative to the latest date in the relevant table (e.g. max(event_ts) in auth_logs, max(score_date) in ueba_user_daily), never current_date().\n",
+          "DEFINITIONS:\n",
+          "- MTTD (mean time to detect) = avg(detected_ts - first_malicious_ts) over incidents; MTTR (mean time to respond / contain) = avg(contained_ts - detected_ts). Report hours, and ALSO days when the average exceeds 48 hours (e.g. \"316 hours (13.2 days)\"). Use unix_timestamp differences.\n",
+          "- Identity-based incidents = incidents.category IN ('credential_compromise','data_mishandling').\n",
+          "- True-positive rate of a detection rule = count(disposition = 'true_positive') / count(disposition <> 'open') from siem_alerts. benign_true_positive and false_positive both count as not true positive.\n",
+          "- Hosting / VPS networks = auth_logs.asn_org LIKE '%Hosting%'. A password spray = failed sign-ins (failure_reason = 'invalid_password') against many accounts with few attempts per account per day.\n",
+          "- The SIEM brute-force rule fires only above 5 failures in 10 minutes for one account.\n",
+          "- High-entropy DNS = dns_logs.label_entropy > 3.5 on a left-most label of 12+ characters (split(query,'[.]')[0]); TXT bursts suggest DNS tunneling.\n",
+          "- UEBA: ueba_user_daily / ueba_host_daily hold one row per entity per day with risk_score 0-100 (Isolation Forest model ueba_user_model@champion) and top_factors. \"Highest risk this week\" = max(risk_score) over the last 7 days of score_date. investigation_leads = the open queue (7-day peak risk >= 55).\n",
+          "- attack_techniques.detection_coverage: full / partial / none.\n",
+          "Answer concisely with the numbers; order results sensibly (worst first).\n",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "2e70c50a4b1e33c87e032e35599b70e4",
+        "question": [
+          "What is our mean time to detect and respond by incident category?"
+        ],
+        "sql": [
+          "SELECT category, count(*) AS incidents, round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 3600), 1) AS mttd_hours, round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 86400), 1) AS mttd_days, round(avg((unix_timestamp(contained_ts) - unix_timestamp(detected_ts)) / 3600), 1) AS mttr_hours FROM cybersecurity.threat_hunting_copilot.incidents GROUP BY category ORDER BY mttd_hours DESC"
+        ]
+      },
+      {
+        "id": "3a6554c7c0e2a9905c42a21d3f68289e",
+        "question": [
+          "Which detection rules have the lowest true-positive rate?"
+        ],
+        "sql": [
+          "SELECT rule_name, source, count(*) AS alerts, count_if(disposition = 'true_positive') AS true_positives, round(100 * count_if(disposition = 'true_positive') / nullif(count_if(disposition <> 'open'), 0), 1) AS tp_rate_pct FROM cybersecurity.threat_hunting_copilot.siem_alerts GROUP BY rule_name, source HAVING count_if(disposition <> 'open') > 0 ORDER BY tp_rate_pct ASC, alerts DESC"
+        ]
+      },
+      {
+        "id": "87819f9612c14869d8560818e1fb4240",
+        "question": [
+          "Which entities have the highest UEBA risk score this week?"
+        ],
+        "sql": [
+          "SELECT lead_id, entity_type, display_name, department, risk_score, priority, top_factors FROM cybersecurity.threat_hunting_copilot.investigation_leads ORDER BY risk_score DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "8af9e7ff1e3be70eb2a9c6c9ec83be37",
+        "question": [
+          "Which hosts made high-entropy DNS lookups?"
+        ],
+        "sql": [
+          "SELECT host_id, count(*) AS high_entropy_lookups, count_if(query_type = 'TXT') AS txt_lookups, count(DISTINCT regexp_extract(query, '([a-z0-9-]+[.][a-z]+)$', 1)) AS domains, min(event_ts) AS first_seen, max(event_ts) AS last_seen FROM cybersecurity.threat_hunting_copilot.dns_logs WHERE label_entropy > 3.5 AND length(split(query, '[.]')[0]) >= 12 GROUP BY host_id ORDER BY high_entropy_lookups DESC"
+        ]
+      },
+      {
+        "id": "db0fe09c38fc50281f840eff26950970",
+        "question": [
+          "Which ATT&CK techniques in our playbook have no detection coverage?"
+        ],
+        "sql": [
+          "SELECT technique_id, technique_name, tactic, playbook_section FROM cybersecurity.threat_hunting_copilot.attack_techniques WHERE detection_coverage = 'none' ORDER BY tactic, technique_id"
+        ]
+      },
+      {
+        "id": "e581a064ba4d21e42ca3ff4e42ed771c",
+        "question": [
+          "How many accounts were targeted by failed passwords from hosting networks in the last 30 days, and what is the most failures any account had in one day?"
+        ],
+        "sql": [
+          "WITH f AS (SELECT user_id, src_ip, date(event_ts) AS d FROM cybersecurity.threat_hunting_copilot.auth_logs WHERE failure_reason = 'invalid_password' AND asn_org LIKE '%Hosting%' AND event_ts >= (SELECT max(event_ts) FROM cybersecurity.threat_hunting_copilot.auth_logs) - INTERVAL 30 DAYS) SELECT count(*) AS failed_attempts, count(DISTINCT user_id) AS accounts_targeted, count(DISTINCT src_ip) AS source_ips, min(d) AS first_day, max(d) AS last_day, (SELECT max(c) FROM (SELECT count(*) AS c FROM f GROUP BY user_id, d)) AS max_failures_per_account_per_day FROM f"
+        ]
+      }
+    ]
+  }
+}

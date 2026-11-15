@@ -10,11 +10,13 @@ Granted:
   - USE_CATALOG on the catalog
   - USE_SCHEMA + SELECT on the schema (covers all gold_* / silver_* / mv_returns reads)
   - READ_VOLUME on manufacturing_reports
+  - CAN_RUN on the Genie Agent (the app asks it questions in Agent mode, on behalf of the user; it falls back to
+    its SP when the user's token is rejected)
 
-Idempotent — Postgres no-ops repeated grants.
+Idempotent — repeated grants are no-ops.
 
 Parameters:
-- catalog, schema, app_name
+- catalog, schema, app_name, genie_space_id
 """
 
 # COMMAND ----------
@@ -22,6 +24,8 @@ Parameters:
 dbutils.widgets.text("catalog",  "", "Catalog")
 dbutils.widgets.text("schema",   "", "Schema")
 dbutils.widgets.text("app_name", "", "App name")
+for _k in ("genie_space_id",):
+    dbutils.widgets.text(_k, "", _k)
 
 catalog  = dbutils.widgets.get("catalog")
 schema   = dbutils.widgets.get("schema")
@@ -67,3 +71,15 @@ for stmt in grants:
             raise
 
 print("Grants applied.")
+
+# COMMAND ----------
+
+# Genie Agent permission for the app SP.
+def _set(path, level):
+    w.api_client.do("PATCH", path, body={"access_control_list": [
+        {"service_principal_name": sp_client_id, "permission_level": level}]})
+    print(f"  {level} on {path} → {sp_client_id}")
+
+space_id = dbutils.widgets.get("genie_space_id")
+if space_id and not space_id.startswith("{{"):
+    _set(f"/api/2.0/permissions/genie/{space_id}", "CAN_RUN")

@@ -1,0 +1,217 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "10000000000000000000000000000001",
+        "question": [
+          "Which open alerts should investigators work first?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000002",
+        "question": [
+          "Which entity networks have the most open alerts?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000003",
+        "question": [
+          "What is the false positive rate by month?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000004",
+        "question": [
+          "How many SARs missed the 30-day filing deadline by quarter?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000005",
+        "question": [
+          "How much cash did the Bayline network deposit just under the $10K CTR threshold, by party?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000006",
+        "question": [
+          "Where did the Bayline network wire money abroad?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000007",
+        "question": [
+          "How does the rules engine rank the Bayline alerts compared with the ML model?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000008",
+        "question": [
+          "How many analyst hours went into false positives this year?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000009",
+        "question": [
+          "What is the SAR filing deadline, and who must approve a SAR on a network case with 3 or more subjects?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.alerts"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.case_decisions"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.customers"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_alert_queue"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_customer_network"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_network_clusters"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.sar_cases"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.transactions"
+      }
+    ],
+    "volumes": [
+      {
+        "path": "/Volumes/{{CATALOG}}/{{SCHEMA}}/aml_policy_docs",
+        "description": [
+          "Northwind Federal Bank AML policy library (5 Markdown documents): BSA/AML Program Policy v7.2 (SAR filing deadlines, approval rules), Structuring & CTR-Evasion Red-Flag Guide RF-03, SAR Narrative Writing Standard SAR-04, High-Risk Jurisdictions & Cross-Border Wire Policy HRJ-02, Alert Disposition & QA Procedure AD-01. Use it for policy / procedure / red-flag questions, not for numbers. Cite the document and section, e.g. \"BSA/AML Program Policy §3\"."
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "You are the AML analytics assistant for the Compliance leadership and BSA Officer of Northwind Federal Bank (fictional South Florida bank). Audience: Head of Financial Crimes Compliance. Lead with the answer, then numbers; format $ with commas and % with one decimal.\n",
+          "DATA: alerts = rules-based transaction-monitoring alerts (status: open, in_review, closed_no_sar = false positive, sar_filed). sar_cases = SARs filed with FinCEN; days_to_file is detection-to-filing; sla_breached = filed after the 30-day regulatory deadline. gold_alert_queue = the live investigator queue (open + in_review) with rule_score (rules engine) and ml_risk_score (0-100, ML probability of SAR), ml_rank and rules_rank. gold_network_clusters / gold_customer_network = entity-resolution networks (shared address, phone, device, funds transfers). transactions: cash_below_ctr = cash deposit between $8,000 and $9,999.99 (just under the $10,000 CTR threshold); high_risk_country = wire to an elevated-risk jurisdiction. case_decisions = decisions written back by investigators in the AML Copilot app.\n",
+          "DEFINITIONS: False-positive rate = closed_no_sar / (closed_no_sar + sar_filed) — only dispositioned alerts, never count open alerts. SLA breach = days_to_file > 30. \"The ring\" / \"Bayline\" = network cluster_id NET-290001 (Bayline Auto Exports LLC and 8 linked parties).\n",
+          "KEY STORY: the rules engine ranks the Bayline network's 35 open alerts near the bottom of the queue (avg rules rank ~263 of 330) because each party has a low KYC rating and modest individual activity; the ML model ranks all 35 in the top 35. The network deposited ~$1.2M in 133 cash deposits under $10K across 7 branches and wired ~$1.18M to the UAE and Hong Kong.\n",
+          "ROUTING: numbers, counts, rates, amounts, alerts, networks -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, deadline, approval and red-flag questions -> search the policy documents and cite the document + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": [
+          "Which open alerts should investigators work first?"
+        ],
+        "sql": [
+          "SELECT ml_rank, rules_rank, alert_id, customer_name, scenario, rule_score, ml_risk_score, cluster_id, cluster_size\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_alert_queue\n",
+          "ORDER BY ml_rank\n",
+          "LIMIT 20\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": [
+          "Which entity networks have the most open alerts?"
+        ],
+        "sql": [
+          "SELECT cluster_id, cluster_size, open_alerts, sub_ctr_deposits_60d, cash_branches_60d, ROUND(cash_in_60d,0) AS cash_in_60d, ROUND(high_risk_wires_60d,0) AS high_risk_wires_60d, member_names\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_network_clusters\n",
+          "ORDER BY open_alerts DESC, cash_in_60d DESC\n",
+          "LIMIT 10\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": [
+          "What is the false positive rate by month?"
+        ],
+        "sql": [
+          "SELECT date_trunc('month', alert_ts) AS month,\n",
+          "  COUNT(*) AS alerts,\n",
+          "  SUM(CASE WHEN status = 'closed_no_sar' THEN 1 ELSE 0 END) AS false_positives,\n",
+          "  SUM(CASE WHEN status = 'sar_filed' THEN 1 ELSE 0 END) AS sars,\n",
+          "  ROUND(100 * SUM(CASE WHEN status = 'closed_no_sar' THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN status IN ('closed_no_sar','sar_filed') THEN 1 ELSE 0 END), 0), 1) AS false_positive_rate_pct\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.alerts\n",
+          "GROUP BY 1 ORDER BY 1\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000004",
+        "question": [
+          "How many SARs missed the 30-day filing deadline by quarter?"
+        ],
+        "sql": [
+          "SELECT date_trunc('quarter', detection_ts) AS quarter, COUNT(*) AS sars_filed,\n",
+          "  SUM(CASE WHEN sla_breached THEN 1 ELSE 0 END) AS filed_late,\n",
+          "  ROUND(100 * AVG(CASE WHEN sla_breached THEN 1 ELSE 0 END), 1) AS late_pct,\n",
+          "  ROUND(AVG(days_to_file), 1) AS avg_days_to_file\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.sar_cases\n",
+          "GROUP BY 1 ORDER BY 1\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000005",
+        "question": [
+          "How much cash did the Bayline network deposit just under the $10K CTR threshold, by party?"
+        ],
+        "sql": [
+          "SELECT c.customer_name, COUNT(*) AS sub_ctr_deposits, COUNT(DISTINCT t.branch_id) AS branches, ROUND(SUM(t.amount), 0) AS total_usd, MIN(t.txn_ts) AS first_deposit, MAX(t.txn_ts) AS last_deposit\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.transactions t\n",
+          "JOIN {{CATALOG}}.{{SCHEMA}}.gold_customer_network n ON n.customer_id = t.customer_id\n",
+          "JOIN {{CATALOG}}.{{SCHEMA}}.customers c ON c.customer_id = t.customer_id\n",
+          "WHERE n.cluster_id = 'NET-290001' AND t.cash_below_ctr\n",
+          "GROUP BY c.customer_name ORDER BY total_usd DESC\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000006",
+        "question": [
+          "Where did the Bayline network wire money abroad?"
+        ],
+        "sql": [
+          "SELECT t.counterparty_name, t.counterparty_country, COUNT(*) AS wires, ROUND(SUM(t.amount), 0) AS total_usd\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.transactions t\n",
+          "JOIN {{CATALOG}}.{{SCHEMA}}.gold_customer_network n ON n.customer_id = t.customer_id\n",
+          "WHERE n.cluster_id = 'NET-290001' AND t.txn_type = 'wire_out'\n",
+          "GROUP BY 1, 2 ORDER BY total_usd DESC\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000007",
+        "question": [
+          "How does the rules engine rank the Bayline alerts compared with the ML model?"
+        ],
+        "sql": [
+          "SELECT COUNT(*) AS open_alerts, ROUND(AVG(rules_rank), 0) AS avg_rules_rank, ROUND(AVG(ml_rank), 0) AS avg_ml_rank, ROUND(AVG(rule_score), 1) AS avg_rule_score, ROUND(AVG(ml_risk_score), 1) AS avg_ml_risk_score, (SELECT COUNT(*) FROM {{CATALOG}}.{{SCHEMA}}.gold_alert_queue) AS queue_size\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.gold_alert_queue\n",
+          "WHERE cluster_id = 'NET-290001'\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000008",
+        "question": [
+          "How many analyst hours went into false positives this year?"
+        ],
+        "sql": [
+          "SELECT ROUND(SUM(CASE WHEN status = 'closed_no_sar' THEN analyst_hours END), 0) AS hours_on_false_positives,\n",
+          "  ROUND(SUM(CASE WHEN status = 'sar_filed' THEN analyst_hours END), 0) AS hours_on_sars,\n",
+          "  ROUND(100 * SUM(CASE WHEN status = 'closed_no_sar' THEN analyst_hours END) / SUM(analyst_hours), 1) AS pct_hours_on_false_positives\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.alerts\n",
+          "WHERE status IN ('closed_no_sar', 'sar_filed')\n"
+        ]
+      }
+    ]
+  }
+}

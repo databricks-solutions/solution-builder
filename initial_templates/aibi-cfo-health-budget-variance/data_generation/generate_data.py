@@ -45,7 +45,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_cfo_health_budget_variance
 """
 

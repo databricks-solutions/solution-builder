@@ -1,0 +1,1452 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs (last 2 years)",
+      "queryLines": [
+        "SELECT\n  SUM(trade_spend_usd) AS trade_spend,\n  SUM(incremental_gross_profit_usd) AS incremental_gp,\n  SUM(net_profit_usd) AS net_profit,\n  SUM(net_profit_usd) / SUM(trade_spend_usd) AS roi,\n  AVG(CASE WHEN net_profit_usd < 0 THEN 1.0 ELSE 0.0 END) AS share_events_lost_money,\n  SUM(CASE WHEN retailer_name = 'ValuMax Stores' AND tactic = 'BOGO' THEN net_profit_usd END) AS valumax_bogo_net_profit\nFROM gold_event_roi\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_events",
+      "displayName": "Completed promotions (post-event analysis)",
+      "queryLines": [
+        "SELECT event_id, event_name, retailer_name, channel, product_name, brand, tactic, funding_method, start_week, quarter,\n",
+        "  discount_depth, volume_lift_pct, pantry_loading_pct_of_lift, cannibalization_pct_of_lift, forward_buy_units,\n",
+        "  baseline_units, actual_units, gross_incremental_units, post_event_dip_units, cannibalized_units, net_incremental_units,\n",
+        "  trade_spend_usd, incremental_gross_profit_usd, net_profit_usd, roi, verdict, is_last_52_weeks\n",
+        "FROM gold_event_roi\nORDER BY net_profit_usd ASC\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_tactic",
+      "displayName": "ROI by retailer x tactic",
+      "queryLines": [
+        "SELECT retailer_name, tactic, SUM(events) AS events, SUM(trade_spend_usd) AS trade_spend,\n",
+        "  SUM(net_profit_usd) AS net_profit, SUM(net_profit_usd) / SUM(trade_spend_usd) AS roi,\n",
+        "  SUM(gross_incremental_units) / SUM(baseline_units) AS volume_lift\n",
+        "FROM gold_tactic_response GROUP BY ALL\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_leakage",
+      "displayName": "Where the lift goes, by tactic",
+      "queryLines": [
+        "SELECT tactic, 'Net incremental' AS component, SUM(net_incremental_units) AS units FROM gold_event_roi GROUP BY tactic\n",
+        "UNION ALL SELECT tactic, 'Pantry-loading dip', SUM(post_event_dip_units) FROM gold_event_roi GROUP BY tactic\n",
+        "UNION ALL SELECT tactic, 'Cannibalized sister SKUs', SUM(cannibalized_units) FROM gold_event_roi GROUP BY tactic\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_spend_q",
+      "displayName": "Trade spend by quarter and retailer",
+      "queryLines": [
+        "SELECT quarter, retailer_name, SUM(trade_spend_usd) AS trade_spend, SUM(net_profit_usd) AS net_profit\n",
+        "FROM gold_event_roi GROUP BY ALL\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_plan",
+      "displayName": "Next quarter promo plan forecast",
+      "queryLines": [
+        "SELECT plan_event_id, plan_week, start_week, retailer_name, product_name, tactic, discount_depth, funding_method,\n",
+        "  forecast_units, trade_spend_usd, net_profit_usd, roi, forecast_flag, recommended_scenario_label, recommended_net_profit_usd, recommended_roi, planner_note\n",
+        "FROM gold_plan_forecast\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_plan_kpi",
+      "displayName": "Next quarter KPIs",
+      "queryLines": [
+        "SELECT COUNT(*) AS planned_events, SUM(trade_spend_usd) AS planned_spend, SUM(net_profit_usd) AS forecast_net_profit,\n",
+        "  SUM(net_profit_usd) / SUM(trade_spend_usd) AS forecast_roi,\n",
+        "  COUNT_IF(forecast_flag = 'Money-losing') AS money_losing_events,\n",
+        "  SUM(CASE WHEN forecast_flag = 'Money-losing' THEN recommended_net_profit_usd - net_profit_usd END) AS replan_upside\n",
+        "FROM gold_plan_forecast\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    },
+    {
+      "name": "ds_replan",
+      "displayName": "Money-losing events: as planned vs recommended",
+      "queryLines": [
+        "SELECT concat(plan_event_id, ' ', product_name) AS event, 'As planned' AS scenario, net_profit_usd AS net_profit FROM gold_plan_forecast WHERE forecast_flag = 'Money-losing'\n",
+        "UNION ALL SELECT concat(plan_event_id, ' ', product_name), 'Recommended re-plan', recommended_net_profit_usd FROM gold_plan_forecast WHERE forecast_flag = 'Money-losing'\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "trade_promotion_roi"
+    }
+  ],
+  "pages": [
+    {
+      "name": "roi",
+      "displayName": "Post-event ROI",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Crestwood Snacks — Trade Spend & Promotion ROI\n",
+                "\n",
+                "Post-event analysis of every completed trade promotion across our 5 retail accounts. Incremental volume is measured against the **ML baseline** (`baseline_demand_model@champion`) and netted for **pantry loading** (the dip in the 4 weeks after), **cannibalization** of sister SKUs and **forward buying** on off-invoice deals. ROI = (incremental gross profit − trade spend) ÷ trade spend (TPG-2027)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_spend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "trade_spend",
+                      "expression": "`trade_spend`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "trade_spend",
+                  "displayName": "Trade spend — last 2 years",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trade spend — last 2 years"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_gp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "incremental_gp",
+                      "expression": "`incremental_gp`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "incremental_gp",
+                  "displayName": "Incremental gross profit",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Incremental gross profit"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_np",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "net_profit",
+                      "expression": "`net_profit`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "net_profit",
+                  "displayName": "Net profit after trade spend",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Net profit after trade spend"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_roi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "roi",
+                      "expression": "`roi`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "roi",
+                  "displayName": "Blended promotion ROI",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Blended promotion ROI"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_lost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "share_events_lost_money",
+                      "expression": "`share_events_lost_money`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "share_events_lost_money",
+                  "displayName": "Share of events that lost money",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Share of events that lost money"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_vm",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "valumax_bogo_net_profit",
+                      "expression": "`valumax_bogo_net_profit`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "valumax_bogo_net_profit",
+                  "displayName": "ValuMax BOGO net profit",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ValuMax BOGO net profit"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "scatter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_events",
+                  "fields": [
+                    {
+                      "name": "volume_lift_pct",
+                      "expression": "`volume_lift_pct`"
+                    },
+                    {
+                      "name": "roi",
+                      "expression": "`roi`"
+                    },
+                    {
+                      "name": "tactic",
+                      "expression": "`tactic`"
+                    },
+                    {
+                      "name": "event_name",
+                      "expression": "`event_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "volume_lift_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Volume lift vs ML baseline",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "roi",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "ROI",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "tactic",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "BOGO",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "Feature + Display",
+                        "color": "#A9B4C2"
+                      },
+                      {
+                        "value": "Multi-buy",
+                        "color": "#C9D1DA"
+                      },
+                      {
+                        "value": "TPR",
+                        "color": "#7D8B9A"
+                      }
+                    ]
+                  },
+                  "displayName": "Tactic"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Every promotion: the biggest volume spikes (BOGO) are the ones that lose money"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "tactic_roi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tactic",
+                  "fields": [
+                    {
+                      "name": "tactic",
+                      "expression": "`tactic`"
+                    },
+                    {
+                      "name": "retailer_name",
+                      "expression": "`retailer_name`"
+                    },
+                    {
+                      "name": "roi_agg",
+                      "expression": "SUM(`net_profit`) / SUM(`trade_spend`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "tactic",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Tactic"
+                },
+                "y": {
+                  "fieldName": "roi_agg",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "ROI",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "retailer_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Greenleaf Market",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Harbor Fresh Grocers",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "QuickPantry",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "BulkWise Club",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "ValuMax Stores",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Retailer"
+                }
+              },
+              "mark": {
+                "layout": "group"
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ROI by tactic and retailer (last 104 weeks)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "leakage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_leakage",
+                  "fields": [
+                    {
+                      "name": "tactic",
+                      "expression": "`tactic`"
+                    },
+                    {
+                      "name": "component",
+                      "expression": "`component`"
+                    },
+                    {
+                      "name": "sum(units)",
+                      "expression": "SUM(`units`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "tactic",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Tactic"
+                },
+                "y": {
+                  "fieldName": "sum(units)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Units",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "component",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Net incremental",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Pantry-loading dip",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Cannibalized sister SKUs",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Where the gross lift went"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Where the lift goes: net incremental vs pantry loading vs cannibalization"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "spend_q",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_spend_q",
+                  "fields": [
+                    {
+                      "name": "quarter",
+                      "expression": "`quarter`"
+                    },
+                    {
+                      "name": "retailer_name",
+                      "expression": "`retailer_name`"
+                    },
+                    {
+                      "name": "sum(trade_spend)",
+                      "expression": "SUM(`trade_spend`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Quarter"
+                },
+                "y": {
+                  "fieldName": "sum(trade_spend)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Trade spend",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "retailer_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Greenleaf Market",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Harbor Fresh Grocers",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "QuickPantry",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "BulkWise Club",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "ValuMax Stores",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Retailer"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trade spend by quarter and retailer"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "lost_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_events",
+                  "fields": [
+                    {
+                      "name": "event_name",
+                      "expression": "`event_name`"
+                    },
+                    {
+                      "name": "volume_lift_pct",
+                      "expression": "`volume_lift_pct`"
+                    },
+                    {
+                      "name": "pantry_loading_pct_of_lift",
+                      "expression": "`pantry_loading_pct_of_lift`"
+                    },
+                    {
+                      "name": "cannibalization_pct_of_lift",
+                      "expression": "`cannibalization_pct_of_lift`"
+                    },
+                    {
+                      "name": "net_profit_usd",
+                      "expression": "`net_profit_usd`"
+                    },
+                    {
+                      "name": "roi",
+                      "expression": "`roi`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "event_name",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "volume_lift_pct",
+                    "displayName": "Volume lift",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "pantry_loading_pct_of_lift",
+                    "displayName": "Pantry loading",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cannibalization_pct_of_lift",
+                    "displayName": "Cannibalization",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "net_profit_usd",
+                    "displayName": "Net profit",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "roi",
+                    "displayName": "ROI",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 10,
+              "frame": {
+                "showTitle": true,
+                "title": "All completed promotions — sort by net profit to see the money-losers"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "plan",
+      "displayName": "Next quarter plan",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Next quarter — draft promo calendar forecast\n",
+                "\n",
+                "Each planned event is forecast with the ML baseline for its weeks × the account's historical response to the tactic. Events forecast to lose money must be re-planned (TPG-2027 §3.2, §5); the recommended compliant alternative is shown."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_pe",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "planned_events",
+                      "expression": "`planned_events`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "planned_events",
+                  "displayName": "Planned events",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Planned events"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_ps",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "planned_spend",
+                      "expression": "`planned_spend`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "planned_spend",
+                  "displayName": "Planned trade spend",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Planned trade spend"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_pnp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "forecast_net_profit",
+                      "expression": "`forecast_net_profit`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "forecast_net_profit",
+                  "displayName": "Forecast net profit",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecast net profit"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_proi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "forecast_roi",
+                      "expression": "`forecast_roi`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "forecast_roi",
+                  "displayName": "Forecast blended ROI",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Forecast blended ROI"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_pml",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "money_losing_events",
+                      "expression": "`money_losing_events`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "money_losing_events",
+                  "displayName": "Money-losing events",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Money-losing events"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_up",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan_kpi",
+                  "fields": [
+                    {
+                      "name": "replan_upside",
+                      "expression": "`replan_upside`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "replan_upside",
+                  "displayName": "Re-plan upside (net profit)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Re-plan upside (net profit)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "replan_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_replan",
+                  "fields": [
+                    {
+                      "name": "event",
+                      "expression": "`event`"
+                    },
+                    {
+                      "name": "scenario",
+                      "expression": "`scenario`"
+                    },
+                    {
+                      "name": "sum(net_profit)",
+                      "expression": "SUM(`net_profit`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "event",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Planned event"
+                },
+                "x": {
+                  "fieldName": "sum(net_profit)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Forecast net profit",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "scenario",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Scenario"
+                }
+              },
+              "mark": {
+                "layout": "group"
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "The 4 money-losing ValuMax BOGOs: as planned vs recommended re-plan"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "plan_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_plan",
+                  "fields": [
+                    {
+                      "name": "plan_event_id",
+                      "expression": "`plan_event_id`"
+                    },
+                    {
+                      "name": "start_week",
+                      "expression": "`start_week`"
+                    },
+                    {
+                      "name": "retailer_name",
+                      "expression": "`retailer_name`"
+                    },
+                    {
+                      "name": "tactic",
+                      "expression": "`tactic`"
+                    },
+                    {
+                      "name": "trade_spend_usd",
+                      "expression": "`trade_spend_usd`"
+                    },
+                    {
+                      "name": "net_profit_usd",
+                      "expression": "`net_profit_usd`"
+                    },
+                    {
+                      "name": "roi",
+                      "expression": "`roi`"
+                    },
+                    {
+                      "name": "recommended_net_profit_usd",
+                      "expression": "`recommended_net_profit_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "plan_event_id",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "start_week",
+                    "displayName": "Start week"
+                  },
+                  {
+                    "fieldName": "retailer_name",
+                    "displayName": "Retailer"
+                  },
+                  {
+                    "fieldName": "tactic",
+                    "displayName": "Tactic"
+                  },
+                  {
+                    "fieldName": "trade_spend_usd",
+                    "displayName": "Trade spend",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "net_profit_usd",
+                    "displayName": "Forecast net profit",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "roi",
+                    "displayName": "Forecast ROI",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "recommended_net_profit_usd",
+                    "displayName": "Recommended net profit",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 15,
+              "frame": {
+                "showTitle": true,
+                "title": "Draft calendar with forecast (sorted by start week)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 9
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

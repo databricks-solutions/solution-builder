@@ -3,28 +3,40 @@
     {
       "name": "ds_metrics",
       "displayName": "Genomics metrics",
-      "asset_name": "genomics_metrics"
+      "queryLines": [
+        "SELECT `Treatment Arm`, `Cancer Site`, `Gender`, `Race`\n",
+        "FROM genomics_metrics\n",
+        "GROUP BY ALL"
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_kpi_treated",
       "displayName": "Survival treated",
       "queryLines": [
         "SELECT survival_pct FROM arm_summary WHERE treatment_arm='OncoTarget-1'"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_kpi_soc",
       "displayName": "Survival SoC",
       "queryLines": [
         "SELECT survival_pct FROM arm_summary WHERE treatment_arm='Standard of care'"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_kpi_patients",
       "displayName": "Patients",
       "queryLines": [
         "SELECT count(*) AS patients FROM patient_cohort"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_kpi_lift",
@@ -33,42 +45,54 @@
         "SELECT round(max(CASE WHEN treatment_arm='OncoTarget-1' THEN survival_pct END)\n",
         "  - max(CASE WHEN treatment_arm='Standard of care' THEN survival_pct END),1) AS lift\n",
         "FROM breast_deepdive WHERE subgroup='Responder subtype'"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_arm",
       "displayName": "Survival by arm",
       "queryLines": [
         "SELECT treatment_arm, survival_pct, patients FROM arm_summary ORDER BY treatment_arm"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_curve",
       "displayName": "Survival curve (overall)",
       "queryLines": [
         "SELECT month, treatment_arm, pct_surviving FROM survival_curve ORDER BY month, treatment_arm"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_curve_resp",
       "displayName": "Survival curve (responder subtype)",
       "queryLines": [
         "SELECT month, treatment_arm, pct_surviving FROM survival_curve_responder ORDER BY month, treatment_arm"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_spark_treated",
       "displayName": "Treated survival trend (sparkline)",
       "queryLines": [
         "SELECT month, pct_surviving FROM survival_curve WHERE treatment_arm='OncoTarget-1' ORDER BY month"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_spark_soc",
       "displayName": "SoC survival trend (sparkline)",
       "queryLines": [
         "SELECT month, pct_surviving FROM survival_curve WHERE treatment_arm='Standard of care' ORDER BY month"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_site",
@@ -76,7 +100,9 @@
       "queryLines": [
         "SELECT tissue, treatment_arm, survival_pct, patients FROM survival_by_arm\n",
         "WHERE patients > 80 ORDER BY tissue, treatment_arm"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_lift",
@@ -85,7 +111,9 @@
         "SELECT tissue, survival_lift, patients,\n",
         "  CASE WHEN survival_lift >= 3 THEN 'Benefits' WHEN survival_lift <= -3 THEN 'Not indicated' ELSE 'No effect' END AS verdict\n",
         "FROM lift_by_site ORDER BY survival_lift DESC"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_umap",
@@ -96,14 +124,18 @@
         "  treatment_arm, survived_24mo\n",
         "FROM patient_cohort\n",
         "WHERE c1 IS NOT NULL AND tissue IN ('Breast, NOS','Kidney, NOS','Upper lobe, lung','Thyroid gland','Prostate gland','Liver','Ovary','Skin, NOS')"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_breast",
       "displayName": "Breast deep-dive",
       "queryLines": [
         "SELECT subgroup, treatment_arm, survival_pct, patients FROM breast_deepdive ORDER BY subgroup, treatment_arm"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_umap_breast",
@@ -111,7 +143,9 @@
       "queryLines": [
         "SELECT c1, c2, CASE WHEN responder_subtype THEN 'Responder subtype' ELSE 'Other breast' END AS subgroup, treatment_arm, survived_24mo\n",
         "FROM patient_cohort WHERE tissue='Breast, NOS' AND c1 IS NOT NULL"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_responder_demo",
@@ -119,7 +153,9 @@
       "queryLines": [
         "SELECT race, count(*) patients, round(avg(age)) avg_age\n",
         "FROM patient_cohort WHERE responder_subtype GROUP BY 1 HAVING patients>10 ORDER BY patients DESC"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     },
     {
       "name": "ds_patients",
@@ -128,22 +164,24 @@
         "SELECT case_id, primary_diagnosis, gender, age, treatment_arm,\n",
         "  CASE WHEN survived_24mo THEN 'Survived' ELSE 'Deceased' END AS outcome_24mo, months_survived\n",
         "FROM patient_cohort WHERE tissue='Breast, NOS' AND responder_subtype ORDER BY treatment_arm, months_survived DESC LIMIT 200"
-      ]
+      ],
+      "catalog": "dbdemos_templates",
+      "schema": "patient_genomics"
     }
   ],
   "pages": [
     {
       "name": "evidence",
       "displayName": "Real-world evidence",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
               "lines": [
-                "# OncoTarget-1 — it works… but not everywhere. *Where* should we use it?\n\nWe rolled out a new targeted therapy across a real 10,000-patient oncology cohort. Overall, treated patients survive better — but the benefit is **wildly uneven**: a near-miracle in some cancers, nothing in others, and in a couple it may even do harm. The chart below ranks every cancer by survival lift. The obvious follow-up: *what separates the responders from the rest?* (Answer on page 2 — and it's molecular.)"
+                "# OncoTarget-1 — it works… but not everywhere. *Where* should we use it?\n",
+                "\n",
+                "We rolled out a new targeted therapy across a real 10,000-patient oncology cohort. Overall, treated patients survive better — but the benefit is **wildly uneven**: a near-miracle in some cancers, nothing in others, and in a couple it may even do harm. The chart below ranks every cancer by survival lift. The obvious follow-up: *what separates the responders from the rest?* (Answer on page 2 — and it's molecular.)"
               ]
             }
           },
@@ -592,20 +630,22 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "responders",
       "displayName": "Who benefits most",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "d_title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Who benefits most — the breast responder subtype\n\nDeep-dive into breast cancer. Patients split into a **responder molecular subtype** (a distinct gene-expression cluster) and the rest. In the responder subtype, OncoTarget-1 lifts 24-month survival from ~89% to ~99% — far more than in other breast patients. This is the kind of precision-oncology signal that turns a good drug into the *right* drug for the *right* patient."
+                "# Who benefits most — the breast responder subtype\n",
+                "\n",
+                "Deep-dive into breast cancer. Patients split into a **responder molecular subtype** (a distinct gene-expression cluster) and the rest. In the responder subtype, OncoTarget-1 lifts 24-month survival from ~84% to ~99% — far more than in other breast patients. This is the kind of precision-oncology signal that turns a good drug into the *right* drug for the *right* patient."
               ]
             }
           },
@@ -621,7 +661,9 @@
             "name": "d_step1",
             "multilineTextboxSpec": {
               "lines": [
-                "## 1. In the responder subtype, the survival curves split wide open"
+                "## 1.\n",
+                "\n",
+                "In the responder subtype, the survival curves split wide open"
               ]
             }
           },
@@ -787,7 +829,9 @@
             "name": "d_step2",
             "multilineTextboxSpec": {
               "lines": [
-                "## 2. Responder subtype vs the rest of breast — and who the responders are"
+                "## 2.\n",
+                "\n",
+                "Responder subtype vs the rest of breast — and who the responders are"
               ]
             }
           },
@@ -1023,13 +1067,13 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "filters",
       "displayName": "Filters",
-      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
@@ -1203,7 +1247,9 @@
             "height": 1
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
     }
   ],
   "uiSettings": {

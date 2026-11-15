@@ -17,6 +17,7 @@ Why this shape (extract first, persist later):
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from typing import Optional
@@ -25,6 +26,7 @@ from fastapi import HTTPException, UploadFile
 
 from ..core import create_router
 from ..models import UploadedFile
+from ..services.cpu_pool import run_cpu
 from ..services.file_extraction import SUPPORTED_EXTENSIONS, extract_text
 
 router = create_router()
@@ -57,6 +59,9 @@ MAX_FILES_PER_REQUEST = 5
 # before sending it for idea generation, so raising this does NOT bloat
 # that call.
 MAX_CHARS_PER_FILE = 2_000_000
+
+# Upper bound on one file's extraction in the CPU pool (services/cpu_pool.py).
+EXTRACT_TIMEOUT_S = 120
 
 
 @router.post(
@@ -111,11 +116,21 @@ async def extract_uploaded_files(
             )
 
         try:
-            text, truncated = extract_text(
+            # CPU-heavy parsers (pypdf/openpyxl/docx) run in a worker process so
+            # they don't hold the serving process's GIL.
+            text, truncated = await run_cpu(
+                extract_text,
                 f.filename or "unknown",
                 data,
                 max_chars=MAX_CHARS_PER_FILE,
+                timeout=EXTRACT_TIMEOUT_S,
             )
+        except asyncio.TimeoutError as e:
+            logger.warning("upload extraction timed out for %s", f.filename)
+            raise HTTPException(
+                status_code=504,
+                detail=f"file '{f.filename}' took too long to extract",
+            ) from e
         except ValueError as e:
             # ValueError covers "unsupported file type" AND parser
             # failures wrapped by file_extraction.py. The message itself

@@ -34,7 +34,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas holidays
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_customer_support
 """
 
@@ -227,7 +227,10 @@ case_struct = StructType([
 @F.pandas_udf(case_struct)
 def gen_case(ids: pd.Series) -> pd.DataFrame:
     import numpy as np
-    rng = np.random.default_rng()
+    # Seeded per Arrow batch (by its first row id) so every run — and every re-evaluation of the
+    # lazy cases_raw plan (support_cases AND the ai_assistant_usage aggregate both read it) —
+    # produces the SAME cases. Unseeded, usage and cases disagreed and KPIs moved on each upgrade.
+    rng = np.random.default_rng([20250602, int(ids.iloc[0]) if len(ids) else 0])
     cats = np.array(["How-To", "Access", "Billing", "Outage", "Bug", "Performance"])
     chans = np.array(["Email", "Chat", "In-App", "Phone"]); chan_w = np.array([0.32, 0.30, 0.25, 0.13])
     pris = np.array(["Low", "Medium", "High", "Critical"]); pri_w = np.array([0.28, 0.48, 0.20, 0.04])
@@ -397,6 +400,9 @@ version: 1.1
 source: {CATALOG}.{SCHEMA}.support_cases_enriched
 comment: "Governed customer-support KPIs. Measures stay correct under any dimension grouping. The AI Support Copilot (Agent Bricks) GA on 2025-06-02 sharply improved resolution time, cost and satisfaction."
 dimensions:
+  - name: Case ID
+    expr: case_id
+    comment: "Case grain. Lets the AI/BI dashboard read measures per case (schema-less SQL dataset) and aggregate in widgets."
   - name: Opened Date
     expr: opened_date
   - name: Opened Month

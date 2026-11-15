@@ -1,0 +1,14 @@
+<h2>2/ Train + register the classifier</h2>
+<p>The training set is just <code>customer_id</code> + label for the ~650 tagged customers. The feature table fills in the rest.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Train a premium-status classifier on the labeled customers: take <code>customer_id</code> + <code>premium_status</code> from the customers data, look the features up from <code>gold_customer_features</code> with <code>FeatureLookup</code> + <code>fe.create_training_set</code>, track it in MLflow, and log it with <code>fe.log_model(training_set=...)</code> to Unity Catalog — wrap any encoding + the model in one pyfunc that returns the premium probability. Then <strong>set the <code>prod</code> alias</strong> on that version with <code>MlflowClient().set_registered_model_alias(...)</code> and read it back.</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> registering is <strong>not</strong> the same as aliasing — the Assistant often skips the second. Check it:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Show me the aliases on the registered model, and the feature table it was trained from.</p>
+</blockquote>
+<p>No alias → the next step's <code>models:/…@prod</code> lookup fails. The MLflow run should show a sensible AUC, and the model's lineage should point at <code>gold_customer_features</code>.</p>

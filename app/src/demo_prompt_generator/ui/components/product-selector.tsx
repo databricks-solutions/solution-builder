@@ -47,13 +47,12 @@ const CAPABILITY_ORDER: Record<string, number> = {
   "abac": 20,
   "data-classification": 30,
   // Agent Bricks: ML + MLflow and Model Serving last
-  "knowledge-assistant": 10,
-  "supervisor-agent": 20,
+  "unstructured-documents": 10,
   "information-extraction": 30,
   "vector-search": 40,
   "ai-gateway": 50,
-  "model-training-mlflow": 90,
-  "model-serving": 91,
+  "ml-training-serving": 90,
+  "feature-store": 91, // right after ML Training & Serving — it only makes sense with it
 };
 
 // Capabilities hidden by default (less commonly used)
@@ -84,9 +83,9 @@ const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
   "synthetic-data-gen": "ingest",
   "ai-functions": "ai",
   "metric-views": "analytics",
-  "knowledge-assistant": "ai",
-  "supervisor-agent": "ai",
+  "unstructured-documents": "ai",
   "ml-training-serving": "ai",
+  "feature-store": "ai",
   "vector-search": "ai",
   "information-extraction": "ai",
   "ai-gateway": "ai",
@@ -240,7 +239,7 @@ function ProductTile({
       onClick={() => !isUnavailable && onToggle()}
       disabled={isUnavailable}
       className={cn(
-        "group relative w-full text-left rounded-xl border transition-all",
+        "group relative w-full text-left rounded-lg border transition-all",
         isUnavailable && "opacity-50 cursor-not-allowed",
         !isUnavailable && "cursor-pointer",
         !isUnavailable && isSelected
@@ -256,10 +255,10 @@ function ProductTile({
         isExplicitlyUnselected && "ring-1 ring-muted-foreground/30",
       )}
     >
-      <div className="flex items-center gap-2.5 px-2.5 py-2">
+      <div className="flex items-center gap-2 px-2 py-1">
         <div
           className={cn(
-            "shrink-0 flex items-center justify-center h-7 w-7 rounded-md",
+            "shrink-0 flex items-center justify-center h-6 w-6 rounded-md",
             isSelected && !isUnavailable
               ? cn(cfg.bg, "border", cfg.border)
               : "bg-muted/40 border border-border/30",
@@ -333,7 +332,7 @@ function BundleTile({
       onClick={() => !isUnavailable && onToggle()}
       disabled={isUnavailable}
       className={cn(
-        "group relative w-full text-left rounded-xl border transition-all",
+        "group relative w-full text-left rounded-lg border transition-all",
         isUnavailable && "opacity-50 cursor-not-allowed",
         !isUnavailable && "cursor-pointer",
         !isUnavailable && isSelected
@@ -349,13 +348,13 @@ function BundleTile({
         isExplicitlyUnselected && "ring-1 ring-muted-foreground/30",
       )}
     >
-      <div className="flex items-center gap-2.5 px-2.5 py-2">
+      <div className="flex items-center gap-2 px-2 py-1">
         {/* Stacked-icon affordance: two small icons side-by-side inside
             one bordered box so the tile reads as "a paired thing", not
             two adjacent tiles that happen to share a header. */}
         <div
           className={cn(
-            "shrink-0 flex items-center gap-0.5 px-1 h-7 rounded-md",
+            "shrink-0 flex items-center gap-0.5 px-1 h-6 rounded-md",
             isSelected && !isUnavailable
               ? cn(cfg.bg, "border", cfg.border)
               : "bg-muted/40 border border-border/30",
@@ -429,16 +428,18 @@ export function ProductSelector({
     <TooltipProvider delayDuration={100}>
       <div
         className={cn(
-          "grid transition-all duration-300 ease-in-out overflow-hidden",
-          expanded ? "grid-rows-[1fr] opacity-100 mt-3" : "grid-rows-[0fr] opacity-0 mt-0"
+          "grid transition-all duration-300 ease-in-out",
+          // Clip only while collapsed — open, overflow-hidden cuts the edge
+          // tiles' borders and selection rings.
+          expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 overflow-hidden"
         )}
       >
-        <div className="overflow-hidden">
-          <div className="border-t border-border/50 pt-4">
-            <div className="flex flex-col items-center text-center mb-4 gap-1">
+        <div className={cn(!expanded && "overflow-hidden")}>
+          <div>
+            <div className="flex flex-col items-center text-center mb-3 gap-0.5">
               <div className="flex items-center gap-2.5">
                 {title && (
-                  <p className="text-base font-semibold text-foreground">
+                  <p className="text-sm font-semibold text-foreground">
                     {title}
                   </p>
                 )}
@@ -509,14 +510,14 @@ export function ProductSelector({
                   <div key={category.id} className="flex flex-col">
                     <div
                       className={cn(
-                        "text-[10px] font-bold uppercase tracking-[0.14em] pb-1.5 mb-2 border-b-2",
+                        "text-[10px] font-bold uppercase tracking-[0.14em] pb-1 mb-1.5 border-b-2",
                         cfg.color,
                       )}
                       style={{ borderColor: cfg.stripe }}
                     >
                       {category.name}
                     </div>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-1">
                       {visibleProducts.map((product) => {
                         if (product.id === "_separator") {
                           return <div key={product.id} className="h-1.5" />;

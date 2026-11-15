@@ -38,8 +38,7 @@ const CAPABILITY_DURATION_MIN: Record<string, number> = {
   "metric-views": 3,
 
   // AI
-  "knowledge-assistant": 10,
-  "supervisor-agent": 6,
+  "unstructured-documents": 8,
   "ml-training-serving": 15,
   "vector-search": 6,
   "information-extraction": 8,

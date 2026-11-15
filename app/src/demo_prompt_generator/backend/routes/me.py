@@ -90,14 +90,16 @@ def update_my_settings(
     their projects). Empty clears it → fall back to the server default."""
     who = whoami(headers, session)
     if _user_target is None:  # generic build — targets aren't a concept here
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=404, detail="Cross-workspace deploy is not available in this build.")
     if not who.email:
         # Local mode with no configured user — nothing to key settings on.
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail="No current user to save settings for.")
+    if body.target_workspace_host and body.target_workspace_host.strip():
+        # Stored targets later receive the deployer SP secret, so only workspace URLs may be saved.
+        try:
+            _target_probe.validate_target_host(body.target_workspace_host)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     _user_target.set_user_target(session, who.email, body.target_workspace_host, config=config)
     saved = _user_target.get_user_target(session, who.email)
     return UserSettingsOut(
@@ -140,6 +142,9 @@ def validate_my_deploy_target(
         ),
         catalog_overrides=config.target_catalog_overrides,
     )
+    if verdict.status == _target_probe.STATUS_INVALID_HOST:
+        # Never contacted: the deployer secret is only ever sent to Databricks workspaces.
+        raise HTTPException(status_code=400, detail=verdict.message)
     sp_name = "solution-builder-deployer"
     sp_app_id = config.deployer_sp_client_id
     admin_url = None

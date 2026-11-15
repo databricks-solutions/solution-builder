@@ -1,0 +1,1057 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs (decided requests, last 120 days)",
+      "queryLines": [
+        "SELECT\n",
+        "  COUNT(*) AS requests,\n",
+        "  COUNT_IF(final_outcome IN ('Approved','Denied')) AS decided,\n",
+        "  ROUND(COUNT_IF(final_outcome = 'Denied') / NULLIF(COUNT_IF(final_outcome IN ('Approved','Denied')), 0), 4) AS denial_rate,\n",
+        "  ROUND(AVG(CASE WHEN urgency = 'Expedited' AND sla_met THEN 1 WHEN urgency = 'Expedited' AND sla_met = false THEN 0 END), 4) AS expedited_sla,\n",
+        "  ROUND(AVG(CASE WHEN urgency = 'Standard' AND sla_met THEN 1 WHEN urgency = 'Standard' AND sla_met = false THEN 0 END), 4) AS standard_sla,\n",
+        "  ROUND(PERCENTILE(turnaround_hours, 0.5), 1) AS median_tat_h,\n",
+        "  ROUND(AVG(CASE WHEN criteria_met_on_first_review THEN 1 WHEN criteria_met_on_first_review = false THEN 0 END), 4) AS first_pass_clean,\n",
+        "  COUNT_IF(final_outcome = 'Open') AS open_backlog\n",
+        "FROM pa_requests\n"
+      ]
+    },
+    {
+      "name": "ds_weekly",
+      "displayName": "Weekly SLA compliance, first-pass clean and auto-approval rate",
+      "queryLines": [
+        "SELECT DATE_TRUNC('WEEK', received_ts) AS week,\n",
+        "  COUNT(*) AS requests,\n",
+        "  ROUND(AVG(CASE WHEN sla_met THEN 1 WHEN sla_met = false THEN 0 END), 4) AS sla_compliance,\n",
+        "  ROUND(AVG(CASE WHEN criteria_met_on_first_review THEN 1 WHEN criteria_met_on_first_review = false THEN 0 END), 4) AS first_pass_clean,\n",
+        "  ROUND(COUNT_IF(decided_by_role = 'Automation') / NULLIF(COUNT_IF(final_outcome IN ('Approved','Denied')), 0), 4) AS auto_approval_rate,\n",
+        "  ROUND(AVG(CASE WHEN urgency = 'Expedited' AND sla_met THEN 1 WHEN urgency = 'Expedited' AND sla_met = false THEN 0 END), 4) AS expedited_sla,\n",
+        "  ROUND(AVG(CASE WHEN urgency = 'Standard' AND sla_met THEN 1 WHEN urgency = 'Standard' AND sla_met = false THEN 0 END), 4) AS standard_sla,\n",
+        "  ROUND(COUNT_IF(final_outcome = 'Denied') / NULLIF(COUNT_IF(final_outcome IN ('Approved','Denied')), 0), 4) AS denial_rate,\n",
+        "  ROUND(PERCENTILE(turnaround_hours, 0.5), 1) AS median_tat_h\n",
+        "FROM pa_requests\n",
+        "WHERE final_outcome <> 'Open' AND received_ts < (SELECT MAX(as_of_ts) - INTERVAL 7 DAYS FROM snapshot_info)\n",
+        "GROUP BY ALL HAVING COUNT(*) >= 100\n",
+        "ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_exp_arrival",
+      "displayName": "Expedited 72h compliance by arrival window x channel",
+      "queryLines": [
+        "SELECT CONCAT(CASE WHEN dayofweek(received_ts) IN (1,7) OR (dayofweek(received_ts)=6 AND hour(received_ts)>=15) THEN 'Weekend' ELSE 'Weekday' END, ' · ', channel) AS segment,\n",
+        "  CASE WHEN (dayofweek(received_ts) IN (1,7) OR (dayofweek(received_ts)=6 AND hour(received_ts)>=15)) AND channel = 'Fax' THEN 'Weekend fax' ELSE 'All other segments' END AS focus,\n",
+        "  COUNT(*) AS decided_requests,\n",
+        "  ROUND(AVG(CASE WHEN sla_met THEN 1 ELSE 0 END), 4) AS sla_compliance,\n",
+        "  COUNT_IF(sla_met = false) AS breaches\n",
+        "FROM pa_requests WHERE urgency = 'Expedited' AND final_outcome IN ('Approved','Denied')\n",
+        "GROUP BY ALL"
+      ]
+    },
+    {
+      "name": "ds_backlog",
+      "displayName": "Open backlog by day (received but not yet decided)",
+      "queryLines": [
+        "WITH days AS (\n",
+        "  SELECT explode(sequence(DATE(MIN(received_ts)) + 7, DATE((SELECT MAX(as_of_ts) FROM snapshot_info)), INTERVAL 1 DAY)) AS d FROM pa_requests)\n",
+        "SELECT d AS day,\n",
+        "  COUNT_IF(r.urgency = 'Standard') AS standard_open,\n",
+        "  COUNT_IF(r.urgency = 'Expedited') AS expedited_open\n",
+        "FROM days JOIN pa_requests r ON r.received_ts < CAST(d AS TIMESTAMP) + INTERVAL 8 HOURS\n",
+        "  AND (r.decision_ts IS NULL OR r.decision_ts >= CAST(d AS TIMESTAMP) + INTERVAL 8 HOURS)\n",
+        "GROUP BY d\n"
+      ]
+    },
+    {
+      "name": "ds_path",
+      "displayName": "Turnaround by decision path",
+      "queryLines": [
+        "SELECT decision_path, COUNT(*) AS requests,\n",
+        "  ROUND(PERCENTILE(turnaround_hours, 0.5), 1) AS median_tat_h\n",
+        "FROM pa_requests WHERE decision_path IS NOT NULL GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_group",
+      "displayName": "Pend rate and first-pass clean rate by practice group",
+      "queryLines": [
+        "SELECT p.practice_group,\n",
+        "  COUNT(*) AS requests,\n",
+        "  ROUND(AVG(CASE WHEN r.pend_count > 0 THEN 1 ELSE 0 END), 4) AS pend_rate,\n",
+        "  ROUND(AVG(CASE WHEN r.criteria_met_on_first_review THEN 1 WHEN r.criteria_met_on_first_review = false THEN 0 END), 4) AS first_pass_clean\n",
+        "FROM pa_requests r JOIN providers p ON p.provider_id = r.provider_id\n",
+        "WHERE r.final_outcome <> 'Open' GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_pend_reasons",
+      "displayName": "Top pend reasons",
+      "queryLines": [
+        "SELECT CONCAT(service_description, ' — ', REPLACE(pend_reason, 'Missing documentation: ', '')) AS pend_reason, COUNT(*) AS pends\n",
+        "FROM pa_requests WHERE pend_reason IS NOT NULL GROUP BY ALL ORDER BY pends DESC LIMIT 8\n"
+      ]
+    },
+    {
+      "name": "ds_lanes",
+      "displayName": "Open queue by AI pre-review lane",
+      "queryLines": [
+        "SELECT a.ai_lane, r.urgency, COUNT(*) AS open_requests\n",
+        "FROM ai_case_review a JOIN pa_requests r ON r.request_id = a.request_id GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_writeback",
+      "displayName": "Decisions recorded in the PA Copilot app (write-back)",
+      "queryLines": [
+        "SELECT COALESCE(decision, 'none yet') AS decision, COUNT(decision_id) AS decisions\n",
+        "FROM (SELECT 1) LEFT JOIN um_decisions ON true GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_weekly_long",
+      "displayName": "Weekly SLA and first-pass (long)",
+      "queryLines": [
+        "WITH w AS (SELECT DATE_TRUNC('WEEK', received_ts) AS week,\n",
+        "  ROUND(AVG(CASE WHEN sla_met THEN 1 WHEN sla_met = false THEN 0 END), 4) AS sla_compliance,\n",
+        "  ROUND(AVG(CASE WHEN criteria_met_on_first_review THEN 1 WHEN criteria_met_on_first_review = false THEN 0 END), 4) AS first_pass_clean,\n",
+        "  COUNT(*) AS requests\n",
+        "FROM pa_requests\n",
+        "WHERE final_outcome <> 'Open' AND received_ts < (SELECT MAX(as_of_ts) - INTERVAL 7 DAYS FROM snapshot_info)\n",
+        "GROUP BY ALL HAVING COUNT(*) >= 100)\n",
+        "SELECT week, 'SLA met' AS measure, sla_compliance AS value FROM w\n",
+        "UNION ALL SELECT week, 'Clean on first review' AS measure, first_pass_clean AS value FROM w\n",
+        "ORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_backlog_long",
+      "displayName": "Open backlog by urgency (long)",
+      "queryLines": [
+        "WITH b AS (WITH days AS (\n",
+        "  SELECT explode(sequence(DATE(MIN(received_ts)) + 7, DATE((SELECT MAX(as_of_ts) FROM snapshot_info)), INTERVAL 1 DAY)) AS d FROM pa_requests)\n",
+        "SELECT d AS day,\n",
+        "  COUNT_IF(r.urgency = 'Standard') AS standard_open,\n",
+        "  COUNT_IF(r.urgency = 'Expedited') AS expedited_open\n",
+        "FROM days JOIN pa_requests r ON r.received_ts < CAST(d AS TIMESTAMP) + INTERVAL 8 HOURS\n",
+        "  AND (r.decision_ts IS NULL OR r.decision_ts >= CAST(d AS TIMESTAMP) + INTERVAL 8 HOURS)\n",
+        "GROUP BY d)\n",
+        "SELECT day, 'Standard' AS urgency, standard_open AS open_requests FROM b\n",
+        "UNION ALL SELECT day, 'Expedited' AS urgency, expedited_open AS open_requests FROM b\n",
+        "ORDER BY day"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "p_scorecard",
+      "displayName": "1 · CMS scorecard",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# MedVault Health Plan — Prior Authorization Operations (CMS-0057-F)\n",
+                "\n",
+                "Utilization Management scorecard for the last 120 days (synthetic data). CMS requires a decision within **72 hours for expedited** and **7 days for standard** requests. Half of all requests are **clean on first review** yet still wait ~2.5 days in the queue — the auto-approval lane (rules pilot on ePA imaging, then AI-cited criteria in the PA Copilot app) is how MedVault closes the gap."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_exp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(expedited_sla)",
+                      "expression": "SUM(`expedited_sla`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(expedited_sla)",
+                  "displayName": "Expedited within 72h (latest week)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Expedited within 72h (latest week)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_std",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(standard_sla)",
+                      "expression": "SUM(`standard_sla`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(standard_sla)",
+                  "displayName": "Standard within 7 days (latest week)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Standard within 7 days (latest week)"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_clean",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(first_pass_clean)",
+                      "expression": "SUM(`first_pass_clean`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(first_pass_clean)",
+                  "displayName": "Clean on first review (latest week)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Clean on first review (latest week)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_tat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(median_tat_h)",
+                      "expression": "SUM(`median_tat_h`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(median_tat_h)",
+                  "displayName": "Median turnaround, latest week (h)"
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Median turnaround, latest week (h)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_den",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(denial_rate)",
+                      "expression": "SUM(`denial_rate`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(denial_rate)",
+                  "displayName": "Denial rate (latest week)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Denial rate (latest week)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_open",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "open_backlog",
+                      "expression": "`open_backlog`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_backlog",
+                  "displayName": "Open backlog (snapshot)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open backlog (snapshot)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "c_weekly",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly_long",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "value",
+                      "expression": "`value`"
+                    },
+                    {
+                      "name": "measure",
+                      "expression": "`measure`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "value",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Share of requests"
+                },
+                "color": {
+                  "fieldName": "measure",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Measure"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly SLA compliance holds ~83%, yet only ~52% are clean on first review"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c_lanes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_lanes",
+                  "fields": [
+                    {
+                      "name": "ai_lane",
+                      "expression": "`ai_lane`"
+                    },
+                    {
+                      "name": "open_requests",
+                      "expression": "`open_requests`"
+                    },
+                    {
+                      "name": "urgency",
+                      "expression": "`urgency`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "open_requests",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Open requests"
+                },
+                "y": {
+                  "fieldName": "ai_lane",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "AI pre-review lane"
+                },
+                "color": {
+                  "fieldName": "urgency",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Urgency"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open queue by AI pre-review lane"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 7,
+            "width": 2,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c_backlog",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_backlog_long",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "open_requests",
+                      "expression": "`open_requests`"
+                    },
+                    {
+                      "name": "urgency",
+                      "expression": "`urgency`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "open_requests",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Open requests"
+                },
+                "color": {
+                  "fieldName": "urgency",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Urgency"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open backlog at 08:00 each day — the Monday spike after weekend fax intake"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "c_pilot",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_weekly",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "auto_approval_rate",
+                      "expression": "`auto_approval_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "auto_approval_rate",
+                      "displayName": "Auto-approval rate (%)"
+                    }
+                  ],
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Auto-approval pilot — rate climbing since the 3-week-ago launch (clean ePA imaging)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "p_drivers",
+      "displayName": "2 · Where the time goes",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Where the time goes\n",
+                "Expedited misses are almost all **weekend faxes** (manual indexing Monday). Lumbar-spine MRI pends are driven by missing **conservative-therapy** documentation — concentrated at **Cascade Spine & Pain Associates**; **Northside Orthopedic Associates** is a gold-card candidate."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "c_arrival",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_exp_arrival",
+                  "fields": [
+                    {
+                      "name": "segment",
+                      "expression": "`segment`"
+                    },
+                    {
+                      "name": "sla_compliance",
+                      "expression": "`sla_compliance`"
+                    },
+                    {
+                      "name": "focus",
+                      "expression": "`focus`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sla_compliance",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Expedited within 72h (%)"
+                },
+                "y": {
+                  "fieldName": "segment",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Arrival window and channel"
+                },
+                "color": {
+                  "fieldName": "focus",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Weekend fax",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "All other segments",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  },
+                  "displayName": "Segment"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Expedited 72h compliance by arrival window and intake channel"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c_path",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_path",
+                  "fields": [
+                    {
+                      "name": "decision_path",
+                      "expression": "`decision_path`"
+                    },
+                    {
+                      "name": "median_tat_h",
+                      "expression": "`median_tat_h`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "median_tat_h",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median turnaround (h)"
+                },
+                "y": {
+                  "fieldName": "decision_path",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Decision path"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Median turnaround (h) by decision path: clean nurse approvals still wait ~2.5 days"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "c_group",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_group",
+                  "fields": [
+                    {
+                      "name": "practice_group",
+                      "expression": "`practice_group`"
+                    },
+                    {
+                      "name": "pend_rate",
+                      "expression": "`pend_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "pend_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Pend rate (%)"
+                },
+                "y": {
+                  "fieldName": "practice_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Practice group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Pend rate by requesting practice group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "c_reasons",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_pend_reasons",
+                  "fields": [
+                    {
+                      "name": "pend_reason",
+                      "expression": "`pend_reason`"
+                    },
+                    {
+                      "name": "pends",
+                      "expression": "`pends`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "pends",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Pends (count)"
+                },
+                "y": {
+                  "fieldName": "pend_reason",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Pend reason"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top pend reasons (missing documentation)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 9,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "c_wb",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_writeback",
+                  "fields": [
+                    {
+                      "name": "decision",
+                      "expression": "`decision`"
+                    },
+                    {
+                      "name": "decisions",
+                      "expression": "`decisions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "decision",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "decision"
+                },
+                "y": {
+                  "fieldName": "decisions",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "decisions"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Decisions written back from the PA Copilot app (Delta um_decisions)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

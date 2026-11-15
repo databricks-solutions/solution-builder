@@ -1,0 +1,10 @@
+<h2>How the semantics stack fits together</h2>
+<p>Your data already holds the answers — but the <em>meaning</em> is scattered across dashboards, SQL, spreadsheets and people's heads. Unity Catalog puts a governed <strong>business semantics</strong> layer directly on the data, so AI resolves the <em>right</em> definition instead of guessing from raw tables. Four layers, each solving one problem:</p>
+<div class="sem">
+  <div class="sem-row sem-raw"><div class="sem-layer"><span class="dot"></span>Raw data</div><div class="sem-what">Facts &amp; events — <span class="k">orders, returns, production lots</span></div></div>
+  <div class="sem-row sem-mv"><div class="sem-layer"><span class="dot"></span>Metric View</div><div class="sem-what"><strong>Makes the numbers right.</strong> Governed KPIs + dimensions, defined once — <span class="k">"return_rate = returns ÷ orders"</span></div></div>
+  <div class="sem-row sem-page"><div class="sem-layer"><span class="dot"></span>Pages &amp; Domains</div><div class="sem-what"><strong>Make the language right.</strong> Authoritative definitions of terms &amp; concepts (Pages), organized by business area (Domains) — <span class="k">"what counts as an anomaly"</span></div></div>
+  <div class="sem-row sem-onto"><div class="sem-layer"><span class="dot"></span>Genie Ontology</div><div class="sem-what"><strong>Makes the context connected.</strong> Links your modeled definitions with knowledge <em>inferred</em> from dashboards, queries &amp; agents; ranks sources by authority</div></div>
+  <div class="sem-row sem-one"><div class="sem-layer"><span class="dot"></span>Genie One</div><div class="sem-what"><strong>Makes it accessible to everyone.</strong> One front door: business users ask in plain English, grounded in the governed context — <span class="k">"why did returns spike in France?"</span></div></div>
+</div>
+<p style="font-size:12.5px; color:var(--muted);">The strategy: <strong>model the head, infer the tail</strong> — hand-model your few most important KPIs and terms, and let the ontology infer the rest from what you've already built. We'll start that here with one metric view.</p>

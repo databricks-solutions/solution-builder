@@ -1,0 +1,223 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "274dd39f4d0fee52780ab41c633246e0",
+        "question": [
+          "How many submissions are in the queue by triage lane, with total TIV?"
+        ]
+      },
+      {
+        "id": "5cdfcba8a3eb200adc9d6d4f1f213875",
+        "question": [
+          "Show the hail-belt habitational loss ratio by quarter for roofs over 15 years vs newer roofs"
+        ]
+      },
+      {
+        "id": "68647806ac667ac0649c913909c4ac88",
+        "question": [
+          "Which queued submissions have documents that disagree with the application?"
+        ]
+      },
+      {
+        "id": "7b90948185b63abf56bbbb0e477c28b5",
+        "question": [
+          "Which segment's loss ratio deteriorated the most over the last four quarters?"
+        ]
+      },
+      {
+        "id": "c33115aa577dee8d56fa0542bfdcb1ff",
+        "question": [
+          "Which perils drove hail-belt habitational losses in the last four quarters?"
+        ]
+      },
+      {
+        "id": "dbc7b2fe0de39058798de8e41fe8111c",
+        "question": [
+          "What is our hit ratio by broker tier over the last 12 months?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "What does the appetite bulletin say about hail-belt habitational roofs older than 15 years, and when does a submission need CUO referral?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.appetite_rules",
+        "description": [
+          "Appetite, documentation and authority rules with their guideline reference (doc_ref) and action."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.brokers",
+        "description": [
+          "Brokers appointed with Tidewell (tier Premier / Preferred / Standard)."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.claims",
+        "description": [
+          "Claims by accident quarter (2024-Q3 to 2026-Q2): peril (Hail, Wind, Fire, Water damage, ...), incurred_amount = paid + reserve. Numerator of loss ratios."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.gold_broker_performance",
+        "description": [
+          "Per broker, trailing 12 months: submissions, quoted, bound, declined, hit_ratio (bound / quoted), bound_premium, and book_loss_ratio of the broker's policies."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.gold_portfolio_quarterly",
+        "description": [
+          "PREFERRED for loss-ratio questions: per quarter x portfolio_cell x roof_band: earned_premium, incurred, wind_hail_incurred, claim_count, loss_ratio. portfolio_cell values: 'Habitational · Hail belt', 'Habitational · Other states', 'Retail & Restaurants', 'Light Manufacturing', 'Warehouse & Distribution', 'Office & Professional', 'Hospitality'. roof_band: 'Roof > 15 yrs' / 'Roof <= 15 yrs'."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.gold_submission_queue",
+        "description": [
+          "TODAY'S QUEUE (Mon 28 Sep 2026), one row per new submission: application values (app_*) vs AI-extracted SOV (sov_*) and loss runs (lr_*), discrepancies (array), rules_hit (array of rule IDs), p_as_submitted / p_verified (ML risk), band_as_submitted / band_verified, triage_lane, priority_score, premium_potential, days_to_effective."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.loss_run_claims",
+        "description": [
+          "AI-extracted prior-carrier loss-run claims for queued submissions: loss_date, line, loc_no, cause, paid, reserve, total_incurred, status, wind_hail flag."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.policies",
+        "description": [
+          "Tidewell commercial property / package policies (12-month terms, effective Jul-2023 to Jun-2026) with the underwriting characteristics at bind: segment, state, hail_belt (TX OK KS NE CO), construction, roof_age_years, sprinklered, protection_class, tiv, written_premium, broker_id."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.policy_quarters",
+        "description": [
+          "Earned premium per policy per calendar quarter (2024-Q3 to 2026-Q2). Denominator of loss ratios."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.sov_locations",
+        "description": [
+          "AI-extracted (ai_parse_document + ai_query) statement-of-values rows for queued submissions: one row per building with construction, year_built, roof_year, roof_age_years, sprinklered, protection_class, tiv."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.submission_history",
+        "description": [
+          "Historical submissions received May-2024 to Sep-2026 with outcome BOUND / QUOTED_NOT_BOUND / DECLINED and decline_reason."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.submission_risk_scores",
+        "description": [
+          "submission_risk_model@champion scores per queued submission: p_as_submitted (on the application) vs p_verified (on SOV + loss runs); bands Low < 0.25 <= Moderate < 0.45 <= High; drivers."
+        ]
+      },
+      {
+        "identifier": "financial_services.commercial_underwriting_copilot.uw_decisions",
+        "description": [
+          "Decisions issued by the underwriting desk from the app (QUOTE, QUOTE_WITH_CONDITIONS, DECLINE) with premium, excluded locations, conditions, rationale, decided_by and decided_at. Empty until the desk issues a decision."
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "1cb251ec0d568de6a929b520c4aed8d1",
+        "content": [
+          "Tidewell Specialty Insurance is a FICTIONAL US middle-market commercial property & package insurer. Today is Monday 28 September 2026.\n",
+          "Loss ratio (LR) = SUM(incurred) / SUM(earned_premium), always aggregated as a ratio of sums, never an average of row-level loss_ratio. Show it as a percentage with 0 decimals.\n",
+          "Portfolio data runs by accident quarter from 2024-Q3 to 2026-Q2; the latest COMPLETE quarter is 2026-Q2. 'Last four quarters' = 2025-Q3, 2025-Q4, 2026-Q1, 2026-Q2; 'prior four quarters' = 2024-Q3 .. 2025-Q2. Quarter strings sort chronologically.\n",
+          "Use gold_portfolio_quarterly for any loss-ratio question by segment / portfolio cell / roof band / quarter. 'Hail belt' = TX, OK, KS, NE, CO. 'Hail-belt habitational' = portfolio_cell 'Habitational · Hail belt'. 'Old roofs' = roof_band 'Roof > 15 yrs'.\n",
+          "When asked which segment deteriorated, compare the last four quarters with the prior four quarters per portfolio_cell and report both loss ratios and the change in points.\n",
+          "Hit ratio = bound / quoted (quoted = BOUND + QUOTED_NOT_BOUND). Use gold_broker_performance for broker questions (trailing 12 months).\n",
+          "Questions about 'the queue', 'open submissions' or 'new submissions' use gold_submission_queue (24 rows). TIV in the queue = sov_tiv (verified). Sort the queue by priority_score DESC.\n",
+          "Money in USD; format large values in $K or $M.\n",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "274dd39f4d0fee52780ab41c633246e0",
+        "question": [
+          "How many submissions are in the queue by triage lane, with total TIV?"
+        ],
+        "sql": [
+          "SELECT triage_lane, COUNT(*) AS submissions, ROUND(SUM(sov_tiv) / 1e6, 1) AS tiv_musd, ROUND(SUM(premium_potential)) AS premium_potential FROM financial_services.commercial_underwriting_copilot.gold_submission_queue GROUP BY triage_lane ORDER BY submissions DESC"
+        ]
+      },
+      {
+        "id": "68647806ac667ac0649c913909c4ac88",
+        "question": [
+          "Which queued submissions have documents that disagree with the application?"
+        ],
+        "sql": [
+          "SELECT submission_id, insured_name, broker_name, ROUND(sov_tiv / 1e6, 1) AS tiv_musd, band_as_submitted, band_verified, discrepancies FROM financial_services.commercial_underwriting_copilot.gold_submission_queue WHERE discrepancy_count > 0 ORDER BY priority_score DESC"
+        ]
+      },
+      {
+        "id": "7b90948185b63abf56bbbb0e477c28b5",
+        "question": [
+          "Which segment's loss ratio deteriorated the most over the last four quarters?"
+        ],
+        "sql": [
+          "SELECT portfolio_cell, ROUND(100 * SUM(CASE WHEN quarter BETWEEN '2024-Q3' AND '2025-Q2' THEN incurred END) / SUM(CASE WHEN quarter BETWEEN '2024-Q3' AND '2025-Q2' THEN earned_premium END), 0) AS prior_4q_lr_pct, ROUND(100 * SUM(CASE WHEN quarter BETWEEN '2025-Q3' AND '2026-Q2' THEN incurred END) / SUM(CASE WHEN quarter BETWEEN '2025-Q3' AND '2026-Q2' THEN earned_premium END), 0) AS last_4q_lr_pct, last_4q_lr_pct - prior_4q_lr_pct AS change_pts FROM financial_services.commercial_underwriting_copilot.gold_portfolio_quarterly GROUP BY portfolio_cell ORDER BY change_pts DESC"
+        ]
+      },
+      {
+        "id": "b025dfd379755fabdf8a11740ee85a32",
+        "question": [
+          "Book loss ratio by quarter"
+        ],
+        "sql": [
+          "SELECT quarter, ROUND(SUM(earned_premium)) AS earned_premium, ROUND(SUM(incurred)) AS incurred, ROUND(100 * SUM(incurred) / SUM(earned_premium), 0) AS loss_ratio_pct FROM financial_services.commercial_underwriting_copilot.gold_portfolio_quarterly GROUP BY quarter ORDER BY quarter"
+        ]
+      },
+      {
+        "id": "c33115aa577dee8d56fa0542bfdcb1ff",
+        "question": [
+          "Which perils drove hail-belt habitational losses in the last four quarters?"
+        ],
+        "sql": [
+          "SELECT c.peril, COUNT(*) AS claims, ROUND(SUM(c.incurred_amount)) AS incurred, ROUND(100 * SUM(c.incurred_amount) / SUM(SUM(c.incurred_amount)) OVER (), 0) AS share_pct FROM financial_services.commercial_underwriting_copilot.claims c JOIN financial_services.commercial_underwriting_copilot.policies p ON p.policy_id = c.policy_id WHERE p.segment_code = 'HAB' AND p.hail_belt AND c.accident_quarter BETWEEN '2025-Q3' AND '2026-Q2' GROUP BY c.peril ORDER BY incurred DESC"
+        ]
+      },
+      {
+        "id": "d306ec974c66085cb6839a9ee727461f",
+        "question": [
+          "Top 5 submissions in the queue by priority"
+        ],
+        "sql": [
+          "SELECT submission_id, insured_name, segment, state, ROUND(sov_tiv / 1e6, 1) AS tiv_musd, triage_lane, priority_score, band_verified FROM financial_services.commercial_underwriting_copilot.gold_submission_queue ORDER BY priority_score DESC LIMIT 5"
+        ]
+      },
+      {
+        "id": "e17eb8a2a1e9eda4569536a599dfe819",
+        "question": [
+          "Hit ratio by broker tier over the last 12 months"
+        ],
+        "sql": [
+          "SELECT tier, SUM(submissions) AS submissions, SUM(quoted) AS quoted, SUM(bound) AS bound, ROUND(100 * SUM(bound) / SUM(quoted), 0) AS hit_ratio_pct, ROUND(SUM(bound_premium)) AS bound_premium FROM financial_services.commercial_underwriting_copilot.gold_broker_performance GROUP BY tier ORDER BY hit_ratio_pct DESC"
+        ]
+      },
+      {
+        "id": "f5fa6213a0d6deedd6c3161f380020f3",
+        "question": [
+          "Hail-belt habitational loss ratio by quarter, roofs over 15 years vs newer"
+        ],
+        "sql": [
+          "SELECT quarter, ROUND(100 * SUM(CASE WHEN roof_band = 'Roof > 15 yrs' THEN incurred END) / SUM(CASE WHEN roof_band = 'Roof > 15 yrs' THEN earned_premium END), 0) AS old_roof_lr_pct, ROUND(100 * SUM(CASE WHEN roof_band = 'Roof <= 15 yrs' THEN incurred END) / SUM(CASE WHEN roof_band = 'Roof <= 15 yrs' THEN earned_premium END), 0) AS newer_roof_lr_pct, ROUND(100 * SUM(incurred) / SUM(earned_premium), 0) AS total_lr_pct FROM financial_services.commercial_underwriting_copilot.gold_portfolio_quarterly WHERE portfolio_cell = 'Habitational · Hail belt' GROUP BY quarter ORDER BY quarter"
+        ]
+      }
+    ]
+  }
+}

@@ -241,7 +241,7 @@ function FacilityBar({
                 : 'color-mix(in oklch, var(--primary) 22%, var(--muted))',
             }}
           />
-          <div className="absolute inset-0 flex items-center justify-end pr-2.5 text-xs font-medium text-foreground">
+          <div className={`absolute inset-0 flex items-center justify-end pr-2.5 text-xs font-medium ${isSelected ? 'text-primary-foreground' : 'text-foreground'}`}>
             {f.return_count.toLocaleString()}
           </div>
         </div>

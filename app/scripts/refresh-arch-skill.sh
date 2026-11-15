@@ -1,6 +1,6 @@
 #!/bin/bash
 # refresh-arch-skill — recompile the FULL databricks-architecture skill from the
-# app code (catalog + standalone viewer/editor HTML + render-arch.mjs into the
+# app code (catalog + standalone viewer/editor HTML + renderer helpers into the
 # skill's renderer/). Thin wrapper over build-architecture-skill.sh. Called by
 # dev.sh on every start so dev always runs with a fresh skill.
 #

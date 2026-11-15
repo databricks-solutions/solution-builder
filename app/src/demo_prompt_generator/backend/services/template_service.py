@@ -13,7 +13,9 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -29,9 +31,11 @@ from ..models import (
     TemplateStatus,
     TemplateType,
     generate_uuid,
+    resource_suffix,
     utc_now,
 )
 from .file_sync import compress_content, decompress_content, compute_file_hash
+from .live_demo import sync_seed_live_demo
 from ..core.constants import INDUSTRIES, get_capabilities
 from .llm_service import LLMService, ModelSize
 
@@ -44,6 +48,17 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # query only (the candidate SET for a given query is stable enough for a demo
 # gallery); insertion order = eviction order (drop oldest when full).
 _RERANK_CACHE: dict[str, list[str]] = {}
+
+
+def fork_mode_for(template_type: str) -> str:
+    """The project mode a fork of this template opens in: a Genie Code workshop
+    stays in workshop mode (tabs, kit, the system prompt's flow B), an
+    architecture template stays architecture-only. The reverse of publish's
+    mode_to_type."""
+    return {
+        TemplateType.GENIE_WORKSHOP.value: "workshop",
+        TemplateType.ARCHITECTURE.value: "architecture",
+    }.get(template_type, "story")
 
 
 def _extract_id_list(raw: str) -> list[str] | None:
@@ -85,6 +100,11 @@ def _should_include_in_template(relative_path: str) -> bool:
         "test-results", "playwright-report", "raw_data", ".turbo", ".next",
     }
     if any(seg in JUNK_DIRS for seg in parts):
+        return False
+    # The project's POV deck (stages/pov-deck.md) is built from its own story and
+    # links, so a fork builds its own. Only the top-level folder: an app may have
+    # its own deck/ source.
+    if parts and parts[0] == "deck":
         return False
 
     # Junk basenames (local env, deploy-state markers, OS cruft). NOTE: lockfiles
@@ -142,21 +162,53 @@ def _capabilities_from_resources_json(resources_json_text: str) -> list[str]:
     return out
 
 
-def _clear_created_resources(resources_json_bytes: bytes) -> bytes:
+def _clear_created_resources(resources_json_bytes: bytes, resource_suffix: str | None = None) -> bytes:
     """Return a resources.json with `created_resources` emptied but `capabilities`
     (and any other keys) preserved. Used when forking a template into a new project
     so the fork inherits the capability selection but points at NO live Databricks
     objects (the template's stored IDs are the author's workspace — dead links +
     false "built" status otherwise). Mirrors projects._fresh_resources_from /
-    clone_project. On parse failure, returns the bytes unchanged."""
+    clone_project.
+
+    `resource_suffix` (the NEW project's short id) overwrites any inherited
+    `resource_suffix` so the fork stamps its OWN suffix on the resources it builds —
+    the whole point of the isolation fix (two forks of one template must not share
+    a suffix). Dropped from the file if not provided. On parse failure, returns the
+    bytes unchanged."""
     try:
         data = json.loads(resources_json_bytes.decode("utf-8"))
         if isinstance(data, dict):
             data["created_resources"] = {}
+            if resource_suffix:
+                data["resource_suffix"] = resource_suffix
+            else:
+                data.pop("resource_suffix", None)
             return json.dumps(data, indent=2).encode("utf-8")
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         pass
     return resources_json_bytes
+
+
+# dbdemos usage-tracker app id, as written in a template app (server/lib/tracker.ts):
+# `"dbdemosAppId": "${DBDEMOS_APP_ID:<id>}"` in app/config/app.json, or a
+# `- name: DBDEMOS_APP_ID / value: <id>` env entry in databricks.yml.
+_TRACKER_ID_JSON = re.compile(r'("dbdemosAppId"\s*:\s*"\$\{DBDEMOS_APP_ID:)([^}"]*)(\}")')
+_TRACKER_ID_YAML = re.compile(r"(-\s*name:\s*DBDEMOS_APP_ID\s*\n\s*value:\s*)([^\s#]+)")
+
+
+def _unique_tracker_app_id(text: str, resource_suffix: str) -> str:
+    """Make a forked app report its OWN tracker app id: `<template-id>` →
+    `<template-id>-<resource_suffix>`, so two forks of one template (or the template
+    itself) never aggregate as one app. Empty ids (tracking off) stay empty;
+    idempotent (an id already ending in the suffix is left alone)."""
+
+    def _suffix(m: re.Match) -> str:
+        app_id = m.group(2)
+        if not app_id or app_id.endswith(f"-{resource_suffix}"):
+            return m.group(0)
+        return m.group(1) + f"{app_id}-{resource_suffix}" + (m.group(3) if m.lastindex == 3 else "")
+
+    return _TRACKER_ID_YAML.sub(_suffix, _TRACKER_ID_JSON.sub(_suffix, text))
 
 
 def _upsert_template_content(
@@ -235,6 +287,31 @@ def _embedding_text(
         (readme or "")[:8000] or None,
     ]
     return "\n\n".join(p.strip() for p in parts if p and p.strip())
+
+
+# Recent search-query embeddings (LRU). The same few queries repeat (home-page search,
+# retries), and each one is a model round-trip. Keyed by the whitespace-normalized query.
+_QUERY_EMBED_CACHE_MAX = 256
+_query_embed_cache: "OrderedDict[str, list[float]]" = OrderedDict()
+_query_embed_lock = threading.Lock()
+
+
+def _cached_query_embedding(llm: LLMService, query: str) -> list[float]:
+    key = " ".join(query.split())
+    with _query_embed_lock:
+        hit = _query_embed_cache.get(key)
+        if hit is not None:
+            _query_embed_cache.move_to_end(key)
+            return hit
+    embedding = llm.get_embedding(query)
+    # get_embedding returns the zero vector on failure: never pin that for later searches.
+    if any(embedding):
+        with _query_embed_lock:
+            _query_embed_cache[key] = embedding
+            _query_embed_cache.move_to_end(key)
+            while len(_query_embed_cache) > _QUERY_EMBED_CACHE_MAX:
+                _query_embed_cache.popitem(last=False)
+    return embedding
 
 
 def _store_embedding(session: Session, template_id: str, embedding: list[float]) -> None:
@@ -502,7 +579,7 @@ class TemplateService:
         #    (the `embedding IS NOT NULL` filter simply returns no rows). Lexical
         #    (below) always runs regardless, so search never depends on this.
         try:
-            query_embedding = self.llm.get_embedding(query)
+            query_embedding = _cached_query_embedding(self.llm, query)
             rows = session.execute(
                 text("""
                     SELECT
@@ -791,6 +868,7 @@ class TemplateService:
         warehouse_name: Optional[str] = None,
         default_catalog: Optional[str] = None,
         default_schema: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Project:
         """
         Create a new project from a template.
@@ -824,9 +902,15 @@ class TemplateService:
             select(TemplateContent).where(TemplateContent.template_id == template_id)
         ).all()
 
-        # Create new project with default resources
-        project_id = generate_uuid()
+        # Create new project with default resources. The caller may pass the
+        # project_id (so it can derive default_schema's per-project suffix from
+        # the SAME id before calling — see routes/templates.py); otherwise mint one.
+        project_id = project_id or generate_uuid()
+        sfx = resource_suffix(project_id)
+        fork_mode = fork_mode_for(template.template_type)
         project = Project(
+            mode=fork_mode,
+            architecture_first=fork_mode == "architecture",
             id=project_id,
             user_email=user_email,
             name=project_name,
@@ -849,7 +933,13 @@ class TemplateService:
             """Decompressed content for the fork, with resources.json transformed.
             Returns None to fall back to the verbatim compressed copy (perf path)."""
             if tf.relative_path.lower() == "resources.json":
-                return _clear_created_resources(decompress_content(tf.content_compressed))
+                return _clear_created_resources(decompress_content(tf.content_compressed), sfx)
+            # The fork gets its own dbdemos tracker app id (<template-id>-<suffix>).
+            if sfx and tf.relative_path in ("app/config/app.json", "databricks.yml"):
+                text = decompress_content(tf.content_compressed).decode("utf-8", errors="replace")
+                rewritten = _unique_tracker_app_id(text, sfx)
+                if rewritten != text:
+                    return rewritten.encode("utf-8")
             return None
 
         project_files = []
@@ -887,6 +977,13 @@ class TemplateService:
                 file_path.write_bytes(content)
             except Exception as e:
                 logger.error(f"Failed to write file {tf.relative_path}: {e}")
+
+        # The seed's live demo (same workspace only), so the POV deck stage can link it
+        # while this fork has no build of its own. The file watcher syncs it to the DB.
+        try:
+            sync_seed_live_demo(project_dir, template_id, template.live_demo)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to write the seed live demo for {project_id}: {e}")
 
         session.refresh(project)
         return project

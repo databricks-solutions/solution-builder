@@ -1,0 +1,62 @@
+{
+  // Calder Pine Private Wealth — Advisor Morning Book. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/advisor.ts): the Genie agent — wealth-desk analytics
+  // + the policy-library documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:fsi-wealth-advisor-nba}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Meeting brief + outreach writer (chat completions) used by "Prep meeting" on the client page.
+  "draftModel": "${DRAFT_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (wealth-desk view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.nba_propensity_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/policy_docs",
+
+  // Delta sources for the boot-time Lakebase mirror of the advisor's Morning Book (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "advisorId": "${ADVISOR_ID:ADV-007}",
+    "tables": {
+      "households":      "households",
+      "opportunities":   "household_opportunities",
+      "recommendations": "nba_recommendations",
+      "signals":         "gold_household_signals",
+      "accounts":        "accounts",
+      "liabilities":     "liabilities",
+      "notes":           "advisor_notes",
+      "noteInsights":    "note_insights",
+      "advisors":        "advisors",
+      "decisions":       "advisor_decisions"
+    }
+  },
+
+  "branding": {
+    "appName": "Advisor Morning Book"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Who do I call first?", "prompt": "Who should I call first this morning, and why?" },
+    { "label": "Can I pitch the note?", "prompt": "The model's top pick for Margaret Castellano is a structured note. Can I recommend it? What should I do instead?", "triggerAfter": ["Castellano", "Margaret"] },
+    { "label": "Money in motion firm-wide", "prompt": "How much client money is in motion across the firm, by signal type?", "triggerAfter": ["$"] },
+    { "label": "Does calling fast matter?", "prompt": "After a death or an inheritance, how much of their assets did households keep when the advisor called within 30 days vs when nobody called?", "triggerAfter": ["motion", "CD"] }
+  ]
+}

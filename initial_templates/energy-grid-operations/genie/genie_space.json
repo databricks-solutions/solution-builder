@@ -1,0 +1,238 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "10000000000000000000000000000001",
+        "question": [
+          "Which transformers are at risk of overload tomorrow?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000002",
+        "question": [
+          "Why is T-104 at risk?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000003",
+        "question": [
+          "What are the relief options for T-104 and which one is recommended?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000004",
+        "question": [
+          "Which critical facilities are served by T-104?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000005",
+        "question": [
+          "Show T-104's ethylene trend over the last 12 months"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000006",
+        "question": [
+          "What was our SAIDI and SAIFI over the last 12 months?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000007",
+        "question": [
+          "Which outage events contributed most to SAIDI?"
+        ]
+      },
+      {
+        "id": "10000000000000000000000000000008",
+        "question": [
+          "How much demand response is enrolled on the North Ridge feeders?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.critical_facilities"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.der_assets"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.dga_readings"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.dr_enrollments"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.feeder_load_hourly"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.feeders"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.operator_actions"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.outage_events"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.reliability_monthly"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.relief_option_hourly"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.relief_options"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.substations"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.tie_switches"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.transformer_health"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.transformer_load_forecast"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.transformer_telemetry_hourly"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.transformers"
+      },
+      {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.weather_hourly"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "30000000000000000000000000000001",
+        "content": [
+          "You are the analytics assistant for the control room of Midwest Regional Electric Cooperative (MREC), a distribution utility with 6 substations, 12 power transformers, 40 feeders (12.47 kV) and ~154k customers.\n",
+          "\n",
+          "Time context: the data is pinned to \"now\" = 2026-07-21 14:00 (local time, stored as-is in UTC timestamps; do NOT convert time zones). \"Tomorrow\" = 2026-07-22. Forecasts in transformer_load_forecast were made at 2026-07-21 14:00 and cover the next 48 hours. Weather rows with is_forecast = true are the NWS forecast.\n",
+          "\n",
+          "Definitions:\n",
+          "- Loading % = load MVA / nameplate_mva * 100. Over 100% = overload (over nameplate). emergency_mva (120%) is the 2-4 h emergency rating.\n",
+          "- Winding hot-spot design limit = 110°C, emergency limit = 120°C. aging_factor 1.0 = normal insulation aging at 110°C; e.g. 5 means 5x faster aging.\n",
+          "- overload_risk in transformer_health: CRITICAL = forecast over nameplate AND health tier Poor; HIGH = forecast over nameplate; WATCH = forecast > 88%; NORMAL otherwise.\n",
+          "- health_index 0-100, higher is healthier (Poor < 45, Fair < 65, Good < 85, Very good >= 85). DGA status follows IEEE C57.104 (Condition 1 = normal ... Condition 3 = high gassing). Rising ethylene/acetylene = thermal fault in the winding/oil.\n",
+          "- SAIDI (minutes) and SAIFI are IEEE 1366 indices. reliability_monthly holds monthly values; the 12-month SAIDI/SAIFI is the SUM of the last 12 monthly rows (month_start >= 2025-08-01). Annual targets: SAIDI 125 min, SAIFI 1.10. CAIDI = SAIDI / SAIFI.\n",
+          "- relief_options: costed load-relief actions for transformers forecast above 95%. recommended_rank = 1 is the recommended option (lowest composite_risk_score). clears_overload = post-action peak <= 100% and hot-spot <= 120°C. side_effect_peak_pct = the loading the receiving transformer reaches when load is switched onto it.\n",
+          "- Expected DR relief (kW) = committed_kw * expected_performance.\n",
+          "- operator_actions is the write-back log of actions approved by operators in the Grid Ops Copilot app.\n",
+          "\n",
+          "- The 14 Aug 2025 T-104 over-temperature trip is ONE event stored as THREE outage_events rows (one per feeder NR-12, NR-13, NR-14; transformer_id = 'T-104', started_at 2025-08-14 18:42, cause 'Overload / thermal'). Always SUM those rows: 9,800 customers interrupted, SAIDI contribution = SUM(customer_minutes_interrupted) / SUM(feeders.customers_total). Never report a single feeder row as the trip.\n",
+          "- \"Last 12 months\" / \"12-month\" SAIDI or SAIFI ALWAYS means the 12 monthly rows with month_start >= 2025-08-01 (relative to now = 2026-07-21), even when the question also mentions an older event.\n",
+          "When asked about a transformer \"at risk\", start from transformer_health (forecast_peak_pct, overload_risk, health_index, risk_drivers, customers_served, critical_facilities). Always show percentages with one decimal and MVA with two decimals. Prefer transformer_id labels like T-104 and feeder ids like NR-13.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "20000000000000000000000000000001",
+        "question": [
+          "Which transformers are at risk of overload tomorrow?"
+        ],
+        "sql": [
+          "SELECT transformer_id, substation_name, overload_risk, forecast_peak_pct, forecast_peak_at, forecast_peak_hot_spot_c,\n",
+          "       forecast_hours_over_nameplate, health_index, health_tier, customers_served\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.transformer_health\n",
+          "WHERE overload_risk <> 'NORMAL'\n",
+          "ORDER BY forecast_peak_pct DESC\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000002",
+        "question": [
+          "What are the relief options for T-104 and which one is recommended?"
+        ],
+        "sql": [
+          "SELECT recommended_rank, option_type, option_name, relief_at_peak_mva, estimated_cost_usd, customers_affected,\n",
+          "       post_peak_pct, post_hot_spot_c, clears_overload, n1_redundancy, side_effect_transformer_id, side_effect_peak_pct, customer_impact\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.relief_options\n",
+          "WHERE transformer_id = 'T-104'\n",
+          "ORDER BY recommended_rank\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000003",
+        "question": [
+          "What was our SAIDI and SAIFI over the last 12 months?"
+        ],
+        "sql": [
+          "SELECT ROUND(SUM(saidi_minutes), 1) AS saidi_minutes_12m, ROUND(SUM(saifi), 3) AS saifi_12m,\n",
+          "       ROUND(SUM(saidi_minutes) / SUM(saifi), 1) AS caidi_minutes\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.reliability_monthly\n",
+          "WHERE month_start >= '2025-08-01'\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000004",
+        "question": [
+          "Show T-104's ethylene trend over the last 12 months"
+        ],
+        "sql": [
+          "SELECT sample_date, ethylene_ppm, acetylene_ppm, tdcg_ppm, ieee_c57104_status\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.dga_readings\n",
+          "WHERE transformer_id = 'T-104' AND sample_date >= '2025-07-21'\n",
+          "ORDER BY sample_date\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000005",
+        "question": [
+          "Which outage events contributed most to SAIDI?"
+        ],
+        "sql": [
+          "SELECT o.outage_id, o.started_at, o.feeder_id, o.transformer_id, o.cause, o.customers_interrupted, o.duration_minutes,\n",
+          "       ROUND(o.customer_minutes_interrupted / (SELECT SUM(customers_total) FROM {{CATALOG}}.{{SCHEMA}}.feeders), 2) AS saidi_contribution_min\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.outage_events o\n",
+          "ORDER BY o.customer_minutes_interrupted DESC\n",
+          "LIMIT 10\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000006",
+        "question": [
+          "How much demand response is enrolled on the North Ridge feeders?"
+        ],
+        "sql": [
+          "SELECT d.feeder_id, d.program, COUNT(*) AS enrollments, SUM(d.enrolled_devices) AS devices,\n",
+          "       SUM(d.committed_kw) AS committed_kw, ROUND(SUM(d.committed_kw * d.expected_performance), 0) AS expected_relief_kw\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.dr_enrollments d JOIN {{CATALOG}}.{{SCHEMA}}.feeders f USING (feeder_id)\n",
+          "WHERE f.substation_id = 'NR'\n",
+          "GROUP BY d.feeder_id, d.program\n",
+          "ORDER BY d.feeder_id, d.program\n"
+        ]
+      },
+      {
+        "id": "20000000000000000000000000000007",
+        "question": [
+          "How much did last August's T-104 trip cost us in SAIDI, and what was our 12-month SAIDI and SAIFI?"
+        ],
+        "sql": [
+          "WITH trip AS (\n",
+          "  SELECT MIN(started_at) AS trip_started_at, COUNT(*) AS feeders_tripped, SUM(customers_interrupted) AS customers_interrupted,\n",
+          "         MAX(duration_minutes) AS max_duration_minutes,\n",
+          "         ROUND(SUM(customer_minutes_interrupted) / (SELECT SUM(customers_total) FROM {{CATALOG}}.{{SCHEMA}}.feeders), 1) AS trip_saidi_minutes\n",
+          "  FROM {{CATALOG}}.{{SCHEMA}}.outage_events\n",
+          "  WHERE transformer_id = 'T-104' AND cause = 'Overload / thermal' AND CAST(started_at AS DATE) = '2025-08-14'\n",
+          "), r12 AS (\n",
+          "  SELECT ROUND(SUM(saidi_minutes), 1) AS saidi_minutes_12m, ROUND(SUM(saifi), 3) AS saifi_12m\n",
+          "  FROM {{CATALOG}}.{{SCHEMA}}.reliability_monthly WHERE month_start >= '2025-08-01'\n",
+          ")\n",
+          "SELECT trip.*, r12.saidi_minutes_12m, r12.saifi_12m, ROUND(100 * trip.trip_saidi_minutes / r12.saidi_minutes_12m, 1) AS trip_share_of_saidi_pct\n",
+          "FROM trip CROSS JOIN r12\n"
+        ]
+      }
+    ]
+  }
+}

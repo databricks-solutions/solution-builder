@@ -20,6 +20,9 @@ variables:
     default: aibi_sales_pipeline
   warehouse_id:
     description: SQL warehouse the dashboard + Genie space use.
+  workspace_folder:
+    description: Workspace folder that holds the dashboard + Genie space (also the bundle root_path).
+    default: ${workspace.resource_path}
 
 resources:
   schemas:
@@ -30,16 +33,20 @@ resources:
 
   dashboards:
     sales_pipeline_dashboard:
-      display_name: "[AI/BI] AIBI - Sales Pipeline Review"
+      display_name: "AI-BI - Sales Pipeline Review"  # no "/" : a dashboard with a parent_path is a workspace item
       file_path: ./dashboard/dashboard.lvdash.json
       warehouse_id: ${var.warehouse_id}
-      # Rebind the dashboard's datasets to the deployed catalog/schema.
+      parent_path: ${var.workspace_folder}
+      embed_credentials: true
+      # Rebind the dashboard's datasets to the deployed catalog/schema. Every dataset is schema-less SQL - including
+      # ds_metrics, which queries the metrics_sales metric view (a metric-view `asset_name` must be fully qualified and
+      # is NOT rewritten by dataset_catalog/dataset_schema, so it would pin one catalog).
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.demo_schema.name}
 
   jobs:
     sales_pipeline_setup:
-      name: "[AI/BI] AI/BI Sales Pipeline Review — setup"
+      name: "[AI/BI] Sales Pipeline Review — setup (${var.catalog}.${var.schema})"  # unique name in the workspace
       tasks:
         - task_key: generate_data_and_build
           spark_python_task:
@@ -59,6 +66,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.demo_schema.name}
               warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
           environment_key: sdk_latest
       environments:
         - environment_key: sdk_default
@@ -74,6 +82,8 @@ resources:
               - databricks-sdk>=0.114.0
 
 targets:
+  # Portable generic targets (Solution Builder forks / "Download DAB"): NO pinned host, so they deploy to whatever
+  # workspace your profile points at; pass --var catalog/schema/warehouse_id. Dashboard + Genie land in the bundle folder.
   dev:
     mode: development
     default: true

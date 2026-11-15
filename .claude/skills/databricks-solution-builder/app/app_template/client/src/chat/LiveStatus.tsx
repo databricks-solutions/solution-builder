@@ -9,7 +9,7 @@ const PHRASES = [
   'Thinking…',
   'Querying data…',
   'Scanning documents…',
-  'Cross-referencing knowledge base…',
+  'Searching documents…',
   'Analyzing patterns…',
   'Reading incident reports…',
   'Crunching numbers…',

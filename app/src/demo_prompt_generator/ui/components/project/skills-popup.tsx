@@ -313,10 +313,10 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
-        className="w-[1100px] sm:max-w-[1100px] flex flex-col"
+        className="flex h-full w-full max-w-full flex-col sm:w-[1100px] sm:max-w-[1100px]"
       >
         <SheetHeader className="flex-shrink-0">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <SheetTitle>Agent Configuration</SheetTitle>
               <SheetDescription>
@@ -338,9 +338,9 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
           </div>
         </SheetHeader>
 
-        <div className="flex flex-1 gap-4 min-h-0 mt-4">
+        <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
           {/* Tree panel (left) */}
-          <div className="w-[300px] flex-shrink-0">
+          <div className="h-48 w-full flex-shrink-0 md:h-auto md:w-[300px]">
             <ScrollArea className="h-full pr-4">
               {/* System Prompt entry */}
               <button
@@ -442,7 +442,8 @@ export function SkillsPopup({ projectId, isOpen, onClose }: SkillsPopupProps) {
             </ScrollArea>
           </div>
 
-          <Separator orientation="vertical" />
+          <Separator orientation="horizontal" className="md:hidden" />
+          <Separator orientation="vertical" className="hidden md:block" />
 
           {/* Content panel (right) */}
           <div className="flex-1 min-w-0 flex flex-col">

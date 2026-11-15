@@ -22,6 +22,10 @@ class DatabricksAppsHeaders(BaseModel):
     user_email: str | None
     request_id: UUID | None
     token: SecretStr | None
+    # Deployed /api/mcp/* calls only: the trusted MCP server's service principal
+    # that named `user_email`. The request runs as that user, without a token of
+    # theirs (routes/mcp.py).
+    delegated_by: str | None = None
 
 
 # Cache the resolved dev email — but ONLY on success. A previous version used

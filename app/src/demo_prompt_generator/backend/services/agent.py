@@ -16,8 +16,11 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Generator
 
 from ..core._config import logger
-from ..core.auth import Mode, subprocess_auth_env
+from ..core.auth import UNSET_ENV, Mode, subprocess_auth_env
+from ..models import resource_suffix
+from . import chat_images
 from .active_stream import ActiveStream
+from .arch_tools import FULL_TOOL_NAME, SERVER_NAME, build_arch_server, reset_turn
 from .skills_manager import get_project_directory, get_project_skills_list
 from .system_prompt import get_system_prompt, get_workspace_url
 
@@ -40,6 +43,7 @@ except ImportError:
 # Constants
 KEEPALIVE_INTERVAL = 15  # seconds between keepalive events
 CLIENT_IDLE_TIMEOUT = 300  # 5 minutes before disconnecting idle clients
+DISCONNECT_TIMEOUT = 10  # seconds to wait for a Node subprocess to exit on disconnect
 
 
 async def _keepalive_loop(stream: ActiveStream, interval: float = KEEPALIVE_INTERVAL) -> None:
@@ -112,9 +116,22 @@ def _build_claude_env(
     # target_deploy=True → the per-project .databrickscfg holds the deployer-SP
     # OAuth-M2M creds for a remote TARGET workspace (cross-workspace deploy);
     # point at it with oauth-m2m and don't scrub. Otherwise the classic OBO env.
-    env.update(subprocess_auth_env(
+    #
+    # subprocess_auth_env may map a key to the UNSET_ENV sentinel (= "remove the
+    # inherited key"; see core/auth.py). The Claude SDK builds the child env as
+    # {**os.environ, **options.env} with NO removal hook, so a sentinel value
+    # would land literally in the child. We therefore DROP any UNSET_ENV entry
+    # here rather than pass it through: the only key affected is DATABRICKS_TOKEN
+    # in target-deploy mode, and the agent is a PYTHON child — the Python SDK/CLI
+    # correctly ignores an inherited DATABRICKS_TOKEN given the explicit
+    # oauth-m2m creds we set alongside it, so letting it inherit is harmless.
+    # (The removal only MATTERS for the NODE preview child, which spawns through
+    # preview/process.py::build_subprocess_env where the sentinel IS honored.)
+    for _k, _v in subprocess_auth_env(
         project_dir, mode=mode, local_profile=local_profile, target_deploy=target_deploy
-    ))
+    ).items():
+        if _v is not UNSET_ENV:
+            env[_k] = _v
 
     # Relocate Claude Code's "user-scope" config tree from ~/.claude/ to
     # <project>/.claude/ so transcripts land inside the project dir. The
@@ -194,6 +211,7 @@ class ClientPool:
         pool WITHOUT disconnecting — turn 1's finally still holds a reference and
         will disconnect/release it itself. Only a truly idle stale client is
         disconnected here."""
+        to_disconnect: PooledClient | None = None
         async with self._lock:
             existing = self._clients.get(project_id)
             if existing:
@@ -204,7 +222,7 @@ class ClientPool:
                         f"its finally will tear it down)"
                     )
                 else:
-                    await self._disconnect_client(existing)
+                    to_disconnect = existing
 
             pooled = PooledClient(
                 client=client,
@@ -214,7 +232,11 @@ class ClientPool:
             )
             self._clients[project_id] = pooled
             logger.info(f"Registered new client for project {project_id}")
-            return pooled
+        # Disconnect OUTSIDE the lock: a wedged Node subprocess must not freeze
+        # get_client / release_client / the reaper for every project.
+        if to_disconnect is not None:
+            await self._disconnect_client(to_disconnect)
+        return pooled
 
     @staticmethod
     def _turn_in_flight(project_id: str) -> bool:
@@ -243,6 +265,7 @@ class ClientPool:
         we'd clear the NEWER turn's `is_busy` (marking a live client idle → it
         could be handed to a third turn or reaped mid-stream). So when `own` is
         given, only mutate the map entry if it's still `own`."""
+        to_disconnect: PooledClient | None = None
         async with self._lock:
             pooled = self._clients.get(project_id)
             if own is not None and pooled is not own:
@@ -251,18 +274,19 @@ class ClientPool:
                 # promise that our turn's teardown would — so we must DISCONNECT
                 # our own client now, or its subprocess orphans (it's no longer
                 # reachable via the pool). Do NOT touch the newer entry.
-                await self._disconnect_client(own)
-                logger.info(
-                    f"[pool] our client for {project_id} was superseded — "
-                    f"disconnected it (newer turn owns the slot)"
-                )
-                return
-            if pooled:
+                to_disconnect = own
+            elif pooled:
                 pooled.is_busy = False
                 pooled.mark_used()
                 if session_id:
                     pooled.session_id = session_id
                 logger.debug(f"Released client for project {project_id}")
+        if to_disconnect is not None:
+            await self._disconnect_client(to_disconnect)
+            logger.info(
+                f"[pool] our client for {project_id} was superseded — "
+                f"disconnected it (newer turn owns the slot)"
+            )
 
     async def remove_client(
         self,
@@ -284,26 +308,31 @@ class ClientPool:
             (and not `force`), LEAVE the entry — the turn's finally owns teardown.
             `force=True` (delete_project, or a turn's own error path) bypasses the
             guard and disconnects now."""
+        # Decide + pop under the lock; disconnect outside it (see _disconnect_client).
+        to_disconnect: PooledClient | None = None
         async with self._lock:
             if own is not None:
                 # Turn's own teardown: free OUR subprocess unconditionally; only
                 # remove the map slot if we still own it.
                 if self._clients.get(project_id) is own:
                     self._clients.pop(project_id, None)
-                await self._disconnect_client(own)
-                logger.info(f"Removed own client for project {project_id}")
-                return
-            # External path.
-            if not force and self._turn_in_flight(project_id):
+                to_disconnect = own
+            elif not force and self._turn_in_flight(project_id):
+                # External path: a live turn's finally owns teardown.
                 logger.info(
                     f"[pool] leaving client for {project_id} in place "
                     f"(turn still streaming; its finally will close it)"
                 )
                 return
-            pooled = self._clients.pop(project_id, None)
-            if pooled:
-                await self._disconnect_client(pooled)
-                logger.info(f"Removed client for project {project_id}")
+            else:
+                to_disconnect = self._clients.pop(project_id, None)
+        if to_disconnect is not None:
+            await self._disconnect_client(to_disconnect)
+            logger.info(
+                f"Removed own client for project {project_id}"
+                if own is not None
+                else f"Removed client for project {project_id}"
+            )
 
     async def reap_idle(self) -> int:
         """Disconnect + drop any pooled client that's safe to reclaim. Run from a
@@ -328,32 +357,39 @@ class ClientPool:
         from .active_stream import get_stream_manager
         mgr = get_stream_manager()
 
+        reaped: list[tuple[str, PooledClient]] = []
         async with self._lock:
-            stale: list[str] = []
-            for pid, p in self._clients.items():
+            for pid, p in list(self._clients.items()):
                 if not p.is_idle_expired():
                     continue
-                if not p.is_busy:
-                    stale.append(pid)
-                elif mgr.get_project_stream(pid) is None:
+                if p.is_busy:
+                    if mgr.get_project_stream(pid) is not None:
+                        continue  # a turn is genuinely running on it
                     # is_busy=True but nothing is actually streaming → leaked flag.
                     logger.warning(
                         f"[client-pool] reaping stuck-busy client for {pid} "
                         f"(is_busy=True but no in-flight stream) — leaked release?"
                     )
-                    stale.append(pid)
-            for pid in stale:
-                pooled = self._clients.pop(pid, None)
-                if pooled:
-                    await self._disconnect_client(pooled)
-                    logger.info(f"Reaped idle client for project {pid}")
-            return len(stale)
+                self._clients.pop(pid, None)
+                reaped.append((pid, p))
+        # Disconnect OUTSIDE the lock (a wedged subprocess must not block the pool).
+        for pid, pooled in reaped:
+            await self._disconnect_client(pooled)
+            logger.info(f"Reaped idle client for project {pid}")
+        return len(reaped)
 
     async def _disconnect_client(self, pooled: PooledClient):
-        """Safely disconnect a client."""
+        """Safely disconnect a client, bounded by DISCONNECT_TIMEOUT. The SDK's
+        disconnect awaits its Node subprocess; a wedged one must not hang the
+        caller (callers invoke this OUTSIDE ClientPool._lock)."""
         try:
             if pooled.client:
-                await pooled.client.disconnect()
+                await asyncio.wait_for(pooled.client.disconnect(), timeout=DISCONNECT_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[client-pool] disconnect of {pooled.project_id} timed out after "
+                f"{DISCONNECT_TIMEOUT}s — abandoning subprocess"
+            )
         except Exception as e:
             logger.warning(f"Error disconnecting client: {e}")
 
@@ -406,6 +442,7 @@ async def stream_agent_response(
     stream: ActiveStream,
     mode: Mode,
     context_hint: str | None = None,
+    images: list[str] | None = None,
     cluster_id: str | None = None,
     warehouse_id: str | None = None,
     default_catalog: str | None = None,
@@ -414,6 +451,7 @@ async def stream_agent_response(
     session_id: str | None = None,
     template_lineage: dict | None = None,
     operator_notice: str | None = None,
+    project_mode: str | None = None,
     target_deploy: bool = False,
 ) -> AsyncIterator[dict]:
     """
@@ -426,6 +464,7 @@ async def stream_agent_response(
         project_id: Project ID for working directory
         message: User message to process
         stream: ActiveStream for event buffering
+        images: Project-relative paths of pasted images, sent as image blocks
         mode: "local" or "deployed" — dictates how the agent's subprocess
             authenticates to Databricks. See backend/AUTH.md.
         cluster_id: Optional Databricks cluster ID
@@ -453,6 +492,12 @@ async def stream_agent_response(
         stream.mark_error(f"Project directory not found: {project_id}")
         yield {"type": "error", "error": "Project directory not found"}
         return
+
+    try:
+        from .metrics import get_metrics
+        get_metrics().bump("agent_turns_started")
+    except Exception:  # noqa: BLE001
+        pass
 
     pool = get_client_pool()
     pooled = await pool.get_client(project_id)
@@ -498,6 +543,9 @@ async def stream_agent_response(
                 skills=skills,
                 project_dir=str(project_dir),
                 template_lineage=template_lineage,
+                mode=project_mode,
+                resource_suffix=resource_suffix(project_id),
+                project_id=project_id,
             )
 
             # Build allowed tools list. `Skill` enables the agent's Skill tool
@@ -508,11 +556,13 @@ async def stream_agent_response(
             # deprecated in claude-agent-sdk 0.1.77.
             # `Task` lets the agent spawn subagents — the solution-builder skill's
             # Stage 2 fan-out (app-spec subagent + 02/03/04 batched) and
-            # Stage 3 build parallelization (Genie/Dashboard + KA/MAS + App
+            # Stage 3 build parallelization (Genie/Dashboard + documents + App
             # subagents) rely on it. Without `Task` enabled the agent
             # serializes everything and the parallelization prose in
             # SKILL.md / stages/*.md is dead text.
-            allowed_tools = ["Task", "Read", "Write", "Edit", "Glob", "Grep", "Bash"]
+            # `FULL_TOOL_NAME` is the architecture render tool (arch_tools.py): an in-process
+            # MCP server bound to this project. It is the agent's way to see a diagram it wrote.
+            allowed_tools = ["Task", "Read", "Write", "Edit", "Glob", "Grep", "Bash", FULL_TOOL_NAME]
 
             # Hard-disable tools that don't behave in the Agent-SDK execution
             # model. Each group is here for a specific failure we've seen:
@@ -546,8 +596,8 @@ async def stream_agent_response(
             # project's .claude/ — this is what the Agent SDK uses to discover
             # skills (loading is gated on settingSources per the SDK docs). We
             # deliberately exclude "user" so the agent doesn't pick up the host
-            # user's ~/.claude/ — and `mcp_servers={}` below stops it from
-            # inheriting MCP servers from any settings file regardless.
+            # user's ~/.claude/ — and the explicit `mcp_servers` below (only the arch render
+            # server) stops it from inheriting MCP servers from any settings file.
             #
             # env carries two things (see _build_claude_env + AUTH.md):
             #   1. ANTHROPIC_* for FMAPI routing (deployed-as-app only)
@@ -629,6 +679,10 @@ async def stream_agent_response(
             # deeper reasoning (debugging, code review).
             effort: EffortLevel = "medium"
 
+            # The architecture render tool, bound to THIS project's directory (a closure, not a
+            # module-level server). Built per pooled client, so it is never shared across projects.
+            arch_server = build_arch_server(project_id, project_dir)
+
             options = ClaudeAgentOptions(
                 cwd=str(project_dir),
                 allowed_tools=allowed_tools,
@@ -646,7 +700,8 @@ async def stream_agent_response(
                 system_prompt=system_prompt,
                 include_partial_messages=True,
                 setting_sources=["project"],
-                mcp_servers={},
+                # Only our in-process architecture tool; no server is inherited from settings.
+                mcp_servers={SERVER_NAME: arch_server},
                 env=claude_env,
                 stderr=_claude_stderr,
                 # Default is 1 MB which is too tight for a coding agent — a
@@ -656,8 +711,10 @@ async def stream_agent_response(
                 # Opus 4.7 + Sonnet 4.6 require the new `adaptive` thinking
                 # shape — they reject the SDK's default `thinking.type.enabled`
                 # with HTTP 400. Adaptive works on older models too, so we
-                # set it unconditionally.
-                thinking={"type": "adaptive"},
+                # set it unconditionally. `display: "summarized"` because newer
+                # models default to "omitted" (signature only, empty text), which
+                # left the chat with empty "Thought for 0ms" pills.
+                thinking={"type": "adaptive", "display": "summarized"},
                 effort=effort,
             )
 
@@ -680,9 +737,17 @@ async def stream_agent_response(
             client = ClaudeSDKClient(options=options)
             await client.connect()
             logger.info(f"Created new client for project {project_id}")
+            try:
+                from .metrics import get_metrics
+                get_metrics().bump("agent_clients_created")
+            except Exception:  # noqa: BLE001
+                pass
 
             # Register in pool
             pooled = await pool.register_client(project_id, client, session_id)
+
+        # A new turn gets a fresh architecture-render budget (arch_tools.TURN_RENDER_BUDGET).
+        reset_turn(project_id)
 
         # Send the message. If the UI told us what the user has open, prepend a
         # one-line context hint for the SDK ONLY — the persisted user Message row
@@ -699,8 +764,20 @@ async def stream_agent_response(
         # route cleared the pending flag, so it never repeats.
         if operator_notice:
             query_text = f"{operator_notice}\n\n{query_text}"
-        await client.query(query_text)
-        logger.info(f"Sent query to agent for project {project_id}")
+        blocks = chat_images.image_blocks(project_dir, images) if images else []
+        if blocks:
+            # Pasted images ride the same user turn as image blocks (the SDK's
+            # streaming-input message shape), so the model sees them directly.
+            async def _with_images():
+                yield {
+                    "type": "user",
+                    "message": {"role": "user", "content": [*blocks, {"type": "text", "text": query_text}]},
+                    "parent_tool_use_id": None,
+                }
+            await client.query(_with_images())
+        else:
+            await client.query(query_text)
+        logger.info(f"Sent query to agent for project {project_id}" + (f" with {len(blocks)} image(s)" if blocks else ""))
 
         # Heartbeat task — adds a keepalive event to the in-memory stream every
         # KEEPALIVE_INTERVAL seconds. Lives in a separate task because the SDK's
@@ -712,7 +789,7 @@ async def stream_agent_response(
         heartbeat = asyncio.create_task(_keepalive_loop(stream))
 
         try:
-            async for msg in client.receive_response():
+            async for msg in _receive_with_background_tasks(client, project_id):
                 msg_count += 1
                 msg_type = type(msg).__name__
                 logger.debug(f"SDK message #{msg_count}: {msg_type}")
@@ -738,6 +815,9 @@ async def stream_agent_response(
                 for event in _convert_sdk_message(msg):
                     stream.add_event(event)
                     yield event
+
+                if msg_type == "ResultMessage":
+                    log_permission_denials(project_id, getattr(msg, "permission_denials", None))
 
                 # Extract session_id from ResultMessage
                 if msg_type == "ResultMessage" and hasattr(msg, "session_id") and msg.session_id:
@@ -804,6 +884,23 @@ async def stream_agent_response(
                     await pool.release_client(project_id, final_session_id, own=pooled)
             except Exception as _teardown_exc:  # noqa: BLE001 (incl. TimeoutError)
                 logger.warning(f"[pool] teardown for {project_id} did not complete: {_teardown_exc!r}")
+        elif created_new_client and client is not None:
+            # ORPHAN GUARD. We spawned a NEW ClaudeSDKClient (Node subprocess,
+            # ~150-300 MB) via connect() but failed/were cancelled BEFORE
+            # register_client bound `pooled` — so the branch above skips it and the
+            # subprocess would linger forever (a top OOM vector: every failed
+            # connect leaks a whole Node process). Disconnect it directly. Shielded
+            # + bounded so a concurrent cancel can't abort the kill half-done.
+            try:
+                from .metrics import get_metrics
+                get_metrics().bump("agent_orphans_reaped")
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                await asyncio.wait_for(asyncio.shield(client.disconnect()), timeout=5.0)
+                logger.info(f"[pool] disconnected orphaned pre-register client for {project_id}")
+            except Exception as _orphan_exc:  # noqa: BLE001 (incl. TimeoutError)
+                logger.warning(f"[pool] orphan client disconnect for {project_id} did not complete: {_orphan_exc!r}")
 
 
 # Substring detector for the SDK's "stale resume" failure. The CLI's exact
@@ -826,6 +923,27 @@ _OVERSIZED_WARN_BYTES = 500 * 1024  # 500 KB
 _PREVIEW_CHARS = 200
 
 
+def log_permission_denials(project_id: str, denials: list[Any] | None) -> int:
+    """Log each tool call Claude Code refused this turn, from ResultMessage.permission_denials.
+
+    dontAsk mode denies anything Claude Code would ask about (such as a Bash `cd` out of the project folder)
+    before `_can_use_tool` sees it, so without this the refusal shows only in the agent's own reply. The SDK
+    bump to 0.2.164 (Claude Code 2.1.292) made every POV deck command hit this (bug 04, 2026-11-03).
+    """
+    count = 0
+    for denial in denials or []:
+        if isinstance(denial, dict):
+            name, tool_input = denial.get("tool_name"), denial.get("tool_input")
+        else:
+            name, tool_input = getattr(denial, "tool_name", None), getattr(denial, "tool_input", None)
+        name, tool_input = name or "?", tool_input or {}
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        detail = command if isinstance(command, str) else json.dumps(tool_input, default=str)
+        logger.warning(f"[{project_id}] permission denied: {name}: {detail[:500]}")
+        count += 1
+    return count
+
+
 def _log_if_oversized(msg: Any, msg_count: int) -> None:
     """If the SDK message is unusually large, log metadata + a short preview.
     Never logs the full payload — just enough to identify which tool is the
@@ -846,9 +964,26 @@ def _log_if_oversized(msg: Any, msg_count: int) -> None:
     )
 
 
+def _approx_len(v: Any) -> int:
+    """Cheap size of a nested dict/list: sums the lengths of its strings (keys
+    included) without serializing. Each other leaf counts a flat 8 bytes. Only
+    needs to be a ballpark for the oversized-message log, and a multi-MB Write
+    `content` must not be re-serialized on the event loop just to be measured."""
+    if isinstance(v, str):
+        return len(v)
+    if isinstance(v, dict):
+        return sum(
+            (len(k) if isinstance(k, str) else 8) + _approx_len(item)
+            for k, item in v.items()
+        )
+    if isinstance(v, (list, tuple)):
+        return sum(_approx_len(item) for item in v)
+    return 8
+
+
 def _estimate_msg_size(msg: Any) -> int:
     """Rough byte-count of a message's user-visible content, ignoring structure
-    overhead. Walks known content-block shapes."""
+    overhead. Walks known content-block shapes. Never serializes (see _approx_len)."""
     total = 0
     content = getattr(msg, "content", None)
     if isinstance(content, str):
@@ -860,11 +995,8 @@ def _estimate_msg_size(msg: Any) -> int:
                 if isinstance(v, str):
                     total += len(v)
                 elif isinstance(v, (dict, list)):
-                    # Tool inputs are often dicts; serialize approximately.
-                    try:
-                        total += len(json.dumps(v, default=str))
-                    except Exception:
-                        total += len(str(v))
+                    # Tool inputs are often dicts; measure without serializing.
+                    total += _approx_len(v)
     # ResultMessage.result etc.
     for attr in ("result", "text"):
         v = getattr(msg, attr, None)
@@ -1034,6 +1166,58 @@ def _convert_sdk_message(msg: Any) -> Generator[dict, None, None]:
         yield {"type": "unknown", "message_type": msg_type, "data": str(msg)[:200]}
 
 
+# How long to wait for the CLI's follow-up turn once the last background subagent
+# has reported, and the longest a turn is held open for background subagents.
+BACKGROUND_FOLLOWUP_TIMEOUT_S = 120
+BACKGROUND_MAX_WAIT_S = 60 * 60
+
+
+async def _receive_with_background_tasks(client, project_id: str):
+    """Yield the turn's messages, and keep going while background subagents run.
+
+    A backgrounded subagent outlives the ResultMessage that ends the turn. The
+    CLI reports it with `task_started` (is_backgrounded) and then
+    `task_notification`, and runs the notification as a follow-up turn. Stopping
+    at the first ResultMessage left that work unread: the client went idle, the
+    reaper disconnected it and killed the subagent mid-build. So while any
+    backgrounded subagent is open we keep reading, through the follow-up turn.
+    Background Bash is not tracked: a dev server left running would hold the
+    turn open forever.
+    """
+    pending: set[str] = set()
+    deadline: float | None = None  # set once the first ResultMessage left work open
+    loop = asyncio.get_running_loop()
+    while True:
+        it = client.receive_response().__aiter__()
+        while True:
+            try:
+                if deadline is None:
+                    msg = await it.__anext__()
+                else:
+                    left = max(deadline - loop.time(), 0.0)
+                    wait = left if pending else min(left, BACKGROUND_FOLLOWUP_TIMEOUT_S)
+                    msg = await asyncio.wait_for(it.__anext__(), wait)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                logger.warning(f"Stopped waiting on background subagents for project {project_id} ({len(pending)} open)")
+                return
+            if isinstance(msg, SystemMessage):
+                data = msg.data or {}
+                task_id = data.get("task_id")
+                if (msg.subtype == "task_started" and data.get("is_backgrounded")
+                        and data.get("task_type") == "local_agent" and task_id):
+                    pending.add(task_id)
+                elif msg.subtype == "task_notification" and task_id:
+                    pending.discard(task_id)
+            yield msg
+        if not pending:
+            return
+        if deadline is None:
+            deadline = loop.time() + BACKGROUND_MAX_WAIT_S
+        logger.info(f"Turn ended with {len(pending)} background subagent(s) running for project {project_id}; still reading")
+
+
 def _process_tool_result(block) -> dict:
     """Extract and normalize content from a ToolResultBlock."""
     content = block.content
@@ -1042,6 +1226,10 @@ def _process_tool_result(block) -> dict:
         for item in content:
             if isinstance(item, dict) and "text" in item:
                 texts.append(item["text"])
+            elif isinstance(item, dict) and item.get("type") == "image":
+                # The model gets the image block itself; the chat only needs to
+                # know there was one (a render PNG is ~1 MB of base64).
+                texts.append("[image]")
             elif isinstance(item, str):
                 texts.append(item)
             else:

@@ -1,0 +1,95 @@
+// =============================================================================
+// PNG NETWORK TOPOLOGY: THE PNG SUBNET IN THE HUB OF A HUB-AND-SPOKE NETWORK (AZURE)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • A Private Network Gateway (PNG) injects a Databricks-managed NIC into a dedicated
+//     /28 subnet of ONE customer network. Serverless traffic leaves through that NIC as
+//     if it originated there, so it can reach resources in that network and in networks
+//     transitively connected to it.
+//   • In a hub-and-spoke network the hub holds the shared services: the firewall, the
+//     bastion and the virtual gateway (VPN / ExpressRoute) to on-premises. Putting the
+//     PNG subnet IN THE HUB gives serverless one entry point that is already connected to
+//     on-premises (through the hub's gateway) and to the spokes (through peering).
+//   • The customer owns the path: DNS, routes and firewall rules must let serverless
+//     traffic from the PNG subnet reach each target. Nothing is configured on the
+//     gateway or the peerings for Databricks.
+//   • Limits to plan for: 10 NCCs per region per account, 2 PNGs per NCC. A common
+//     split is one NCC per environment and/or business unit.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • A pure topology, no traffic arrows: networks as `box`es containing their subnets,
+//     each subnet a `box` around one icon. The top level is a row: on-premises → the link →
+//     the hub → the spokes. Inside the hub, a column of the firewall and gateway subnets sits
+//     beside a column of the bastion and PNG subnets.
+//   • The PNG subnet is the only Databricks element: an orange border (`style.border`)
+//     picks it out from the customer's subnets instead of a second colour scheme.
+//   • Peerings are grey dashed two-way lines. The VPN / ExpressRoute link is a logo between the
+//     two gateway subnets; the on-prem gateway, the link and the hub gateway share `track: "t2"`,
+//     so that line is straight.
+//
+// ADAPT IT: keep only the subnets the user has (many hubs have no bastion). Workspace in
+// a spoke of its own, or a spoke that must stay isolated: see
+// png-topology-isolated-spoke.jsonc. The traffic path through the PNG itself: see
+// serverless-png-azure.jsonc. On AWS the hub is a VPC behind a Transit Gateway.
+// =============================================================================
+[
+  {
+    "name": "PNG topology — hub and spoke",
+    "story": "In a hub-and-spoke network the hub holds the shared services: the firewall, the bastion and the virtual gateway that connects to on-premises over VPN or ExpressRoute; workload spokes are peered to the hub. A Private Network Gateway places a Databricks-managed NIC in a dedicated /28 subnet of one network. Put that PNG subnet in the hub and serverless gets a single entry point already connected to on-premises through the hub's gateway and to the peered spokes. The customer configures DNS, routes and firewall rules so that traffic from the PNG subnet reaches each target.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"PNG network topologies · hub and spoke","subtitle":"One PNG subnet in the hub reaches on-premises and the peered spokes"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 112,
+    "align": "center",
+    "nodes": [
+      {"id": "onprem", "type": "box", "title": "On-premises network", "titleIcon": "lucide:building-2", "layout": "column", "gap": 72, "align": "center", "children": [
+        {"id": "op-res-sn", "type": "box", "title": "Resource subnet", "layout": "column", "children": [
+          {"id": "op-res", "type": "logo", "icon": "lucide:database", "text": "On-prem resources", "caption": "bottom", "track": "line-op-res"}
+        ] },
+        {"id": "op-gw-sn", "type": "box", "title": "Gateway subnet", "layout": "column", "children": [
+          {"id": "op-gw", "type": "logo", "icon": "file:cloud/azure/networking/local-network-gateway", "text": "VPN device / router", "caption": "bottom", "ai_reasoning": "the customer edge of the VPN / ExpressRoute link", "track": "line-op-gw"}
+        ] }
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "VPN / ExpressRoute", "caption": "bottom", "track": "line-op-gw"},
+      {"id": "hub", "type": "box", "title": "Hub network", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 129, "align": "center", "children": [
+        {"id": "col-fw", "type": "group", "layout": "column", "gap": 72, "align": "center", "children": [
+          {"id": "fw-sn", "type": "box", "title": "Firewall subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "fw", "type": "logo", "icon": "file:cloud/azure/networking/firewall", "text": "Azure Firewall", "caption": "bottom", "ai_reasoning": "central inspection; the customer's routes decide whether PNG traffic goes through it", "track": "line-op-res"}
+          ] },
+          {"id": "vgw-sn", "type": "box", "title": "Gateway subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "vgw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "Virtual network gateway", "caption": "bottom", "track": "line-op-gw"}
+          ] }
+        ] },
+        {"id": "col-bastion", "type": "group", "layout": "column", "gap": 49, "align": "center", "children": [
+          {"id": "bastion-sn", "type": "box", "title": "Bastion subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "bastion", "type": "logo", "icon": "file:cloud/azure/networking/bastion", "text": "Azure Bastion", "caption": "bottom", "track": "line-op-res"}
+          ] },
+          {"id": "png-sn", "type": "box", "title": "Databricks PNG subnet", "subtitle": "/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "style": {"borderColor": "#FF5F46"}, "ai_reasoning": "orange border = the only Databricks-managed thing in the customer network", "layout": "column", "children": [
+            {"id": "nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (PNG)", "caption": "bottom", "ai_reasoning": "the Databricks element: the PNG's managed NIC; serverless traffic leaves the hub from here", "track": "line-op-gw"}
+          ] }
+        ] }
+      ] },
+      {"id": "col-vm", "type": "group", "layout": "column", "gap": 49, "align": "center", "children": [
+        {"id": "spoke1", "type": "box", "title": "Spoke 1", "subtitle": "Resource subnet", "size": [280,150], "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "column", "children": [
+          {"id": "vm", "type": "logo", "icon": "file:cloud/azure/compute/virtual-machines", "text": "Application VM", "caption": "bottom", "track": "line-op-res"}
+        ] },
+        {"id": "spoke2", "type": "box", "title": "Spoke 2", "subtitle": "Resource subnet", "size": [280,150], "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "column", "children": [
+          {"id": "sql", "type": "logo", "icon": "file:cloud/azure/database/sql-database", "text": "SQL database", "caption": "bottom", "track": "line-op-gw"}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "op-gw", "to": "link", "arrow": "both"},
+      {"id": "e2", "from": "link", "to": "vgw", "arrow": "both", "ai_reasoning": "the hub's gateway terminates the link; everything in the hub, including the PNG subnet, reaches on-prem through it"},
+      {"id": "e3", "from": "hub@r", "to": "spoke1@l", "arrow": "both", "dashed": true, "label": "Peering"},
+      {"id": "e4", "from": "hub@r", "to": "spoke2@l", "arrow": "both", "dashed": true, "label": "Peering"},
+      {"id": "e5", "from": "spoke1@b", "to": "spoke2@t", "arrow": "both", "dashed": true, "label": "Peering", "ai_reasoning": "on the source slide the two spokes are also peered to each other"}
+    ]
+  }
+]

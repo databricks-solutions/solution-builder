@@ -23,44 +23,46 @@ Nail down the specifics. The exact structure depends on the story pattern, but d
 
 **Important**: keep `resources.json` up to date with *all* product capabilities the demo needs. Some technical-only products (e.g. data generation) live in `resources.json` because the implementation needs them, but don't appear in the README's story (they have no wow effect to narrate).
 
-## Context load — one message, batched reads
+## Context load
 
-Before writing any file, load all references in a single response. All reads in ONE turn.
+Read before writing any file:
 
 - **The user's brief, if captured** — read `context/source-brief.md` (a substantial pasted spec) and anything under `context/uploads/` **in full** if present. This is the authoritative intent; the README you're about to write must *preserve* its specifics (named entities, personas, metrics, numbers, data sources, requirements), not summarize them away. When the brief is rich, the README's Overview/Walkthrough can be longer than the template's minimal shape — expand to fit the spec rather than truncating the spec to fit the template. `source-brief.md` remains the source of truth after this stage; the README is a derived presenter summary, never a replacement.
 - **Real tables to build on (READ-ONLY)** — **only when `specifications/source-tables.md` exists** (the user chose "use existing data"; see SKILL.md flow A). Read it **in full**: it lists the real Unity Catalog tables' fully-qualified names + schema (columns, types, comments) — **schema only** (you profile the tables yourself at build time; see `03.1r-build-on-real.md`). The demo is built **DIRECTLY on these tables, read-only** — never generate synthetic data, and never write to, copy, or alter them. **Also read `specifications/data-discovery.md` if present** — the use case the user **already chose** (with its data-fit rationale and the alternatives they set aside); treat it as **agreed scope** (build that use case, don't re-derive a different one or contradict the fit findings). If it's absent, derive **ONE** coherent read-only analytics use case the real data supports (grounded in the real columns; don't invent a catalyst or columns the data lacks), then **confirm it with the user** before specs. (Capability set + data-write opt-in details live in SKILL.md flow A / `03.1r-build-on-real.md`.)
 - **Style reference (pick one based on capabilities)** — read at most one for README format:
   - **Simple demo** (capabilities ⊆ {`synthetic-data-gen`, `aibi-dashboards`, `genie`, `databricks-apps`, `lakebase`} plus talking-track): `DEMO_SKILL_DIR/references/example-luxebeauty-simple/README.md`
-  - **Full demo** (any of `sdp`, `metric-views`, `ml-training-serving`, `knowledge-assistant`, `supervisor-agent`): `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`
+  - **Full demo** (any of `sdp`, `metric-views`, `ml-training-serving`): `DEMO_SKILL_DIR/references/example-luxebeauty/README.md`
 - `DEMO_SKILL_DIR/references/platform_architecture.md` — if not already in context
-- Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/KA blocks are often worth reading)
+- Any capability blocks you need for product positioning (skip if obvious from common knowledge; dashboard/Genie blocks are often worth reading)
 
-## Write the two files (single batched turn)
+## Write the two files
 
-Emit `Write` calls for `resources.json` and `README.md` **in one assistant message** — two `Write` tool uses, one after the other in your output, sent together. The harness runs them concurrently once your turn ends, so you save LLM round-trips (you still generate each file's content token-by-token). The files are independent; coherence comes from your plan, not from reading one file to write the next. (No `architecture.md` — see the note at the top of this stage.)
+`resources.json` and `README.md` (no `architecture.md` — see the note at the top of this stage).
 
 ### `./resources.json`
 
-`resources.json` is **already seeded** at the project root with the selected capabilities and an empty `created_resources: {}`. Your job is to **verify/adjust the capabilities** in the existing file and rewrite it — not to invent it from scratch. The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
+`resources.json` is **already seeded** at the project root with the selected capabilities, a top-level `resource_suffix`, and an empty `created_resources: {}`. Your job is to **verify/adjust the capabilities** in the existing file and rewrite it — not to invent it from scratch. The user's message may include a capabilities list — follow it unless something is missing or incoherent (e.g. user wants an app but it's not listed, or data gen is missing). In that case, adjust and note the adjustment. Avoid adding capabilities just for the sake of it.
 
 Structure (the matching example — `example-luxebeauty-simple/resources.json` for simple builds, `example-luxebeauty/resources.json` for full builds — is a **naming reference for the keys the build phase will add**, NOT a scaffold to copy; its `created_resources` is shown fully populated because it's a *finished* demo):
 
 ```json
 {
   "capabilities": { "buildable": [...], "talking_track": [...] },
+  "resource_suffix": "a3f2c1",
   "created_resources": {}
 }
 ```
 
 - **buildable**: capabilities that require actual Databricks resources (pipelines, dashboards, agents, apps).
 - **talking_track**: capabilities mentioned in the demo narrative but not requiring resource creation.
+- **resource_suffix**: **preserve it exactly** when you rewrite the file — never drop, change, or invent it. It's this project's unique id; the build phase appends it to the default schema and to every resource name so two copies of the demo can't collide on a shared workspace.
 - **created_resources**: **leave it `{}` now.** Do NOT copy the example's IDs or pre-seed placeholder/empty keys — the build phase adds each real ID only after it creates that resource. The UI renders a link for any key present here, so a placeholder becomes a dead link.
 
 Capability IDs come from `DEMO_SKILL_DIR/references/platform_architecture.md`.
 
 ### `./README.md`
 
-Same structure as the matching example README (see "Style reference" above — the Simple example shows the shorter walkthrough you want when capabilities are minimal; the Full example shows the deeper KA/MAS/ML beats):
+Same structure as the matching example README (see "Style reference" above — the Simple example shows the shorter walkthrough you want when capabilities are minimal; the Full example shows the deeper ML and document beats):
 
 - **The Story** — summary table (company, protagonist, challenge, journey, resolution, impact). Comes first, right under the H1.
 - **Overview** — short paragraph.
@@ -77,11 +79,11 @@ You're writing all files:
 - **Products Showcased** in README ↔ **`resources.json` capabilities** must name the same set of products. Every product in the story earns a narrative beat AND a capability entry.
 - **The story** must be coherent with all the capabilities, for example: the data must serve the story, the dashboard / genie and the data must all work together, the app must use the same component / the data must be 
 
-### If the demo includes an app AND (Genie or MAS)
+### If the demo includes an app AND Genie
 
 Default app shape (override if the user asks for something different) — design the story so the loop below can play; a read-only dashboard inside the app is the weaker fallback.
 
-**In-app assistant that takes action.** Small agent loop, ~4 tools: (1) `ask_data` → Genie (or MAS) to investigate; (2) Lakebase read(s) for operational context (e.g. "affected returns for lot X"); (3) optional mocked side-effect tools (`create_coupon`, `send_email`, `create_ticket`) returning realistic strings; (4) one write tool that bulk-mutates the Lakebase mirror in an atomic UPDATE (status flips, audit append, recorded fields) — typically the demo's "the agent did a thing" moment.
+**In-app assistant that takes action.** Small agent loop, ~4 tools: (1) `ask_data` → Genie to investigate (Genie also answers from attached documents); (2) Lakebase read(s) for operational context (e.g. "affected returns for lot X"); (3) optional mocked side-effect tools (`create_coupon`, `send_email`, `create_ticket`) returning realistic strings; (4) one write tool that bulk-mutates the Lakebase mirror in an atomic UPDATE (status flips, audit append, recorded fields) — typically the demo's "the agent did a thing" moment.
 
 **Human-in-the-loop on the write.** Agent drafts → shows the plan → stops → waits. Write fires only after explicit "yes".
 

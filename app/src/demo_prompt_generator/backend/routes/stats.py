@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -154,6 +155,14 @@ def _resolve_window(
     return window_start, window_end
 
 
+# /stats runs ~12 full-table aggregates per call and the dashboard polls it, so the
+# response is memoized per parameter set for a short TTL. Bounded: the map is cleared
+# when it fills, so arbitrary filter strings can't grow it without limit.
+_STATS_CACHE_TTL_S = 60.0
+_STATS_CACHE_MAX = 64
+_stats_cache: dict[tuple, tuple[float, StatsResponse]] = {}
+
+
 @router.get(
     "/stats",
     response_model=StatsResponse,
@@ -180,6 +189,12 @@ def get_stats(
     projects in the gallery)."""
     if granularity not in _GRANULARITIES:
         raise HTTPException(400, f"granularity must be one of {sorted(_GRANULARITIES)}")
+
+    cache_key = (days, start, end, granularity, page, page_size, owner_filter, stage_filter,
+                 mode_filter, top_owners_limit)
+    cached = _stats_cache.get(cache_key)
+    if cached is not None and time.monotonic() - cached[0] < _STATS_CACHE_TTL_S:
+        return cached[1]
 
     now = datetime.now(timezone.utc)
     window_start, window_end = _resolve_window(days, start, end)
@@ -301,7 +316,7 @@ def get_stats(
 
     total_pages = max(1, (int(filtered_count) + page_size - 1) // page_size)
 
-    return StatsResponse(
+    result = StatsResponse(
         total_projects=int(total_projects),
         total_users=int(total_users),
         total_messages=int(total_messages),
@@ -323,6 +338,10 @@ def get_stats(
         page_size=page_size,
         total_pages=total_pages,
     )
+    if len(_stats_cache) >= _STATS_CACHE_MAX:
+        _stats_cache.clear()
+    _stats_cache[cache_key] = (time.monotonic(), result)
+    return result
 
 
 # ---------------------------------------------------------------------------

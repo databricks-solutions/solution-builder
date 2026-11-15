@@ -25,9 +25,12 @@ by email, since deployed mode never persists a `users` row.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from .probe import normalize_host
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_user_target(*, user_target: Optional[str], config) -> Optional[str]:
@@ -202,6 +205,14 @@ def pin_project_target(session, project, target_host: Optional[str]) -> None:
     project.target_workspace_host = normalize_host(target_host)
     session.add(project)
     session.commit()
+    # The preview proxy caches "is this project remote?" for 30 s and that answer decides
+    # which token it forwards (AUTH.md: one identity per preview). Drop it at the pin.
+    try:
+        from ..preview.routes import forget_remote_target  # local import: avoid a cycle
+
+        forget_remote_target(project.id)
+    except Exception:  # noqa: BLE001 — never fail a pin over a cache
+        logger.warning("[target] could not clear the preview remote-target cache", exc_info=True)
 
 
 # --- DB helpers (upsert-by-email; deployed mode has no persisted users row) --

@@ -12,8 +12,8 @@
 1. Dashboard shows readmission spike concentrated in cardiology service line
 2. Sarah asks Genie: "Why are cardiac readmissions so high this month?"
 3. Genie traces to patients who had TAVR procedures, readmitted for heart failure symptoms
-4. Sarah asks Knowledge Assistant: "What changed in our TAVR discharge process?"
-5. KA reveals: staffing memo showing discharge coordinator vacancy, patient education sessions reduced
+4. Sarah asks Genie about the documents: "What changed in our TAVR discharge process?"
+5. The answer cites: staffing memo showing discharge coordinator vacancy, patient education sessions reduced
 
 **The Resolution:**
 - Root cause: Understaffed discharge coordination leaving gaps in patient education
@@ -43,8 +43,7 @@
 | Pipeline | Bronze/Silver/Gold with readmission metrics |
 | Dashboard | Quality KPIs with readmission trends, service line breakdown |
 | Genie Space | Query clinical and operational data |
-| Knowledge Assistant | Search policies, staffing memos, clinical protocols |
-| Multi-Agent Supervisor | Route between data and document queries |
+| Genie (documents) | Search policies, staffing memos, clinical protocols |
 | ML Notebook | Readmission risk prediction model |
 
 ## Build Order
@@ -53,6 +52,5 @@
 2. Create pipeline (Bronze → Silver → Gold)
 3. Build dashboard (readmission metrics, trends)
 4. Configure Genie Space
-5. Generate documents and configure KA
-6. Set up Multi-Agent Supervisor
-7. Train/deploy ML model for readmission risk
+5. Generate documents and attach them to the Genie agent
+6. Train/deploy ML model for readmission risk

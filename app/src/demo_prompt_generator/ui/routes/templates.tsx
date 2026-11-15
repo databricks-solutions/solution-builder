@@ -808,6 +808,7 @@ function TemplatesPage() {
         templateId={selectedTemplateId}
         onClose={() => openTemplate(null)}
         onFork={handleFork}
+        workshopDownloadOnly={typeParam === "WORKSHOP"}
         isAdmin={isAdmin}
         onStatusChange={handleSheetStatusChange}
         onToggleOfficial={handleSheetToggleOfficial}

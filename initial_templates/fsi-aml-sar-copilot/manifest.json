@@ -1,0 +1,10 @@
+{
+  "id": "fsi-aml-sar-copilot",
+  "name": "AML/SAR Copilot — ML Alert Triage, Entity Networks & SAR Drafting Agent",
+  "customer": "Northwind Federal Bank",
+  "industry": "Financial Services",
+  "narrative": "Priya Raman runs the Financial Intelligence Unit at Northwind Federal, a fictional South Florida bank. Her rules-based monitoring system raises ~370 alerts a month, 88% of them false positives, and SARs are sliding past FinCEN's 30-day deadline. The queue is sorted by rule score, so her team works high-rated restaurants and car washes first.\n\nThe aha: an ML alert-risk model trained on 12 months of dispositions re-ranks the queue, and 35 alerts the rules engine buried at ~#263 of 330 jump into the top 36. They belong to one 9-party ring (a used-car exporter, three shell LLCs at the same suite, five mules on one login device) that pushed $1.2M of sub-$10K cash through 7 branches and wired $1.18M to the UAE and Hong Kong. The copilot agent assembles the evidence, checks bank policy through the Genie agent, which searches the policy library and drafts the FinCEN narrative. The investigator files, and the decision lands in Delta for the dashboard and Genie.",
+  "dbdemos_tracker": {
+    "app_id": "fsi-aml-sar-copilot"
+  }
+}

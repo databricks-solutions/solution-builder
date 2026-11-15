@@ -17,7 +17,7 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component, d.params);
+  const nat = baseSize(d.component, d.params, d.theme);
   const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   return (
@@ -59,8 +59,8 @@ export const LakeflowGenieBlock = memo(function LakeflowGenieBlock({ data, selec
               <div className="-mx-2.5 -mb-2.5 mt-2 flex shrink-0 items-center gap-1.5 border-t border-border/60 bg-muted/50 px-2.5 py-1.5">
                 <GenieCode className="h-4 w-4 shrink-0" />
                 <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-[10px] font-bold text-foreground">Built with Genie Code</span>
-                  <span className="truncate text-[8px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
+                  <span className="truncate font-bold text-foreground text-[10px]">Built with Genie Code</span>
+                  {d.theme !== "slide" && <span className="truncate text-[8px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>}
                 </span>
                 <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />
               </div>

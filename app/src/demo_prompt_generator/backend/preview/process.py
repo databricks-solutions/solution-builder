@@ -21,12 +21,20 @@ import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from ..core.auth import build_subprocess_env
+
 logger = logging.getLogger(__name__)
 
 # The Node process-group id file that start.sh writes (the group created by its
 # inner `exec setsid npm run dev`, which escapes start.sh's own group). Written
 # for BOTH registry- and agent-launched runs; the rogue reaper keys off it.
 PGID_FILENAME = ".preview.pgid"
+
+# asyncio's default StreamReader limit is 64 KiB per line. A child that prints a
+# longer line (minified bundles, big JSON) would otherwise kill the pump task and
+# leave the pipe full, wedging the preview. Raise it, and the pump also survives
+# an over-limit line (see _pump).
+PIPE_LINE_LIMIT = 1 << 20
 
 
 def _children_of(pid: int) -> list[int]:
@@ -286,7 +294,12 @@ class PreviewProcess:
             cwd=str(self._app_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, **(self._env or {})},
+            limit=PIPE_LINE_LIMIT,
+            # Merge via build_subprocess_env, NOT {**os.environ, **env}: the
+            # auth env may map a key (e.g. DATABRICKS_TOKEN for remote-target
+            # SP deploys) to the UNSET_ENV sentinel meaning "REMOVE the inherited
+            # key" — a plain dict-merge can't express removal. See core/auth.py.
+            env=build_subprocess_env(os.environ, self._env or {}),
             start_new_session=True,
         )
         self._reader_tasks = [
@@ -335,7 +348,12 @@ class PreviewProcess:
         if stream is None:
             return
         while True:
-            line = await stream.readline()
+            try:
+                line = await stream.readline()
+            except ValueError:
+                # Over-limit line: asyncio already discarded the buffered chunk. Keep
+                # draining so the child never blocks on a full pipe.
+                continue
             if not line:
                 return
             try:

@@ -1,0 +1,183 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "3d9494f2eca5cdb7e0a36e57a6744697",
+    "question": [
+     "What is our supplier recovery rate by supplier over the last 4 quarters?"
+    ]
+   },
+   {
+    "id": "4f25f443883aae0407d09006beb96277",
+    "question": [
+     "What is warranty cost per bike in service by model over the last 12 months?"
+    ]
+   },
+   {
+    "id": "8ff2038f5ab2f2121faf94651bbc0b49",
+    "question": [
+     "Which Hanlin controller lots have the highest water-ingress claim rate?"
+    ]
+   },
+   {
+    "id": "9027d79fbb76c6c982b25bbb6b293dab",
+    "question": [
+     "Which failure mode is driving the increase in warranty claims?"
+    ]
+   },
+   {
+    "id": "d35de75a5de5aa4a29e553253898d976",
+    "question": [
+     "Show monthly claims per 1,000 bikes in service over the last 12 months"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "Was PCN-0419 approved under the PPAP, and what does the supplier quality agreement let us recover from Hanlin?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "manufacturing.warranty_copilot.bike_models",
+    "description": [
+     "The 4 e-bike models with drive type and controller part."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.dealers",
+    "description": [
+     "Dealers: name, city, state, region, wet_climate_index."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.gold_claims",
+    "description": [
+     "One row per warranty claim with the AI-classified failure mode, unit genealogy (controller/brake/battery lot, firmware), dealer + region, attributable supplier, chargeable flag, cost."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.gold_early_warning",
+    "description": [
+     "Early-warning detection per failure mode x supplier: claims last 90 days vs prior 12 months per 1,000 bike-years; is_signal."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.gold_lot_quality",
+    "description": [
+     "Motor-controller lot quality: bikes, water-ingress claims per 1,000 bikes and per 1,000 bike-years, E21 telemetry, coating, PCN, PPAP status."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.gold_monthly_kpis",
+    "description": [
+     "Month x model: bikes in warranty service, claims, controller water-ingress claims, warranty cost; is_partial_month flags the current month."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.gold_supplier_recovery",
+    "description": [
+     "Supplier x quarter: supplier-attributable warranty cost, chargeback submitted, recovered, recovery_rate, status settled/open."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.suppliers",
+    "description": [
+     "Tier-1 suppliers with commodity and supplier quality agreement id."
+    ]
+   },
+   {
+    "identifier": "manufacturing.warranty_copilot.units",
+    "description": [
+     "Every bike built since Oct 2024: model, build date, controller/brake/battery lot, firmware, connected, dealer, region, sale date, warranty end; sold=false = dealer stock."
+    ]
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "d9d49b9dd220968d2997a83a8670ee94",
+    "content": [
+     "Brightwater Cycle Works (fictional) builds e-bikes at its Reno, NV plant: Commuter C3, Cargo K2 and Fold F1 use a rear hub motor with the Hanlin Electronics MC-48 motor controller; the Trail T5 is a mid-drive with a Kessler MC-60 controller. Every bike has a 24-month warranty from its sale date. ~44,000 bikes built since Oct 2024, sold through ~60 dealers in 7 US regions.\n",
+     "CLAIMS: gold_claims has one row per dealer warranty claim. ALWAYS exclude rejected claims (claim_status <> 'rejected') unless asked. failure_mode / failure_mode_label were produced by AI Functions (ai_classify) from the free-text technician_notes and are the reliable root-cause category; dealer_labor_code is the coarse code the dealer picked (ELEC-GEN, MOTOR, BATT, BRAKE, DISPLAY, DRIVE, CHARGER, FRAME, OTHER) and is often wrong or generic. When asked what is 'driving' claims or about failure modes, group by failure_mode_label, never by dealer_labor_code.\n",
+     "CLAIMS PER 1,000 BIKES: use gold_monthly_kpis (month x model): claims_per_1k = 1000 * SUM(claims) / SUM(units_in_service), cost per bike = SUM(warranty_cost) / SUM(units_in_service). The current month is partial (is_partial_month = true) \u2014 exclude it for trends and for 'last N months' use the last N COMPLETE months. 'This summer' = June to August of the current year. Compare to the prior 12 months when asked about a change.\n",
+     "SUPPLIER RECOVERY: gold_supplier_recovery (supplier x quarter). recovery rate = SUM(recovered_amount) / SUM(supplier_attributable_cost). Use status = 'settled' quarters only (the current quarter is still open) and, for 'last 4 quarters', quarter >= the quarter 12 months ago. Brightwater's own firmware (SUP-BWC) is never chargeable.\n",
+     "LOTS: gold_lot_quality has one row per motor-controller lot (lot_id <prefix>-<yymm>; HX = Hanlin MC-48, KC = Kessler MC-60) with water-ingress claims per 1,000 bikes sold and per 1,000 bike-years in service (use per bike-years to compare lots of different ages), E21 telemetry (bikes per 1,000 connected that reported the controller-moisture fault), conformal coating, PCN reference and PPAP status.\n",
+     "EARLY WARNING: gold_early_warning has one row per failure mode x attributable supplier with claims in the last 90 days vs the prior 12 months per 1,000 bike-years; is_signal = flagged emerging failure. Wet regions = Pacific Northwest, Northeast, Southeast.\n",
+     "Format money as dollars with no decimals, rates with 1 decimal. Name the lot / supplier / failure mode explicitly in answers.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "07ec1bb2175500f487f93dabe33be95c",
+    "question": [
+     "What is our supplier recovery rate by supplier over the last 4 quarters?"
+    ],
+    "sql": [
+     "SELECT supplier_name, ROUND(SUM(supplier_attributable_cost), 0) AS attributable_cost, ROUND(SUM(submitted_amount), 0) AS submitted, ROUND(SUM(recovered_amount), 0) AS recovered, ROUND(100 * SUM(recovered_amount) / SUM(supplier_attributable_cost), 1) AS recovery_rate_pct FROM manufacturing.warranty_copilot.gold_supplier_recovery WHERE status = 'settled' AND quarter >= concat(year(add_months(current_date(), -12)), '-Q', quarter(add_months(current_date(), -12))) GROUP BY supplier_name ORDER BY attributable_cost DESC"
+    ]
+   },
+   {
+    "id": "1c7e1a37ef0c28f9afefe27c3836fa1f",
+    "question": [
+     "Which failure mode is driving the increase in warranty claims?"
+    ],
+    "sql": [
+     "WITH recent AS (SELECT failure_mode_label, attributable_supplier_name, COUNT(*) AS claims_last_90d, ROUND(SUM(total_cost), 0) AS cost_last_90d FROM manufacturing.warranty_copilot.gold_claims WHERE claim_status <> 'rejected' AND claim_date > date_sub(current_date(), 90) GROUP BY 1, 2), prior AS (SELECT failure_mode_label, attributable_supplier_name, COUNT(*) * 90.0 / 365 AS avg_claims_per_90d_prior_year FROM manufacturing.warranty_copilot.gold_claims WHERE claim_status <> 'rejected' AND claim_date <= date_sub(current_date(), 90) AND claim_date > date_sub(current_date(), 455) GROUP BY 1, 2) SELECT r.failure_mode_label, r.attributable_supplier_name AS supplier, r.claims_last_90d, ROUND(coalesce(p.avg_claims_per_90d_prior_year, 0), 1) AS avg_claims_per_90d_prior_year, ROUND(r.claims_last_90d - coalesce(p.avg_claims_per_90d_prior_year, 0), 0) AS increase, r.cost_last_90d FROM recent r LEFT JOIN prior p ON p.failure_mode_label = r.failure_mode_label AND p.attributable_supplier_name <=> r.attributable_supplier_name ORDER BY increase DESC LIMIT 10"
+    ]
+   },
+   {
+    "id": "4ac6623313cb45e1525eb9e8427b5350",
+    "question": [
+     "Which regions have the most controller water-ingress claims in the last 90 days?"
+    ],
+    "sql": [
+     "SELECT region, COUNT(*) AS claims_90d, ROUND(SUM(total_cost), 0) AS cost_90d FROM manufacturing.warranty_copilot.gold_claims WHERE failure_mode = 'controller_water_ingress' AND claim_status <> 'rejected' AND claim_date > date_sub(current_date(), 90) GROUP BY region ORDER BY claims_90d DESC"
+    ]
+   },
+   {
+    "id": "b1b1e607fdcf2cd817749a5001ebdad8",
+    "question": [
+     "How did dealers code the controller water-ingress claims?"
+    ],
+    "sql": [
+     "SELECT dealer_labor_code, COUNT(*) AS claims, ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct FROM manufacturing.warranty_copilot.gold_claims WHERE failure_mode = 'controller_water_ingress' AND claim_status <> 'rejected' GROUP BY dealer_labor_code ORDER BY claims DESC"
+    ]
+   },
+   {
+    "id": "b78a633c395831ec5cb363b412543a5b",
+    "question": [
+     "Show monthly claims per 1,000 bikes in service over the last 12 months"
+    ],
+    "sql": [
+     "SELECT month, ROUND(1000 * SUM(claims) / SUM(units_in_service), 2) AS claims_per_1k_bikes, ROUND(1000 * SUM(controller_water_claims) / SUM(units_in_service), 2) AS controller_water_ingress_per_1k, ROUND(SUM(warranty_cost), 0) AS warranty_cost FROM manufacturing.warranty_copilot.gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -12) GROUP BY month ORDER BY month"
+    ]
+   },
+   {
+    "id": "ccffbe5508859f941ed727eb2febecb4",
+    "question": [
+     "Which Hanlin controller lots have the highest water-ingress claim rate?"
+    ],
+    "sql": [
+     "SELECT controller_lot, units_built, units_sold, water_ingress_claims, water_claims_per_1k_unit_years, e21_bikes_per_1k_connected, conformal_coating, pcn_reference, ppap_status FROM manufacturing.warranty_copilot.gold_lot_quality WHERE supplier_id = 'SUP-HAN' ORDER BY water_claims_per_1k_unit_years DESC LIMIT 10"
+    ]
+   },
+   {
+    "id": "f155829987665b3e26aa119dc2a42a0f",
+    "question": [
+     "What is warranty cost per bike in service by model over the last 12 months?"
+    ],
+    "sql": [
+     "SELECT model_name, ROUND(SUM(warranty_cost), 0) AS warranty_cost_12m, ROUND(SUM(warranty_cost) / AVG(units_in_service), 2) AS cost_per_bike_in_service, ROUND(1000 * SUM(claims) / SUM(units_in_service), 2) AS claims_per_1k_bike_months FROM (SELECT month, model_name, SUM(warranty_cost) AS warranty_cost, SUM(units_in_service) AS units_in_service, SUM(claims) AS claims FROM manufacturing.warranty_copilot.gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -12) GROUP BY month, model_name) GROUP BY model_name ORDER BY cost_per_bike_in_service DESC"
+    ]
+   }
+  ]
+ }
+}

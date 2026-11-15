@@ -22,6 +22,7 @@ REQUIRES: databricks-sdk>=0.114.0.
 
 Parameters (base_parameters):
 - catalog, schema, warehouse_id
+- parent_path (optional): workspace folder the space is created in (on create only)
 
 Outputs (dbutils.jobs.taskValues):
 - genie_space_id
@@ -36,7 +37,7 @@ SPACE_DESCRIPTION = (
     "~10,000-patient oncology cohort. The drug works overall but UNEVENLY: a big lift "
     "in some cancers, none in others, and it is NOT indicated for ovarian/prostate. "
     "The responders share a molecular gene-expression signature, not an organ - within "
-    "breast cancer a responder subtype reaches ~99% survival vs ~89% standard of care. "
+    "breast cancer a responder subtype reaches ~99% survival vs ~84% standard of care. "
     "Ask which subgroup benefits most, and where the drug should and shouldn't be used."
 )
 
@@ -45,9 +46,11 @@ SPACE_DESCRIPTION = (
 dbutils.widgets.text("catalog", "", "Catalog")
 dbutils.widgets.text("schema", "", "Schema")
 dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
+dbutils.widgets.text("parent_path", "", "Parent folder")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 warehouse_id = dbutils.widgets.get("warehouse_id")
+parent_path = dbutils.widgets.get("parent_path").strip() or None
 assert catalog and schema and warehouse_id, "catalog + schema + warehouse_id are required"
 
 # COMMAND ----------
@@ -98,13 +101,15 @@ while True:
 
 if existing_id:
     print(f"Updating existing space {existing_id}…")
-    w.genie.update_space(space_id=existing_id, warehouse_id=warehouse_id, serialized_space=serialized)
+    w.genie.update_space(space_id=existing_id, warehouse_id=warehouse_id, serialized_space=serialized,
+                         title=SPACE_TITLE, description=SPACE_DESCRIPTION)  # refresh the text on upgrades too
     space_id = existing_id
 else:
     print("Creating new space…")
     created = w.genie.create_space(
         warehouse_id=warehouse_id, serialized_space=serialized,
         title=SPACE_TITLE, description=SPACE_DESCRIPTION,
+        parent_path=parent_path,
     )
     space_id = created.space_id
 

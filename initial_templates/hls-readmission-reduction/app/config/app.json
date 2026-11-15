@@ -1,0 +1,50 @@
+{
+  // Larkspur Health — Readmission Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml / bundle app config env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/care-copilot.ts): the Genie agent — readmission analytics over the
+  // tables + the care-pathway documents (Agent mode). Leave empty to read it at boot from
+  // <catalog>.<schema>.demo_resources (written by the setup job) — see server/services/resources.ts.
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:hls-readmission-reduction}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Transition-plan summary + 48-hour call script writer (chat completions).
+  "noticeModel": "${MEMO_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (readmissions & HRRP view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.readmission_risk_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/care_pathways",
+
+  // Delta source (gold tables, risk scores, note insights).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Readmission Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Why are HF readmissions up?", "prompt": "Why are our heart-failure readmissions going up, and where exactly?" },
+    { "label": "What does it cost us?", "prompt": "What is our estimated HRRP penalty, and how much would we save if 4 West booked a 7-day follow-up for 75% of its weekend heart-failure discharges?", "triggerAfter": ["4 West", "weekend", "follow-up"] },
+    { "label": "Who needs a plan today?", "prompt": "Which high-risk 4 West heart-failure patients on today's worklist have no follow-up booked?", "triggerAfter": ["HRRP", "penalty"] },
+    { "label": "Rescue Earl Whitfield", "prompt": "Earl Whitfield left 4 West last Friday with no follow-up. Build his transition plan, then create the outreach tasks for the follow-up visit, the Ride Assist booking and the 48-hour call.", "triggerAfter": ["Whitfield", "worklist"] }
+  ]
+}

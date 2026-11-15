@@ -16,6 +16,7 @@ import { MessageBubble } from './MessageBubble';
 import { pickNextStep } from './script';
 import { useChatTurn } from './useChatTurn';
 import {
+  CONVERSATION_NOT_FOUND,
   conversationStore,
   useConversationError,
   useConversationList,
@@ -158,7 +159,22 @@ export function ChatView() {
               <Spinner />
             </div>
           )}
-          {convoErr.error && msgs.length === 0 && (
+          {convoErr.error === CONVERSATION_NOT_FOUND && msgs.length === 0 && (
+            <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+              <div className="font-semibold text-sm">Conversation not found</div>
+              <div className="text-xs text-muted-foreground max-w-sm">
+                It may have been deleted, or the link is out of date. Start a new question from the home page.
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-foreground/30 transition-colors"
+              >
+                Back to home
+              </button>
+            </div>
+          )}
+          {convoErr.error && convoErr.error !== CONVERSATION_NOT_FOUND && msgs.length === 0 && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
               <div className="font-semibold mb-1">Couldn't load conversation</div>
               <div className="text-destructive/80 mb-2">{convoErr.error}</div>

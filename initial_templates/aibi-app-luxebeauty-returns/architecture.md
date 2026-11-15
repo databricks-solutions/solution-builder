@@ -29,14 +29,12 @@
       "nodes": [
         { "id": "metric-views", "label": "Metric Views", "icon": "metricViews", "tier": "analytics", "desc": "Return Rate KPIs" },
         { "id": "dashboard", "label": "AI/BI Dashboard", "icon": "dashboard", "tier": "analytics", "desc": "Spike + City Map", "row": 1 },
-        { "id": "genie", "label": "AI/BI Genie", "icon": "genie", "tier": "ai", "desc": "Why Returns?", "row": 2 },
-        { "id": "premium-model", "label": "Premium Classifier", "icon": "mlModel", "tier": "ai", "desc": "Tier Customers", "row": 3 },
-        { "id": "ka", "label": "Knowledge Assistant", "icon": "knowledgeAssistant", "tier": "ai", "desc": "Incident Reports", "row": 4 }
+        { "id": "genie", "label": "Genie Agent", "icon": "genie", "tier": "ai", "desc": "Data + Documents", "row": 2 },
+        { "id": "premium-model", "label": "Premium Classifier", "icon": "mlModel", "tier": "ai", "desc": "Tier Customers", "row": 3 }
       ]
     },
     {
       "nodes": [
-        { "id": "mas", "label": "Multi-Agent Supervisor", "icon": "multiAgentSupervisor", "tier": "ai", "desc": "Routes to Genie / KA", "row": 1 },
         { "id": "lakebase", "label": "Lakebase", "icon": "lakebase", "tier": "compute", "desc": "Managed Postgres", "row": 2.5 },
         { "id": "app", "label": "Databricks Apps", "icon": "databricksApps", "tier": "compute", "desc": "Returns Console", "row": 3.5 }
       ]
@@ -65,12 +63,10 @@
     { "from": "warehouse", "to": "genie" },
     { "from": "warehouse", "to": "ml-notebook" },
     { "from": "ml-notebook", "to": "premium-model" },
-    { "from": "doc-volume", "to": "ka" },
-    { "from": "genie", "to": "mas" },
-    { "from": "ka", "to": "mas" },
-    { "from": "premium-model", "to": "mas" },
+    { "from": "doc-volume", "to": "genie" },
+    { "from": "premium-model", "to": "genie" },
     { "from": "dashboard", "to": "db-one" },
-    { "from": "mas", "to": "app" },
+    { "from": "genie", "to": "app" },
     { "from": "lakebase", "to": "app" },
     { "from": "app", "to": "db-one" },
     { "from": "db-one", "to": "user" }

@@ -1,0 +1,253 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "20742236c0ec0c46c90be86b5cfc284c",
+    "question": [
+     "How many special-assistance passengers and unaccompanied minors did AutoProtect leave overnight?"
+    ]
+   },
+   {
+    "id": "444fd825aad27c4331ab96cb782ac7f4",
+    "question": [
+     "Which cancelled flights have the most special-assistance passengers left overnight by AutoProtect?"
+    ]
+   },
+   {
+    "id": "52a94be79297042b285eae542da3fd01",
+    "question": [
+     "What are Harlan passengers messaging about, and how many messages were escalated?"
+    ]
+   },
+   {
+    "id": "9fdb9288cf6ff75c09e5f25628946d1d",
+    "question": [
+     "Show the monthly misconnect rate for AutoProtect"
+    ]
+   },
+   {
+    "id": "bf69f428c8308697c28fae02d9a625e9",
+    "question": [
+     "How many passengers did Winter Storm Harlan disrupt, and how many did AutoProtect get out the same day?"
+    ]
+   },
+   {
+    "id": "e5d4305d3a4582d652a5c56bc77497e2",
+    "question": [
+     "Compare AutoProtect with the desk-priority pilot since December: same-day re-accommodation, cost per disrupted passenger and NPS"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "What hotel and care entitlement does an EU261 passenger get on an overnight cancellation, and what are the rules for unaccompanied minors?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.airports",
+    "description": [
+     "Airports in the Aeralis network; passenger_rights_regime = EU261 / UK261 when departures from that airport are covered."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.alternate_options",
+    "description": [
+     "Seats Ops Control protected for each cancelled flight (own same-day, Lumen Air partner with interline cost per seat, nearby airport, next day, day+2)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.autoprotect_rebookings",
+    "description": [
+     "What the legacy auto-rebooker AutoProtect held for each Harlan passenger at 05:10 CT (FIFO by booking date, own metal only). nights: 0 same day, 1 next day, 2 Sunday."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.flights",
+    "description": [
+     "Winter Storm Harlan (13-15 Feb 2026): cancelled Aeralis flights (status = 'CANCELLED') and every alternate flight. Times are local."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.gold_harlan_flight_status",
+    "description": [
+     "One row per Harlan-cancelled flight: passengers by need, protected seats and AutoProtect outcome (ap_* columns)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.gold_irops_monthly",
+    "description": [
+     "Monthly IROPS outcomes by hub and handling method: same_day_rate, misconnect_rate, overnight_rate, cost_per_pax_usd, nps."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.guardrails",
+    "description": [
+     "Re-accommodation cost and service guardrails (partner seat cap, auto-approve partner spend per flight, UMNR, hotels)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.hotel_blocks",
+    "description": [
+     "Contracted distressed-passenger hotel rooms for the Harlan night at ORD, FRA, LHR."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.irops_events",
+    "description": [
+     "IROPS events Jan 2025 - Feb 2026 with handling method; is_current = Winter Storm Harlan (EVT-HARLAN-ORD)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.irops_history",
+    "description": [
+     "One row per passenger disrupted by a PAST IROPS event (Jan 2025 - 12 Feb 2026) with outcome, cost to Aeralis and post-trip NPS survey. handling_method AUTOPROTECT or DESK_PRIORITY_PILOT (DEN desk, Dec 2025 - Jan 2026)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.message_insights",
+    "description": [
+     "Inbound passenger messages during Harlan with AI Functions output: intent, urgency, sentiment, summary, escalate."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.passengers",
+    "description": [
+     "The 5,266 passengers disrupted by Winter Storm Harlan (one row per passenger; pnr = booking). ssr_codes: UMNR unaccompanied minor, WCHR/WCHS/WCHC wheelchair, BLND/DEAF/MEDA assistance, INFT lap infant."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.pax_detractor_risk",
+    "description": [
+     "ML (detractor_risk_model@champion) P(detractor) per Harlan passenger if re-accommodated same day / next day / as AutoProtect left them."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.rebooking_decisions",
+    "description": [
+     "Write-back from the IROPS desk app: one row per passenger rebooking committed by the desk."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.rebooking_plans",
+    "description": [
+     "Write-back from the IROPS desk app: one row per committed re-accommodation plan."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.v_harlan_pax_status",
+    "description": [
+     "Every Harlan passenger with needs, AutoProtect hold (autoprotect_*), AI message insight, ML risk and the IROPS desk's committed rebooking (desk_*; null until committed). current_same_day = desk decision if committed else AutoProtect."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.travel_disruption_copilot.v_harlan_recovery",
+    "description": [
+     "Per Harlan-cancelled flight: AutoProtect baseline vs the desk plan committed so far (desk_* columns)."
+    ]
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "fad58de7366495db4650cfefac2fcd61",
+    "content": [
+     "Aeralis Airways is a FICTIONAL US airline with its hub at Chicago O'Hare (ORD); Lumen Air is its fictional partner. Winter Storm Harlan (event_id EVT-HARLAN-ORD) hit ORD on Friday 13 February 2026: ground stop 05:40-12:30 CT, 36 flights cancelled.\n",
+     "AutoProtect is the legacy auto-rebooker: at 05:10 it held seats first-booked-first-served on Aeralis metal only, ignoring special-service requests, onward connections, tier, partner seats and parties.\n",
+     "DEFINITIONS:\n",
+     "- \"Disrupted passengers\" for Harlan = rows of passengers (or v_harlan_pax_status). For past events use irops_history.\n",
+     "- \"Same day\" / \"re-accommodated today\" = autoprotect_rebookings.same_day (Harlan) or irops_history.same_day_reaccommodated (history). \"Overnight\" = not same day. \"Pushed to Sunday\" = autoprotect_rebookings.nights = 2.\n",
+     "- \"Special assistance\" = passengers.ssr_codes matches UMNR, WCHR, WCHS, WCHC, BLND, DEAF, MEDA or INFT (v_harlan_pax_status.special_assistance). Unaccompanied minor = ssr_codes LIKE '%UMNR%'.\n",
+     "- \"Misconnect\" = missed an onward long-haul connection (autoprotect_rebookings.misconnect / irops_history.misconnect). Misconnect rate = misconnects / onward_long_haul passengers.\n",
+     "- \"Cost per disrupted passenger\" = AVG(irops_history.total_cost_usd) (rebooking + care + compensation).\n",
+     "- NPS = 100 * (share of respondents scoring 9-10 minus share scoring 0-6) among rows with nps_score not null: 100*(AVG(CAST(promoter AS INT)) - AVG(CAST(detractor AS INT))). \"NPS proxy\" = the same.\n",
+     "- \"The pilot\" / \"priority re-accommodation\" = handling_method = 'DESK_PRIORITY_PILOT' (DEN desk, Dec 2025 - Jan 2026). When comparing it with AutoProtect use events from 2025-12-01 onward (same winter) unless asked otherwise.\n",
+     "- Desk write-back: rebooking_decisions / rebooking_plans are EMPTY until the IROPS desk commits a plan in the app; say so if they are empty.\n",
+     "- For an overall Harlan impact / 'how bad is it' question return ONE row from v_harlan_pax_status with disrupted_pax, autoprotect_same_day, autoprotect_overnight (= disrupted - same day), pushed_to_sunday, special_assistance_overnight, umnr_overnight and misconnects.\n",
+     "- The data ends on 13 Feb 2026 (the storm day). 'Last 12 months' means relative to 13 Feb 2026, NOT today's date: use event_date >= '2025-02-13'.\n",
+     "Show percentages with one decimal and money in USD without cents. Always state which table/definition you used for Harlan vs history.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "0f2d7e3509593f6e7013c225dc615e44",
+    "question": [
+     "Harlan disruption and AutoProtect same-day count"
+    ],
+    "sql": [
+     "SELECT COUNT(*) AS disrupted_pax, SUM(CAST(same_day AS INT)) AS autoprotect_same_day, ROUND(100 * AVG(CAST(same_day AS INT)), 1) AS same_day_pct, SUM(CAST(nights = 2 AS INT)) AS pushed_to_sunday FROM retail_consumer_goods.travel_disruption_copilot.autoprotect_rebookings"
+    ]
+   },
+   {
+    "id": "0fafad42b2fe69883e8edcb26ccb8ae4",
+    "question": [
+     "AutoProtect vs pilot since December"
+    ],
+    "sql": [
+     "SELECT handling_method, COUNT(*) AS disrupted_pax, ROUND(100 * AVG(CAST(same_day_reaccommodated AS INT)), 1) AS same_day_pct, ROUND(AVG(total_cost_usd), 0) AS cost_per_pax_usd, ROUND(100 * (AVG(CAST(promoter AS INT)) - AVG(CAST(detractor AS INT))), 1) AS nps FROM retail_consumer_goods.travel_disruption_copilot.irops_history WHERE event_date >= '2025-12-01' GROUP BY handling_method ORDER BY handling_method"
+    ]
+   },
+   {
+    "id": "21c89333386e9fab1b24ee7c2994ed1d",
+    "question": [
+     "Monthly misconnect rate AutoProtect"
+    ],
+    "sql": [
+     "SELECT DATE_TRUNC('MONTH', event_date) AS month, ROUND(100 * SUM(CAST(misconnect AS INT)) / NULLIF(SUM(CAST(onward_long_haul AS INT)), 0), 1) AS misconnect_rate_pct FROM retail_consumer_goods.travel_disruption_copilot.irops_history WHERE handling_method = 'AUTOPROTECT' GROUP BY 1 ORDER BY 1"
+    ]
+   },
+   {
+    "id": "236cb8de2bac362ed20ca11a9ee77e31",
+    "question": [
+     "Special-assistance passengers and UMNR left overnight by AutoProtect"
+    ],
+    "sql": [
+     "SELECT SUM(CAST(special_assistance AS INT)) AS special_assistance_pax, SUM(CAST(special_assistance AND autoprotect_overnight AS INT)) AS special_assistance_overnight, SUM(CAST(unaccompanied_minor AS INT)) AS umnr_pax, SUM(CAST(unaccompanied_minor AND autoprotect_overnight AS INT)) AS umnr_overnight FROM retail_consumer_goods.travel_disruption_copilot.v_harlan_pax_status"
+    ]
+   },
+   {
+    "id": "2852bb8b6d4f692e7f707b5c693063b6",
+    "question": [
+     "Flights with the most special-assistance passengers overnight"
+    ],
+    "sql": [
+     "SELECT flight_number, origin, destination, pax, special_assistance_pax, ap_special_assistance_overnight, ap_umnr_overnight, ap_misconnects FROM retail_consumer_goods.travel_disruption_copilot.gold_harlan_flight_status ORDER BY ap_special_assistance_overnight DESC, ap_misconnects DESC LIMIT 10"
+    ]
+   },
+   {
+    "id": "399f32e866d05a2bd673e7a464a4f671",
+    "question": [
+     "Desk re-accommodation so far"
+    ],
+    "sql": [
+     "SELECT COUNT(*) AS rebookings_committed, SUM(CAST(same_day AS INT)) AS same_day, COUNT(DISTINCT disrupted_flight_id) AS flights FROM retail_consumer_goods.travel_disruption_copilot.rebooking_decisions"
+    ]
+   },
+   {
+    "id": "402085c9a74a27df82d84f9a717ba28e",
+    "question": [
+     "Message intents and escalations"
+    ],
+    "sql": [
+     "SELECT intent, COUNT(*) AS messages, SUM(CAST(escalate AS INT)) AS escalated FROM retail_consumer_goods.travel_disruption_copilot.message_insights GROUP BY intent ORDER BY messages DESC"
+    ]
+   },
+   {
+    "id": "f9e2792eabed1a543a6a9b075ca23696",
+    "question": [
+     "Winter Storm Harlan impact summary: disrupted passengers, AutoProtect same-day and overnight, special-assistance and UMNR overnight, misconnects"
+    ],
+    "sql": [
+     "SELECT COUNT(*) AS disrupted_pax, SUM(CAST(autoprotect_same_day AS INT)) AS autoprotect_same_day, SUM(CAST(autoprotect_overnight AS INT)) AS autoprotect_overnight, SUM(CAST(autoprotect_nights = 2 AS INT)) AS pushed_to_sunday, SUM(CAST(special_assistance AND autoprotect_overnight AS INT)) AS special_assistance_overnight, SUM(CAST(unaccompanied_minor AND autoprotect_overnight AS INT)) AS umnr_overnight, SUM(CAST(autoprotect_misconnect AS INT)) AS misconnects, SUM(CAST(onward_long_haul AS INT)) AS onward_long_haul_pax FROM retail_consumer_goods.travel_disruption_copilot.v_harlan_pax_status"
+    ]
+   }
+  ]
+ }
+}

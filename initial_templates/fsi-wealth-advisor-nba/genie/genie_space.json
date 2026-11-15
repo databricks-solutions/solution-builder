@@ -1,0 +1,397 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "2ba84481ad8c8a4d717286e1dd485e5b",
+    "question": [
+     "How has sweep cash changed since the rate cuts?"
+    ]
+   },
+   {
+    "id": "40403d38a430450a070be5cdd5b087c1",
+    "question": [
+     "How much client money is in motion across the firm, by signal type?"
+    ]
+   },
+   {
+    "id": "6e0e18c1977bb5ae3fb60dc3f728978a",
+    "question": [
+     "How many complaints did we receive in the last 18 months, and how many came from complex products that would fail today's suitability rules?"
+    ]
+   },
+   {
+    "id": "b45b2bed9a0cfbfd675288bc72e75aef",
+    "question": [
+     "What is the conversion rate of targeted next-best actions vs generic annual reviews?"
+    ]
+   },
+   {
+    "id": "e43b58d2c98ce8fbe897ec2d4b296c08",
+    "question": [
+     "Which advisors have the most AUM at risk?"
+    ]
+   },
+   {
+    "id": "f91085d0e4e9447503cfdf312af4f5b5",
+    "question": [
+     "After a death or an inheritance, what share of their assets did households keep when the advisor called within 30 days vs when nobody called?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "Can we recommend a structured note to a client who was widowed four months ago, and what must the first outreach look like?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.accounts",
+    "column_configs": [
+     {
+      "column_name": "custodian",
+      "description": [
+       "'Calder Pine' = assets at the firm; anything else = held away"
+      ]
+     },
+     {
+      "column_name": "maturity_date",
+      "description": [
+       "CD maturity date"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.advisor_decisions",
+    "column_configs": [
+     {
+      "column_name": "decision",
+      "description": [
+       "proposed / meeting_booked / not_now \u2014 logged live from the Advisor Morning Book app"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.advisors"
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.cash_flows_monthly",
+    "column_configs": [
+     {
+      "column_name": "external_transfers_out",
+      "description": [
+       "Assets transferred out of the firm (outflows)"
+      ]
+     },
+     {
+      "column_name": "outflow_reason",
+      "description": [
+       "Why the money left"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.gold_flows_monthly",
+    "column_configs": [
+     {
+      "column_name": "external_outflows",
+      "description": [
+       "Assets transferred out of the firm in the month"
+      ]
+     },
+     {
+      "column_name": "sweep_cash",
+      "description": [
+       "Uninvested cash earning 0.25%"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.gold_household_signals",
+    "column_configs": [
+     {
+      "column_name": "amount",
+      "description": [
+       "Assets in motion for this signal"
+      ]
+     },
+     {
+      "column_name": "signal_type",
+      "description": [
+       "CD maturity / Idle cash / Refi window / Held-away 401(k) / Concentrated position / life events / External outflow"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.gold_life_event_retention",
+    "column_configs": [
+     {
+      "column_name": "assets_retained_pct",
+      "description": [
+       "Share of pre-event AUM still at the firm 6 months later (0-1)"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.gold_nba_conversion",
+    "column_configs": [
+     {
+      "column_name": "response_speed",
+      "description": [
+       "How fast the advisor acted after the trigger"
+      ]
+     },
+     {
+      "column_name": "targeted",
+      "description": [
+       "Boolean: signal-triggered vs generic annual review"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.household_opportunities",
+    "column_configs": [
+     {
+      "column_name": "aum_at_risk",
+      "description": [
+       "AUM likely to leave without action"
+      ]
+     },
+     {
+      "column_name": "book_rank",
+      "description": [
+       "Priority rank within the advisor's book"
+      ]
+     },
+     {
+      "column_name": "model_top_blocked",
+      "description": [
+       "Boolean: the model's top action fails suitability"
+      ]
+     },
+     {
+      "column_name": "money_in_motion",
+      "description": [
+       "Assets with a next-60-days trigger"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.households",
+    "column_configs": [
+     {
+      "column_name": "risk_score",
+      "description": [
+       "1 Conservative .. 5 Aggressive"
+      ]
+     },
+     {
+      "column_name": "segment",
+      "description": [
+       "Emerging HNW (<$1M) / HNW ($1-5M) / Very HNW ($5-25M)"
+      ]
+     },
+     {
+      "column_name": "vulnerable_client",
+      "description": [
+       "Boolean: recent bereavement (12 months) or age 80+"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.liabilities",
+    "column_configs": [
+     {
+      "column_name": "rate_pct",
+      "description": [
+       "Mortgage rate; refi window = rate_pct >= 6.65 (0.75 above today's 5.90%)"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.life_events",
+    "column_configs": [
+     {
+      "column_name": "advisor_contacted_within_30d",
+      "description": [
+       "Boolean: advisor reached the client within 30 days of the event"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.market_rates"
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.nba_actions"
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.nba_history",
+    "column_configs": [
+     {
+      "column_name": "accepted",
+      "description": [
+       "Boolean: client accepted the offer"
+      ]
+     },
+     {
+      "column_name": "targeted",
+      "description": [
+       "Boolean: offer triggered by a signal (vs generic calendar review)"
+      ]
+     },
+     {
+      "column_name": "would_fail_suitability",
+      "description": [
+       "Boolean: complex product the current suitability rules would block"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.nba_recommendations",
+    "column_configs": [
+     {
+      "column_name": "model_rank",
+      "description": [
+       "1 = the model's top pick by expected revenue"
+      ]
+     },
+     {
+      "column_name": "propensity",
+      "description": [
+       "Model probability the client accepts (0-1)"
+      ]
+     },
+     {
+      "column_name": "suitability_status",
+      "description": [
+       "PASS / REVIEW / FAIL"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.note_insights",
+    "column_configs": [
+     {
+      "column_name": "flight_risk_mention",
+      "description": [
+       "Boolean: note names another institution or an intent to move assets"
+      ]
+     },
+     {
+      "column_name": "signal_category",
+      "description": [
+       "AI Functions ai_classify of the CRM note"
+      ]
+     }
+    ]
+   },
+   {
+    "identifier": "financial_services.wealth_advisor_copilot.suitability_rules"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "e1403d6e7f5e9a4b9090db9056e5b08a",
+    "content": [
+     "Calder Pine Private Wealth (fictional US wealth manager): 36 advisors in 6 offices (Denver, Boston, New York, Chicago, Austin, San Francisco), ~5,400 client households, ~$7.6B AUM. Data is as of 2026-09-28. Elena Marsh (advisor_id ADV-007, Denver) is the demo advisor.\n",
+     "RATES: the Fed cut three times in 2026 (Jun, Jul, Sep): Fed funds 4.50% -> 3.75%. 12-month CDs renew at 3.55%, the bank sweep pays 0.25%, government money market funds ~3.60%, online banks (fictional Brightline Direct) 4.00%, 30-yr mortgages 5.90% (market_rates).\n",
+     "MONEY IN MOTION (investable) = SUM(gold_household_signals.amount) excluding signal_type IN ('Death of spouse','New grandchild','External outflow','Refi window','Concentrated position'). 'Refi window' amounts are mortgage balances (a LENDING opportunity) and 'Concentrated position' is already-invested stock (a diversification opportunity): list them by signal type but never add them into the money-in-motion total; state the total separately. gold_household_signals already holds only ACTIVE signals (next 60 days / recent events): never filter it by signal_date or days_to_act, even when the question says 'next 60 days'.\n",
+     "AUM AT RISK = SUM(household_opportunities.aum_at_risk). Outflows = cash_flows_monthly.external_transfers_out (gold_flows_monthly.external_outflows by month/office/advisor).\n",
+     "CONVERSION RATE = SUM(accepted) / SUM(offers) in gold_nba_conversion (or AVG(CAST(accepted AS INT)) in nba_history). targeted = true means a signal-triggered next-best action; targeted = false is the generic annual review.\n",
+     "RETENTION AFTER A LIFE EVENT: use gold_life_event_retention (bereavement / inheritance events with 6 months of follow-up). Assets retained % = 100 * AVG(assets_retained_pct), split by advisor_contacted_within_30d.\n",
+     "SUITABILITY: nba_recommendations.suitability_status is PASS / REVIEW / FAIL from the deterministic rules S1-S7 (suitability_rules). The propensity model (nba_propensity_model@champion) is NOT suitability-aware. model_rank = 1 is the model's top pick; household_opportunities.model_top_blocked = the top pick fails suitability.\n",
+     "COMPLAINTS: nba_history.complaint_filed (on accepted offers). Complex products = STRUCTURED-NOTE, PRIVATE-CREDIT, SBLOC. would_fail_suitability = the offer would be blocked by today's rules.\n",
+     "Show money in $M with 1 decimal unless asked otherwise. Never use race, gender or age alone to rank clients.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "1618878d440c19bacca7d3b9a786b619",
+    "question": [
+     "What is the conversion rate of targeted next-best actions vs generic annual reviews?"
+    ],
+    "sql": [
+     "SELECT CASE WHEN targeted THEN 'Targeted (signal-triggered)' ELSE 'Generic annual review' END AS approach,\n",
+     "       SUM(offers) AS offers, ROUND(100.0 * SUM(accepted) / SUM(offers), 1) AS conversion_pct\n",
+     "FROM financial_services.wealth_advisor_copilot.gold_nba_conversion GROUP BY 1\n"
+    ]
+   },
+   {
+    "id": "6d9224735779aacfd0a99ec3dbbb8c05",
+    "question": [
+     "Which advisors have the most AUM at risk?"
+    ],
+    "sql": [
+     "SELECT a.advisor_name, a.office, ROUND(SUM(o.aum_at_risk) / 1e6, 1) AS aum_at_risk_m, COUNT_IF(o.aum_at_risk > 0) AS households_at_risk\n",
+     "FROM financial_services.wealth_advisor_copilot.household_opportunities o JOIN financial_services.wealth_advisor_copilot.advisors a USING (advisor_id)\n",
+     "GROUP BY ALL ORDER BY aum_at_risk_m DESC LIMIT 10\n"
+    ]
+   },
+   {
+    "id": "885098ef04a2e5abba9bcb20d6e8bfe7",
+    "question": [
+     "After a death or an inheritance, what share of their assets did households keep when the advisor called within 30 days vs when nobody called?"
+    ],
+    "sql": [
+     "SELECT CASE WHEN advisor_contacted_within_30d THEN 'Called within 30 days' ELSE 'Nobody called' END AS follow_up,\n",
+     "       COUNT(*) AS events, ROUND(100 * AVG(assets_retained_pct), 1) AS assets_retained_pct, ROUND(SUM(outflows_6m) / 1e6, 1) AS outflows_m\n",
+     "FROM financial_services.wealth_advisor_copilot.gold_life_event_retention GROUP BY 1\n"
+    ]
+   },
+   {
+    "id": "9ab5ff649f99785ddbb1f1f203f7812d",
+    "question": [
+     "How many complaints did we receive in the last 18 months, and how many came from complex products that would fail today's suitability rules?"
+    ],
+    "sql": [
+     "SELECT COUNT_IF(complaint_filed) AS complaints,\n",
+     "       COUNT_IF(complaint_filed AND would_fail_suitability) AS complaints_failing_suitability,\n",
+     "       ROUND(100.0 * COUNT_IF(complaint_filed AND would_fail_suitability) / COUNT_IF(complaint_filed), 1) AS pct\n",
+     "FROM financial_services.wealth_advisor_copilot.nba_history\n"
+    ]
+   },
+   {
+    "id": "bbeb04c41ae59209a2a67a38fc3f6ade",
+    "question": [
+     "How has sweep cash changed since the rate cuts?"
+    ],
+    "sql": [
+     "SELECT month, ROUND(SUM(sweep_cash) / 1e6, 1) AS sweep_cash_m, ROUND(SUM(external_outflows) / 1e6, 1) AS outflows_m\n",
+     "FROM financial_services.wealth_advisor_copilot.gold_flows_monthly GROUP BY month ORDER BY month\n"
+    ]
+   },
+   {
+    "id": "faea1a47b6031dd429dd5d815996b422",
+    "question": [
+     "How much client money is in motion across the firm, by signal type?"
+    ],
+    "sql": [
+     "SELECT signal_type, COUNT(DISTINCT household_id) AS households, ROUND(SUM(amount) / 1e6, 1) AS amount_m\n",
+     "FROM financial_services.wealth_advisor_copilot.gold_household_signals\n",
+     "WHERE signal_type NOT IN ('Death of spouse', 'New grandchild', 'External outflow')\n",
+     "GROUP BY signal_type ORDER BY amount_m DESC\n"
+    ]
+   }
+  ]
+ }
+}

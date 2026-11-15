@@ -267,6 +267,16 @@
 }
 .animate-step-ship { animation: step-ship 1.8s ease-in-out infinite; }
 
+/* --- Architecture diagram: presentation-first slide preset. The standalone
+ * renderer carries these rules too, so canvas, PNG and SVG stay identical. */
+.arch-theme-slide .react-flow__node {
+  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+.arch-theme-slide .react-flow__background {
+  opacity: 0;
+}
+
 /* --- Architecture diagram: let a NEW edge start from an already-connected
  * anchor (fork). ReactFlow draws each edge's invisible ~10px hit stroke
  * (`.react-flow__edge-interaction`) right over the endpoint, on top of the
@@ -281,4 +291,48 @@
   /* Keep the visible edge selectable, but don't let the fat invisible hit
    * stroke sit above handles — handles (z-index:20) now paint over it. */
   pointer-events: stroke;
+}
+
+/* --- Architecture diagram: FORMAT-PAINTER cursor. While a style is loaded
+ * ("Copy style (paint)"), the canvas shows a copy cursor over the pane and every
+ * tile so the pointer reads as "click to apply the loaded style" (like Word's
+ * paint roller). Toggled by the `sb-format-painter` class on the ReactFlow root
+ * (canvas.tsx), cleared on Esc / done. */
+.sb-format-painter .react-flow__pane,
+.sb-format-painter .react-flow__node,
+.sb-format-painter .react-flow__node * {
+  cursor: copy !important;
+}
+
+/* Markdown in diagram annotations (platform-diagram/md-text.tsx). A blank line
+ * between blocks keeps the gap it had as plain text. Plain CSS, not a Tailwind
+ * arbitrary variant: the class string lives in a TS constant the scanner missed. */
+.sb-md > * + * {
+  margin-top: 0.6em;
+}
+.sb-md li + li {
+  margin-top: 0.1em;
+}
+
+/* --- Architecture diagram: STATIC render mode (export / snapshot / headless).
+ * The flow animation is a live-only overlay: a PNG/SVG captured mid-frame shows
+ * scattered particles, docs and beads. A static render (the `arch-static` class on
+ * <html>, set by export-image.ts and the render-arch*.mjs scripts) drops the
+ * overlay and draws an animated edge as a clean solid line, plus the target
+ * arrowhead the live canvas leaves off (`arch-arrow-static`). The live canvas
+ * never carries the class, so its animation and arrowless look are untouched. */
+.arch-static .arch-flow {
+  display: none;
+}
+.arch-static .arch-flow-base {
+  stroke: var(--muted-foreground) !important;
+  stroke-dasharray: none !important;
+  stroke-width: 1.5px !important;
+  opacity: 0.55 !important;
+}
+.arch-arrow-static {
+  display: none;
+}
+.arch-static .arch-arrow-static {
+  display: inline;
 }

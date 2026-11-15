@@ -42,9 +42,9 @@
  * the data model.
  */
 // Normalize DATABRICKS_HOST: in Databricks Apps, the runtime sometimes
-// injects a bare hostname (`e2-demo-west.cloud.databricks.com`) overriding
+// injects a bare hostname (`<your-workspace>.cloud.databricks.com`) overriding
 // the .env value, which breaks every `new URL()` call downstream
-// (MLflow bootstrap, OpenAI agent endpoint, Genie/MAS routing). Force a
+// (MLflow bootstrap, OpenAI agent endpoint, Genie routing). Force a
 // scheme + strip a trailing slash exactly once, at module load.
 if (process.env.DATABRICKS_HOST) {
   let h = process.env.DATABRICKS_HOST.trim().replace(/\/+$/, '');
@@ -74,6 +74,7 @@ import { createDb } from './db/index.js';
 import { runMigrations } from './db/migrate.js';
 import { syncFromDelta } from './db/sync.js';
 import { ensureMlflowExperiment } from './lib/mlflow.js';
+import { loadDemoResources } from './lib/demo-resources.js';
 
 import { registerConfigRoutes } from './routes/config.js';
 import { registerChatRoutes } from './routes/chat.js';
@@ -82,19 +83,18 @@ import { registerActivityRoutes } from './routes/activity.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerChartRoutes } from './routes/charts.js';
 import { registerDevLogRoutes } from './routes/dev-log.js';
+import { dbdemosTracker } from './lib/tracker.js';
 
 // ============================================================================
 // Config
 // ============================================================================
 
 type AppConfig = {
-  /** MAS serving-endpoint name. Set this OR `genieSpaceId` (one of the
-   * two) — the agent registers `ask_mas` if this is set, `ask_genie`
-   * otherwise. See server/agent/tools/{mas,genie}.ts. */
-  masEndpointName?: string;
-  /** Genie space ID (32-char hex). Set this OR `masEndpointName`.
-   * The two are mutually-exclusive in the default template — if your
-   * demo really needs both, edit makeTools() to register both factories. */
+  /** dbdemos tracker app id (unique per demo); empty disables tracking. */
+  dbdemosAppId?: string;
+  /** Genie Agent (space) ID, 32-char hex. The agent's `ask_data` tool
+   * queries it in Agent mode (tables + the documents volume). Filled from
+   * demo_resources at boot. See server/agent/tools/genie.ts. */
   genieSpaceId?: string;
   /** Pinned MLflow experiment id, used by AppHeader's "Experiment" link.
    * Optional — most demos rely on `agentMlflowExperimentPath` below to
@@ -112,7 +112,7 @@ type AppConfig = {
    * so multiple demos in the same workspace don't share an experiment.
    *
    * Format: `/Users/<email>/<app-name>-agent-traces`
-   * Example: `/Users/me@databricks.com/luxebeauty-operations-agent-traces`
+   * Example: `/Users/me@example.com/luxebeauty-operations-agent-traces`
    *
    * The path is created via the MLflow REST API (POST /api/2.0/mlflow/
    * experiments/create); the running app's principal must have CAN_EDIT
@@ -127,7 +127,6 @@ type AppConfig = {
    * The server composes URLs from these + DATABRICKS_HOST. */
   pipelineId?: string;
   warehouseId?: string;
-  kaEndpointName?: string;
   lakebaseProjectId?: string;
   /** Full URL of THIS app (different host than the workspace), as
    * returned by `databricks apps get`. Stored verbatim, not composed. */
@@ -177,7 +176,6 @@ const tablesSchema = z.object({
 
 const appConfigSchema = z
   .object({
-    masEndpointName: z.string().optional(),
     genieSpaceId: z.string().optional(),
     mlflowExperimentId: z.string().optional(),
     agentMlflowExperimentPath: z.string().optional(),
@@ -185,7 +183,6 @@ const appConfigSchema = z
     dashboardId: z.string(),
     pipelineId: z.string().optional(),
     warehouseId: z.string().optional(),
-    kaEndpointName: z.string().optional(),
     lakebaseProjectId: z.string().optional(),
     appUrl: z.string().optional(),
     mlModelName: z.string().optional(),
@@ -313,6 +310,9 @@ function loadAppConfig(): AppConfig {
   return result.data as AppConfig;
 }
 
+// Genie Agent id (+ app URL, Lakebase project uid) are created by the setup job and recorded in
+// <catalog>.<schema>.demo_resources — fill the env from it BEFORE config/app.json's ${VAR} placeholders resolve.
+await loadDemoResources();
 const appConfig = loadAppConfig();
 
 // Populated by ensureMlflowExperiment() below; read by /api/config.
@@ -441,6 +441,8 @@ await createApp({
     // a standalone param typed as the generic createApp return collapses
     // appkit.server/.analytics to `never`.
     appkit.server.extend((app) => {
+  // dbdemos usage tracker (page views) — first, so it sees page loads before the static client.
+  app.use(dbdemosTracker(appConfig.dbdemosAppId));
   // Gate DB-dependent routes until migrations are ready. Lives BEFORE
   // route registration so it applies to every /api/* handler.
   app.use('/api', async (req, res, next) => {
@@ -478,18 +480,17 @@ await createApp({
     appConfig,
     getAgentExperimentId: () => agentExperimentId,
   });
-  // The template demo registers `ask_mas`. If your demo uses Genie
-  // instead, swap masEndpointName here for genieSpaceId and update
-  // refundops.ts AgentContext + makeTools() accordingly.
-  if (!appConfig.masEndpointName) {
+  // The agent's `ask_data` tool queries the Genie Agent. Without a space id
+  // the agent has no data tool.
+  if (!appConfig.genieSpaceId) {
     console.warn(
-      '[boot] config.masEndpointName is empty — the agent won\'t have an ask_mas tool. Set it in config/app.json, or wire ask_genie if your demo uses Genie.',
+      '[boot] config.genieSpaceId is empty — the agent won\'t have an ask_data tool. It is read from demo_resources (genie_space_id).',
     );
   }
   registerChatRoutes(app, {
     db,
     appConfig: {
-      masEndpointName: appConfig.masEndpointName ?? '',
+      genieSpaceId: appConfig.genieSpaceId ?? '',
       agentModel: appConfig.agentModel,
     },
   });
@@ -653,7 +654,13 @@ void (async () => {
     mlflow.init({
       trackingUri: 'databricks',
       experimentId: agentExperimentId,
-      ...(mlflowHost && mlflowToken ? { host: mlflowHost, databricksToken: mlflowToken } : {}),
+      // On Databricks Apps the SP's OAuth creds are in env (DATABRICKS_CLIENT_ID/
+      // SECRET) and the SDK resolves them itself — passing a token too makes the
+      // exporter fail every upload with 'more than one authorization method
+      // configured: oauth and pat'. Only override where no OAuth env exists.
+      ...(mlflowHost && mlflowToken && !process.env.DATABRICKS_CLIENT_ID
+        ? { host: mlflowHost, databricksToken: mlflowToken }
+        : {}),
     });
     console.log(`[boot +${ms()}] MLflow tracing active`);
 
@@ -679,6 +686,54 @@ void (async () => {
         return;
       }
       origWarn(...args);
+    };
+
+    // Silence mlflow-tracing span-upload failures in the preview sandbox.
+    // When mlflow-tracing exports a trace it (1) POSTs metadata to the workspace
+    // API (succeeds), then (2) PUTs span data to a presigned URL on the
+    // workspace-private *.storage.cloud.databricks.com host. In the preview
+    // sandbox that host is a private RFC-1918 address not routable from here →
+    // connection refused → undici surfaces "fetch failed". The trace metadata is
+    // still saved, and on a real Databricks Apps deploy (inside the workspace
+    // network) the upload succeeds. Harmless, but it pollutes logs and trips the
+    // preview's error detector.
+    //
+    // MATCH IT ON MLFLOW'S EXACT LOG SHAPE, not a guessed one. mlflow-tracing's
+    // DatabricksArtifactsClient.uploadTraceData logs precisely:
+    //   console.error(`Trace data upload failed for ${traceId}:`, error)
+    // where `error` is a re-wrapped `Error("Failed to upload to <credType>: <msg>")`
+    // — the ECONNREFUSED `.cause` and the storage hostname are BOTH stripped by
+    // that re-wrap (uploadToSignedUrl), so keying on either would never fire.
+    // The reliable, mlflow-SPECIFIC signals that survive are: arg[0] is the
+    // "Trace data upload failed for …:" prefix AND arg[1] is an Error whose
+    // message is the "Failed to upload to …" wrapper. Requiring BOTH keeps this
+    // from swallowing any OTHER error (a plain `fetch failed` from the app's own
+    // API calls has neither string). Only the FIRST match emits a notice.
+    let mlflowUploadErrorSeen = false;
+    const origError = console.error.bind(console);
+    console.error = (...args: unknown[]) => {
+      const prefix = typeof args[0] === 'string' ? args[0] : '';
+      const wrapped =
+        args[1] instanceof Error ? args[1].message : typeof args[1] === 'string' ? args[1] : '';
+      const isMlflowUploadError =
+        // Two mlflow-tracing call sites log this: the artifacts client
+        // ("Trace data upload failed for <id>:") and the exporter
+        // ("Failed to export trace <id>:"). Both wrap "Failed to upload to …".
+        (prefix.startsWith('Trace data upload failed for') ||
+          prefix.startsWith('Failed to export trace')) &&
+        wrapped.startsWith('Failed to upload to');
+
+      if (isMlflowUploadError) {
+        if (!mlflowUploadErrorSeen) {
+          mlflowUploadErrorSeen = true;
+          console.log(
+            '[mlflow] trace span upload to workspace storage failed (harmless: trace metadata is still recorded)',
+          );
+        }
+        return;
+      }
+
+      origError(...args);
     };
   }
 })();

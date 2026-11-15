@@ -1,0 +1,189 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "0a3bacf1325847deb3e419e187e63613",
+    "question": [
+     "Which failure modes cost us the most in the last 12 months?"
+    ]
+   },
+   {
+    "id": "2534a379e2ba4eabaa7d5c995bdfab31",
+    "question": [
+     "Which assets are most likely to fail in the next 7 days, and why?"
+    ]
+   },
+   {
+    "id": "480682b9caa140f99d1e22a77a9995e4",
+    "question": [
+     "How has Line 2 OEE trended week over week?"
+    ]
+   },
+   {
+    "id": "6eec296390294c1ea3b6dc5942c449ff",
+    "question": [
+     "What is OEE by line over the last 30 days?"
+    ]
+   },
+   {
+    "id": "b018582a6fe14ac593b5737fdd7b80b5",
+    "question": [
+     "Which robots got a non-OEM substitute grease at their last PM?"
+    ]
+   },
+   {
+    "id": "f00b3cf6623e4c339110454732955b32",
+    "question": [
+     "What is MTBF and MTTR by asset type?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "Is Mobilgrease XHP 222 approved for FANUC M-20iD reducers, and what is the corrective procedure if the wrong grease was used?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.asset_health_current"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.asset_reliability_12m"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.asset_risk_scores"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.assets"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.failure_events"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.maintenance_windows"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.maintenance_work_orders"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.oee_daily"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.plant_performance_metrics"
+   },
+   {
+    "identifier": "manufacturing.predictive_maintenance_copilot.spare_parts"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "fe5ff3a7a0a74153a5ed615d3ff04ad5",
+    "content": [
+     "TechRobotics Industries \u2014 Greenville SC Plant 2 (precision servo actuators). Personas: Dana Ortiz, Plant Manager (OEE, downtime, cost) and Marcus Chen, Plant Reliability Engineer (asset risk, root cause).\n",
+     "Plant: 48 assets. Line 1 \u2014 Precision Machining (CNC-101..114), Line 2 \u2014 Robotic Assembly (RA-201..216, FANUC M-20iD/R-2000iC and ABB robots; RA-207 is the line BOTTLENECK at $12,800/h), Line 3 \u2014 Press & Test (servo presses SP-301..308, test stands TS-309..312), Utilities (compressors CMP-01..06).\n",
+     "DEFINITIONS:\n",
+     "- OEE = availability x performance x quality (use oee_daily or the metric view plant_performance_metrics; always show as a percent). Availability = run time / (planned production time - planned downtime).\n",
+     "- Unplanned downtime = unplanned_downtime_min in production_daily (breakdowns + minor stops + changeovers); breakdown events with cost are in failure_events.\n",
+     "- MTBF = operating hours / number of failures (asset_reliability_12m.mtbf_hours, trailing 12 months). MTTR = average breakdown downtime hours.\n",
+     "- ML failure risk: asset_risk_scores / asset_health_current. risk_score = P(unplanned failure within 7 days) x 100 from failure_risk_model@champion. Tiers: Critical >= 70, High 40-70, Watch 15-40, Healthy < 15. downtime_cost_at_risk_usd = probability x expected unplanned failure cost.\n",
+     "- Lubricant used on each preventive maintenance is in maintenance_work_orders.lubricant_used; the OEM grease for FANUC reducers is Vigo RE0. 'Mobilgrease XHP 222 (EP2, substitute)' is NOT approved.\n",
+     "- \"Last 30 days\" = production_date >= current_date() - INTERVAL 30 DAYS. Money in USD, round to whole dollars; hours to 1 decimal.\n",
+     "When asked which assets are at risk, sort by risk_score desc and include the top driver and last PM vendor/lubricant.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "0407ce143c36427e950769b0df01bba3",
+    "question": [
+     "What is OEE by line over the last 30 days?"
+    ],
+    "sql": [
+     "SELECT line, round(avg(oee)*100,1) AS oee_pct, round(avg(availability)*100,1) AS availability_pct, round(avg(performance)*100,1) AS performance_pct, round(avg(quality)*100,1) AS quality_pct\n",
+     "FROM manufacturing.predictive_maintenance_copilot.oee_daily\n",
+     "WHERE production_date >= current_date() - INTERVAL 30 DAYS\n",
+     "GROUP BY line ORDER BY oee_pct\n"
+    ]
+   },
+   {
+    "id": "23ccc9dbc47c40569d4c2b7cf6d7856d",
+    "question": [
+     "Which assets are most likely to fail in the next 7 days, and why?"
+    ],
+    "sql": [
+     "SELECT asset_id, asset_name, line, risk_score, risk_tier, predicted_failure_mode, est_days_to_failure, round(downtime_cost_at_risk_usd,0) AS downtime_cost_at_risk_usd, top_driver_1, top_driver_2, last_pm_vendor, last_pm_lubricant\n",
+     "FROM manufacturing.predictive_maintenance_copilot.asset_health_current\n",
+     "ORDER BY risk_score DESC LIMIT 10\n"
+    ]
+   },
+   {
+    "id": "75822e39efa54b59a23223ab4045bb29",
+    "question": [
+     "Which robots got a non-OEM substitute grease at their last PM?"
+    ],
+    "sql": [
+     "SELECT w.asset_id, a.model, w.work_order_id, w.scheduled_ts, w.vendor, w.lubricant_used, r.risk_score, r.risk_tier\n",
+     "FROM manufacturing.predictive_maintenance_copilot.maintenance_work_orders w\n",
+     "JOIN manufacturing.predictive_maintenance_copilot.assets a USING (asset_id)\n",
+     "LEFT JOIN manufacturing.predictive_maintenance_copilot.asset_risk_scores r USING (asset_id)\n",
+     "WHERE w.work_type = 'Preventive' AND w.lubricant_used ILIKE '%substitute%' AND w.scheduled_ts >= current_timestamp() - INTERVAL 60 DAYS\n",
+     "ORDER BY r.risk_score DESC\n"
+    ]
+   },
+   {
+    "id": "8d631eb77280429dbdc5c8ec1e873120",
+    "question": [
+     "Which failure modes cost us the most in the last 12 months?"
+    ],
+    "sql": [
+     "SELECT failure_mode, count(*) AS failures, round(sum(downtime_hours),1) AS downtime_hours, round(sum(total_cost_usd),0) AS total_cost_usd\n",
+     "FROM manufacturing.predictive_maintenance_copilot.failure_events\n",
+     "WHERE failure_ts >= current_timestamp() - INTERVAL 365 DAYS\n",
+     "GROUP BY failure_mode ORDER BY total_cost_usd DESC\n"
+    ]
+   },
+   {
+    "id": "c1e56b3a876049079660217687f92a4a",
+    "question": [
+     "What is MTBF and MTTR by asset type?"
+    ],
+    "sql": [
+     "SELECT asset_type, sum(failures_12m) AS failures_12m, round(sum(mtbf_hours * greatest(failures_12m,1)) / greatest(sum(failures_12m),1),0) AS mtbf_hours, round(avg(mttr_hours),1) AS mttr_hours\n",
+     "FROM manufacturing.predictive_maintenance_copilot.asset_reliability_12m\n",
+     "GROUP BY asset_type ORDER BY mtbf_hours\n"
+    ]
+   },
+   {
+    "id": "df79f533ebdf4618a2e8eb8ec34cba6f",
+    "question": [
+     "How much unplanned downtime did each line have in the last 30 days?"
+    ],
+    "sql": [
+     "SELECT line, round(sum(unplanned_downtime_hours),1) AS unplanned_downtime_hours, round(sum(planned_downtime_hours),1) AS planned_downtime_hours\n",
+     "FROM manufacturing.predictive_maintenance_copilot.oee_daily\n",
+     "WHERE production_date >= current_date() - INTERVAL 30 DAYS\n",
+     "GROUP BY line ORDER BY unplanned_downtime_hours DESC\n"
+    ]
+   },
+   {
+    "id": "f50128eec8214f47a0ff9fe3d4fb7026",
+    "question": [
+     "How has Line 2 OEE trended week over week?"
+    ],
+    "sql": [
+     "SELECT date_trunc('WEEK', production_date) AS week, round(avg(oee)*100,1) AS oee_pct, round(avg(performance)*100,1) AS performance_pct, round(avg(quality)*100,1) AS quality_pct\n",
+     "FROM manufacturing.predictive_maintenance_copilot.oee_daily\n",
+     "WHERE line = 'Line 2 \u2014 Robotic Assembly' AND production_date >= current_date() - INTERVAL 84 DAYS\n",
+     "GROUP BY 1 ORDER BY 1\n"
+    ]
+   }
+  ]
+ }
+}

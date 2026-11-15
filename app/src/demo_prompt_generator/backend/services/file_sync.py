@@ -22,13 +22,10 @@ import json
 import logging
 import os
 import re
-import threading
-import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import zstandard as zstd
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
@@ -37,6 +34,24 @@ from ..models import ProjectFile
 logger = logging.getLogger(__name__)
 
 PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
+
+# Dot-files a deployable demo NEEDS, exempt from the "skip hidden files" rule
+# of the full-sync disk walk (below) and the template seeder. `.npmrc` sets
+# `ignore-scripts=true` + `omit=dev` for the Databricks Apps container's
+# `npm install`; without it the install runs the postinstall typegen (which
+# needs build context the container lacks) and the deployed app fails to start.
+# Secrets/local state stay excluded: `.env*` (see template_service's junk list),
+# `.databrickscfg`, `.anthropic_token`, … are NOT in this set.
+SHIPPABLE_DOTFILES = frozenset({".npmrc"})
+
+
+def is_skipped_hidden_path(rel_path: str | Path) -> bool:
+    """True if any segment of `rel_path` is hidden (starts with ".") and is not
+    an allowlisted SHIPPABLE_DOTFILES basename."""
+    return any(
+        part.startswith(".") and part not in SHIPPABLE_DOTFILES
+        for part in Path(rel_path).parts
+    )
 
 
 def ensure_fmapi_auth_files(project_dir: Path, project_id: str) -> None:
@@ -92,70 +107,11 @@ def compute_file_hash(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-# ─── zstd thread-safety: per-thread compressor / decompressor ────────────────
-#
-# `ZstdCompressor` / `ZstdDecompressor` are NOT thread-safe — the library
-# docs are explicit [1] and the C extension releases the GIL during
-# compression, so threads truly race in parallel on a shared `ZSTD_CCtx`.
-# In this app `sync_files_to_db` runs off the loop via `asyncio.to_thread`
-# and the file watcher fires concurrent debounced flushes per project, so a
-# single module-level compressor surfaced as
-#     ZstdError: cannot compress: Src size is incorrect
-# followed by a worker segfault from continued mutation of the corrupted
-# C struct (production incident 2026-05-21T21:00:49Z, three projects'
-# transcripts flushed at once).
-#
-# We use `threading.local()` rather than a `threading.Lock`: a lock would
-# serialize every compress call and erase the parallelism zstandard
-# explicitly enables. Per-thread contexts cost ~1 kB per worker thread for
-# the process lifetime. Level 9 is unchanged.
-#
-# [1] https://python-zstandard.readthedocs.io/en/latest/api_usage.html#thread-and-object-reuse-safety
-
-_ZSTD_LEVEL = 9
-_zstd_local = threading.local()
-
-
-def _get_compressor() -> zstd.ZstdCompressor:
-    """Return the calling thread's `ZstdCompressor`, creating it lazily."""
-    c = getattr(_zstd_local, "compressor", None)
-    if c is None:
-        c = zstd.ZstdCompressor(level=_ZSTD_LEVEL)
-        _zstd_local.compressor = c
-    return c
-
-
-def _get_decompressor() -> zstd.ZstdDecompressor:
-    """Return the calling thread's `ZstdDecompressor`, creating it lazily."""
-    d = getattr(_zstd_local, "decompressor", None)
-    if d is None:
-        d = zstd.ZstdDecompressor()
-        _zstd_local.decompressor = d
-    return d
-
-
-# zstd frames start with the magic number 0xFD2FB528 (little-endian) →
-# bytes 0x28 0xB5 0x2F 0xFD. zlib streams (RFC 1950) start with 0x78
-# followed by one of {0x01, 0x5E, 0x9C, 0xDA} depending on the level —
-# never 0x28. So a single-byte prefix check is enough to disambiguate.
-_ZSTD_MAGIC_FIRST_BYTE = 0x28
-
-
-def compress_content(content: bytes) -> bytes:
-    """Compress with zstd level 9 via a thread-local context (see above)."""
-    return _get_compressor().compress(content)
-
-
-def decompress_content(compressed: bytes) -> bytes:
-    """Decompress, autodetecting zlib (legacy rows) vs zstd from the magic byte.
-
-    Historical rows were written with zlib level 6; new rows are zstd. The
-    first-byte check (see `_ZSTD_MAGIC_FIRST_BYTE`) removes the need for a
-    schema column or backfill.
-    """
-    if compressed and compressed[0] == _ZSTD_MAGIC_FIRST_BYTE:
-        return _get_decompressor().decompress(compressed)
-    return zlib.decompress(compressed)
+from .content_codec import (  # noqa: F401 — re-exported: agent_usage and others import them from here
+    _ZSTD_MAGIC_FIRST_BYTE,
+    compress_content,
+    decompress_content,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +353,20 @@ class FileSyncService:
         arch_md_changed: Optional[str] = None
 
         with Session(self.engine) as session:
-            for rel_path in relative_paths:
+            # One hash-only SELECT for the whole batch instead of a full-row SELECT
+            # per path: the content blob is loaded below only for rows that change.
+            # Duplicate paths collapse so a second occurrence can't insert the row twice.
+            unique_paths = list(dict.fromkeys(relative_paths))
+            known: dict[str, tuple[Optional[int], str]] = {}  # rel_path -> (row id, content_hash)
+            if unique_paths:
+                for row_id, row_path, row_hash in session.exec(
+                    select(ProjectFile.id, ProjectFile.relative_path, ProjectFile.content_hash)
+                    .where(ProjectFile.project_id == project_id)
+                    .where(ProjectFile.relative_path.in_(unique_paths))  # type: ignore[attr-defined]
+                ).all():
+                    known[row_path] = (row_id, row_hash)
+
+            for rel_path in unique_paths:
                 file_path = project_dir / rel_path
 
                 if file_path.is_file():
@@ -407,14 +376,10 @@ class FileSyncService:
                         content_hash = compute_file_hash(content)
 
                         # Check if content actually changed
-                        existing = session.exec(
-                            select(ProjectFile)
-                            .where(ProjectFile.project_id == project_id)
-                            .where(ProjectFile.relative_path == rel_path)
-                        ).first()
-
-                        if existing and existing.content_hash == content_hash:
+                        prev = known.get(rel_path)
+                        if prev and prev[1] == content_hash:
                             continue
+                        existing = session.get(ProjectFile, prev[0]) if prev else None
 
                         if Path(rel_path).name == "architecture.md":
                             arch_md_changed = content.decode("utf-8", errors="replace")
@@ -447,12 +412,8 @@ class FileSyncService:
                         logger.error(f"Failed to sync {rel_path}: {e}")
                 else:
                     # File deleted - remove from DB
-                    existing = session.exec(
-                        select(ProjectFile)
-                        .where(ProjectFile.project_id == project_id)
-                        .where(ProjectFile.relative_path == rel_path)
-                    ).first()
-
+                    prev = known.get(rel_path)
+                    existing = session.get(ProjectFile, prev[0]) if prev else None
                     if existing:
                         session.delete(existing)
                         synced += 1
@@ -680,8 +641,13 @@ class FileSyncService:
                     if fname.endswith(".pyc"):
                         continue
                     # Top-level dot-files that are NOT inside .claude/ (e.g.
-                    # a stray `.env.local`) — keep skipping for legacy parity.
-                    if fname.startswith(".") and ".claude" not in rel_path.parts:
+                    # a stray `.env.local`) — keep skipping for legacy parity,
+                    # except the allowlisted SHIPPABLE_DOTFILES (`.npmrc`).
+                    if (
+                        fname.startswith(".")
+                        and fname not in SHIPPABLE_DOTFILES
+                        and ".claude" not in rel_path.parts
+                    ):
                         continue
                     local_files.add(str(rel_path))
 

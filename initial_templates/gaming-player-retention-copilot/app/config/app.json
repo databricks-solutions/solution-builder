@@ -1,0 +1,83 @@
+{
+  // App config (JSONC). Loaded by server/server.ts loadAppConfig.
+  //
+  // ${VAR} / ${VAR:default} placeholders are substituted against process.env
+  // BEFORE JSON parsing. So catalog/schema/resource-IDs live in env (one
+  // source of truth), NOT as literals here — set them in `.env` (local dev +
+  // preview) or via the DAB (deployed; finalize_app.sh writes app.yaml's env).
+  //   - `${VAR}`           → empty string if unset
+  //   - `${VAR:default}`   → `default` if unset
+  // Empty values degrade gracefully (inert deep-link tile / skipped feature);
+  // the app still boots. See server.ts loadAppConfig for the substitution +
+  // the boot warnings.
+  //
+  // CUSTOMIZE per demo: branding, assistantScript, and data.tables names
+  // below. Everything else is env-driven and shouldn't need editing.
+
+  // ─ Agent backend: the Genie agent the `ask_data` tool queries (Agent mode).
+  //   Empty → read from <catalog>.<schema>.demo_resources (written by the setup job).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:gaming-player-retention-copilot}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Agent LLM. Needs the Responses API (openai/v1/responses). databricks-gpt-5-4
+  // is the baseline; a newer GPT endpoint with /responses enabled works too.
+  // Non-Responses models (Claude etc.) 400 BAD_REQUEST.
+  "agentModel": "databricks-gpt-5-4",
+
+  // MLflow trace path. Empty → chat shows "Trace pending…". Auto-created
+  // at boot via lib/mlflow.ts.
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (UUID). Empty → drop the /dashboard route +
+  // sidebar entry. Also a tile on /platform.
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  // Workspace resource IDs → deep-link URLs via /api/resources (PlatformDiagram
+  // on /platform). Empty id → tile renders inert.
+  "pipelineId":        "${PIPELINE_ID:}",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.player_churn_model",
+
+  // Delta source for the boot-time Lakebase mirror (server/db/sync.ts). catalog +
+  // schema come from env; table names are the demo's gold / ML / AI output tables.
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": {
+      "segments":      "gold_risk_segments",
+      "scores":        "churn_scores",
+      "features":      "player_features",
+      "chatInsights":  "chat_insights",
+      "interventions": "intervention_catalog",
+      "history":       "liveops_history",
+      "budget":        "liveops_budget"
+    }
+  },
+
+  // Surfaces in dock header + page titles.
+  "branding": {
+    "appName": "Hollowspire Live-Ops"
+  },
+
+  // Dock's "Suggested next" chip walks this list. Step N unlocks once the
+  // previous assistant message contains any triggerAfter[] substring.
+  "assistantScript": [
+    {
+      "prompt": "Why did retention drop after the Season 7 launch, and which segment puts the most revenue at risk?"
+    },
+    {
+      "prompt": "Plan the intervention for the MATCH-APAC segment within the October live-ops budget, and draft the player message.",
+      "triggerAfter": ["APAC", "matchmaking", "queue"]
+    },
+    {
+      "prompt": "Why not just run the 50% gem sale for everyone?",
+      "triggerAfter": ["Staged", "staged", "Schedule"]
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  // Crestwood Snacks Co. — Trade Promo Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Copilot data backend (server/agent/promoplanner.ts): the Genie agent — ad-hoc analytics over the gold
+  // tables + the trade-promotion policy documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:cpg-trade-promotion-roi}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Copilot LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (RGM / finance view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.baseline_demand_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/trade_policy_docs",
+
+  // Delta location of the gold tables mirrored into Lakebase at boot (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Trade Promo Copilot"
+  },
+
+  // Chat dock "Suggested next" chips (the demo script).
+  "assistantScript": [
+    { "label": "Which events will lose money?", "prompt": "Which events in next quarter's promo calendar will lose money, and why?" },
+    { "label": "Re-plan them", "prompt": "Propose a re-plan for the money-losing events that keeps our ValuMax JBP commitments. Show the before/after profit and volume.", "triggerAfter": ["BOGO", "lose", "money-losing", "Money-losing"] },
+    { "label": "Approve the re-plan", "prompt": "Approved — apply the re-plan.", "triggerAfter": ["approv", "Approv"] },
+    { "label": "ROI by retailer & tactic", "prompt": "What was our promotion ROI by retailer and tactic over the last 52 weeks?", "triggerAfter": ["RP-", "applied", "Decisions"] }
+  ]
+}

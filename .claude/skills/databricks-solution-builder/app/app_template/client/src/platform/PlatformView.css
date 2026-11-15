@@ -1051,24 +1051,24 @@
   opacity: 0.6;
 }
 
-/* ----- MAS stage: question → supervisor → specialist agents → answer ----- */
+/* ----- Genie Agent stage: question → agent → answer ----- */
 
 :root {
-  --dx-mas-cycle: 5s;
+  --dx-agent-cycle: 5s;
 }
 
-.dx-mas-stage {
+.dx-agent-stage {
   flex: 1;
   min-width: 0;
   display: grid;
-  /* 3 columns: question | supervisor | agents */
+  /* 3 columns: question | agent | sources */
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr);
   align-items: center;
   gap: 0.7rem;
 }
 
 @media (max-width: 980px) {
-  .dx-mas-stage {
+  .dx-agent-stage {
     grid-template-columns: 1fr;
     gap: 0.4rem;
   }
@@ -1076,7 +1076,7 @@
 
 /* Question chip */
 
-.dx-mas-question {
+.dx-agent-question {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -1090,13 +1090,13 @@
   min-width: 0;
 }
 
-.dx-mas-question-chev {
+.dx-agent-question-chev {
   flex-shrink: 0;
   color: var(--primary);
   font-weight: 700;
 }
 
-.dx-mas-question-text {
+.dx-agent-question-text {
   min-width: 0;
   display: inline-flex;
   align-items: baseline;
@@ -1104,15 +1104,15 @@
   overflow: hidden;
 }
 
-.dx-mas-question-typed {
+.dx-agent-question-typed {
   display: inline-block;
   overflow: hidden;
   white-space: nowrap;
   max-width: 0;
-  animation: dx-mas-type var(--dx-mas-cycle) steps(20, end) infinite;
+  animation: dx-agent-type var(--dx-agent-cycle) steps(20, end) infinite;
 }
 
-@keyframes dx-mas-type {
+@keyframes dx-agent-type {
   0%   { max-width: 0; }
   22%  { max-width: 20ch; }
   88%  { max-width: 20ch; }
@@ -1120,23 +1120,23 @@
   100% { max-width: 0; }
 }
 
-.dx-mas-question-caret {
+.dx-agent-question-caret {
   display: inline-block;
   width: 2px;
   height: 0.9em;
   margin-left: 2px;
   background: var(--primary);
-  animation: dx-mas-caret 0.9s steps(2, end) infinite;
+  animation: dx-agent-caret 0.9s steps(2, end) infinite;
 }
 
-@keyframes dx-mas-caret {
+@keyframes dx-agent-caret {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0; }
 }
 
-/* Supervisor router */
+/* Genie Agent router */
 
-.dx-mas-router {
+.dx-agent-router {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -1152,7 +1152,7 @@
   position: relative;
 }
 
-.dx-mas-router::before {
+.dx-agent-router::before {
   /* Subtle pulse halo */
   content: '';
   position: absolute;
@@ -1160,18 +1160,18 @@
   border-radius: 9999px;
   border: 1px solid color-mix(in oklch, var(--primary) 50%, transparent);
   opacity: 0;
-  animation: dx-mas-router-pulse var(--dx-mas-cycle) ease-out infinite;
+  animation: dx-agent-router-pulse var(--dx-agent-cycle) ease-out infinite;
 }
 
-@keyframes dx-mas-router-pulse {
-  /* typing fills 0–22%, then supervisor pulses */
+@keyframes dx-agent-router-pulse {
+  /* typing fills 0–22%, then the agent pulses */
   0%, 24%   { transform: scale(0.92); opacity: 0; }
   30%       { transform: scale(1.08); opacity: 0.9; }
   40%       { transform: scale(1.18); opacity: 0; }
   100%      { transform: scale(1.18); opacity: 0; }
 }
 
-.dx-mas-router-icon {
+.dx-agent-router-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1185,14 +1185,14 @@
 
 /* Specialist agents column */
 
-.dx-mas-agents {
+.dx-agent-items {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   min-width: 0;
 }
 
-.dx-mas-agent {
+.dx-agent-item {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -1204,11 +1204,11 @@
   color: var(--muted-foreground);
   opacity: 0.35;
   transform: translateX(-4px);
-  animation: dx-mas-agent-in var(--dx-mas-cycle) ease-out infinite;
+  animation: dx-agent-item-in var(--dx-agent-cycle) ease-out infinite;
   min-width: 0;
 }
 
-.dx-mas-agent-icon {
+.dx-agent-item-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1220,14 +1220,14 @@
   color: var(--primary);
 }
 
-.dx-mas-agent-name {
+.dx-agent-item-name {
   font-weight: 700;
   color: var(--foreground);
   flex-shrink: 0;
   font-size: 0.7rem;
 }
 
-.dx-mas-agent-task {
+.dx-agent-item-task {
   font-size: 0.66rem;
   color: var(--muted-foreground);
   min-width: 0;
@@ -1237,7 +1237,7 @@
   font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
 }
 
-@keyframes dx-mas-agent-in {
+@keyframes dx-agent-item-in {
   /* typing fills 0–22%; agents activate after, staggered via delays */
   0%, 28%   { opacity: 0.3; transform: translateX(-4px); border-color: var(--border); }
   36%       { opacity: 1;   transform: translateX(0);   border-color: color-mix(in oklch, var(--primary) 50%, var(--border)); }
@@ -1246,9 +1246,8 @@
   100%      { opacity: 0.3; transform: translateX(-4px); border-color: var(--border); }
 }
 
-.dx-mas-agent-1 { animation-delay: calc(var(--dx-mas-cycle) * 0.00); }
-.dx-mas-agent-2 { animation-delay: calc(var(--dx-mas-cycle) * 0.05); }
-.dx-mas-agent-3 { animation-delay: calc(var(--dx-mas-cycle) * 0.10); }
+.dx-agent-item-1 { animation-delay: calc(var(--dx-agent-cycle) * 0.00); }
+.dx-agent-item-2 { animation-delay: calc(var(--dx-agent-cycle) * 0.05); }
 
 
 /* -------- Reveal keyframes -------- */

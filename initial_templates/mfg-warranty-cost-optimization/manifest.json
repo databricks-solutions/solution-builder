@@ -1,0 +1,10 @@
+{
+  "id": "mfg-warranty-cost-optimization",
+  "name": "Warranty Copilot — Warranty Cost Optimization & Quality Root Cause",
+  "customer": "Brightwater Cycle Works",
+  "industry": "Manufacturing",
+  "narrative": "Priya Raman is the warranty and field-quality engineer at Brightwater Cycle Works, an e-bike maker. Claims per 1,000 bikes jumped a third this summer, but dealers file most electrical failures under a generic ELEC-GEN labor code, so the warranty report only says \"more electrical claims\". AI Functions read every technician note and the early-warning board lights up: motor-controller water ingress on the hub-drive bikes is running at ten times last year's rate.\n\nThe aha is the root-cause case the copilot assembles in half a minute. On the lakehouse it isolates five Hanlin controller lots, rules out the firmware update everyone blames and the assembly line (mid-drive bikes built the same weeks are fine), and shows that connected bikes are already reporting the moisture fault. The supplier-quality library shows Hanlin shipped those lots under a coating change that was never approved. The copilot prices about $1M of remaining-warranty exposure against a $324K seal-kit campaign, drafts the 8D request and a $418K chargeback under the supplier agreement, and Priya opens the quality case, which is written back to Lakebase.",
+  "dbdemos_tracker": {
+    "app_id": "mfg-warranty-cost-optimization"
+  }
+}

@@ -18,7 +18,7 @@
       "name": "ds_forecast",
       "displayName": "Weekly refunds — actuals + forecast",
       "queryLines": [
-        "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, MEASURE(`total_refunds`) AS refunds  FROM mv_returns  WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', current_date())    AND date >= DATEADD(day, -180, current_date())  GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds', parameters => '{\"global_floor\": 0}' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,         CAST(NULL AS DOUBLE) AS refunds_upper,         CAST(NULL AS DOUBLE) AS refunds_lower, refunds  FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,         CAST(NULL AS DOUBLE) AS refunds  FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
+        "WITH original AS ( SELECT DATE_TRUNC('WEEK', date) AS week, MEASURE(`total_refunds`) AS refunds  FROM mv_returns  WHERE DATE_TRUNC('WEEK', date) < DATE_TRUNC('WEEK', (SELECT DATE_ADD(MAX(CAST(return_date AS DATE)), 1) FROM silver_returns))    AND date >= DATEADD(day, -180, (SELECT DATE_ADD(MAX(CAST(return_date AS DATE)), 1) FROM silver_returns))  GROUP BY 1), dates AS ( SELECT MAX(week) AS max_w FROM original), forecast AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower FROM AI_FORECAST(   TABLE(original),   horizon => (SELECT max_w + INTERVAL 28 DAYS FROM dates),   time_col => 'week',   value_col => 'refunds', parameters => '{\"global_floor\": 0}' )), actuals AS ( SELECT week, CAST(NULL AS DOUBLE) AS refunds_forecast,         CAST(NULL AS DOUBLE) AS refunds_upper,         CAST(NULL AS DOUBLE) AS refunds_lower, refunds  FROM original), forecast_aligned AS ( SELECT week, refunds_forecast, refunds_upper, refunds_lower,         CAST(NULL AS DOUBLE) AS refunds  FROM forecast) SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM actuals UNION ALL SELECT week, refunds_forecast, refunds_upper, refunds_lower, refunds FROM forecast_aligned UNION ALL SELECT (SELECT max_w FROM dates) AS week,        refunds AS refunds_forecast, refunds AS refunds_upper,        refunds AS refunds_lower, CAST(NULL AS DOUBLE) AS refunds FROM original WHERE week = (SELECT max_w FROM dates)"
       ]
     },
     {
@@ -41,7 +41,7 @@
               "lines": [
                 "# LuxeBeauty Returns — Operations\n",
                 "\n",
-                "**The story** — weekly refunds spiked to ~$180K three weeks ago (3× our $60K baseline). Cause: production lot **LOT-2026-0430** of three Skincare SKUs (SKU-1001/1002/1003) released from Lyon despite a QC note about texture variations. ~250 customers affected, concentrated EU (Paris > London > Milan).\n",
+                "**The story** — weekly refunds spiked to ~$180K three weeks ago (3× our $60K baseline). Cause: production lot **LOT-2026-0531** of three Skincare SKUs (SKU-1001/1002/1003) released from Lyon despite a QC note about texture variations. ~250 customers affected, concentrated EU (Paris > London > Milan).\n",
                 "\n",
                 "**What to see** — KPI sparklines carry the spike-then-decay shape · forecast-line marks the production-incident date as a vertical bar to the LEFT of the bump (cause → effect → 4-week recovery forecast) · donut shows Skincare dominates refunds · bubble map lights up Europe with Paris deepest red."
               ]
@@ -51,7 +51,7 @@
             "x": 0,
             "y": 0,
             "width": 12,
-            "height": 3
+            "height": 4
           }
         },
         {
@@ -105,7 +105,7 @@
           },
           "position": {
             "x": 0,
-            "y": 3,
+            "y": 4,
             "width": 3,
             "height": 3
           }
@@ -152,7 +152,7 @@
           },
           "position": {
             "x": 3,
-            "y": 3,
+            "y": 4,
             "width": 3,
             "height": 3
           }
@@ -199,7 +199,7 @@
           },
           "position": {
             "x": 6,
-            "y": 3,
+            "y": 4,
             "width": 3,
             "height": 3
           }
@@ -258,7 +258,7 @@
           },
           "position": {
             "x": 9,
-            "y": 3,
+            "y": 4,
             "width": 3,
             "height": 3
           }
@@ -304,11 +304,11 @@
                   "type": "vertical-line",
                   "encodings": {
                     "x": {
-                      "dataValue": "2026-04-27T00:00:00.000",
+                      "dataValue": "2026-05-25T00:00:00.000",
                       "dataType": "DATETIME"
                     },
                     "label": {
-                      "value": "Product issue: lot LOT-2026-0430 ships"
+                      "value": "Product issue: lot LOT-2026-0531 ships"
                     }
                   }
                 }
@@ -340,11 +340,11 @@
                   },
                   "original": {
                     "fieldName": "refunds",
-                    "displayName": "Refunds (actual)"
+                    "displayName": "Actual refunds"
                   },
                   "prediction": {
                     "fieldName": "refunds_forecast",
-                    "displayName": "4-week forecast"
+                    "displayName": "Forecast"
                   },
                   "predictionUpper": {
                     "fieldName": "refunds_upper"
@@ -360,6 +360,9 @@
                       "type": "exact",
                       "places": 2
                     }
+                  },
+                  "axis": {
+                    "title": "Weekly refunds ($)"
                   }
                 }
               },
@@ -370,7 +373,7 @@
           },
           "position": {
             "x": 0,
-            "y": 6,
+            "y": 7,
             "width": 12,
             "height": 5
           }
@@ -454,7 +457,7 @@
           },
           "position": {
             "x": 0,
-            "y": 17,
+            "y": 18,
             "width": 7,
             "height": 6
           }
@@ -534,7 +537,7 @@
           },
           "position": {
             "x": 7,
-            "y": 18,
+            "y": 19,
             "width": 5,
             "height": 5
           }
@@ -579,25 +582,18 @@
               "encodings": {
                 "x": {
                   "fieldName": "sum(refund_amount_usd)",
+                  "displayName": "Refunds ($)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
                   "format": {
                     "type": "number-currency",
                     "currencyCode": "USD",
                     "abbreviation": "compact",
                     "decimalPlaces": {
-                      "type": "max",
-                      "places": 2
-                    },
-                    "significantFigures": {
                       "type": "exact",
-                      "figures": 2
+                      "places": 2
                     }
-                  },
-                  "axis": {
-                    "title": "Refunds ($)"
-                  },
-                  "displayName": "Refunds ($)",
-                  "scale": {
-                    "type": "quantitative"
                   }
                 },
                 "y": {
@@ -606,7 +602,7 @@
                   "scale": {
                     "type": "categorical",
                     "sort": {
-                      "by": "x-reversed"
+                      "by": "value"
                     }
                   }
                 },
@@ -647,7 +643,7 @@
           },
           "position": {
             "x": 7,
-            "y": 11,
+            "y": 12,
             "width": 5,
             "height": 7
           }
@@ -723,7 +719,7 @@
           },
           "position": {
             "x": 0,
-            "y": 11,
+            "y": 12,
             "width": 7,
             "height": 6
           }
@@ -745,7 +741,7 @@
                 "\n",
                 "**Same data, split by the dimensions that matter** — which products, which lots, which countries, what customers are saying. \n",
                 "\n",
-                "The story emerges: 3 Skincare SKUs sit an order of magnitude above the rest · all on ONE lot (`LOT-2026-0430`, \\~10× any other) · the affected-lot bars dwarf everyday returns in every EU country and `quality` is the dominant reason · `ai_classify` puts most affected-lot comments into Angry / Very angry · the comments cluster on \"grainy\", \"separated\", \"watery\".\n",
+                "The story emerges: 3 Skincare SKUs sit an order of magnitude above the rest · all on ONE lot (`LOT-2026-0531`, \\~10× any other) · the affected-lot bars dwarf everyday returns in every EU country and `quality` is the dominant reason · `ai_classify` puts most affected-lot comments into Angry / Very angry · the comments cluster on \"grainy\", \"separated\", \"watery\".\n",
                 "\n",
                 "Click any **'Affected lot'** bar to filter every other widget on the page."
               ]
@@ -880,13 +876,6 @@
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "country",
-                  "displayName": "Country",
-                  "scale": {
-                    "type": "categorical"
-                  }
-                },
-                "y": {
                   "fieldName": "sum(refund_amount_usd)",
                   "format": {
                     "type": "number-currency",
@@ -900,6 +889,16 @@
                   "displayName": "Refunds ($)",
                   "scale": {
                     "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "country",
+                  "displayName": "Country",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
                   }
                 },
                 "color": {
@@ -1136,11 +1135,28 @@
                   },
                   {
                     "fieldName": "countdistinct(return_id)",
-                    "displayName": "Returns"
+                    "displayName": "Returns",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
                   },
                   {
                     "fieldName": "sum(refund_amount_usd)",
-                    "displayName": "Refund $"
+                    "displayName": "Refunds",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
                   }
                 ]
               },
@@ -1169,10 +1185,6 @@
                     {
                       "name": "product_name",
                       "expression": "`product_name`"
-                    },
-                    {
-                      "name": "country",
-                      "expression": "`country`"
                     },
                     {
                       "name": "city",
@@ -1213,20 +1225,32 @@
                     "displayName": "Product"
                   },
                   {
-                    "fieldName": "country",
-                    "displayName": "Country"
-                  },
-                  {
                     "fieldName": "city",
                     "displayName": "City"
                   },
                   {
                     "fieldName": "anger_score",
-                    "displayName": "Anger"
+                    "displayName": "Anger",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
                   },
                   {
                     "fieldName": "refund_amount_usd",
-                    "displayName": "Refund $"
+                    "displayName": "Refund",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
                   },
                   {
                     "fieldName": "customer_comment",
@@ -1316,7 +1340,8 @@
             "spec": {
               "version": 2,
               "frame": {
-                "showTitle": true
+                "showTitle": true,
+                "title": "Date range"
               },
               "selection": {
                 "defaultSelection": {

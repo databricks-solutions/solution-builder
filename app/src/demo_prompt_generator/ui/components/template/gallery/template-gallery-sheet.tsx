@@ -1,8 +1,9 @@
 /**
  * Shared WIDE CENTERED MODAL showing a template's story, the solution
  * ARCHITECTURE (rendered read-only from architecture.md), the INCLUDED FILES
- * (tree + content viewer), and — when the internal gallery passes `links` —
- * the live-resource buttons (Dashboard / Ask Genie / Open App / Data).
+ * (tree + content viewer), and — when the demo is deployed in this app's
+ * workspace (`detail.live_demo`) — a "Try it live" band with one button per
+ * live asset (app, dashboard, Genie, pipeline, …).
  *
  * The content is organized into three tabs (Overview / Architecture / Files)
  * so a reader can click through a demo fast, and the header carries an
@@ -45,9 +46,7 @@ import {
   ChevronRight,
   Clock,
   Code,
-  Database,
   Download,
-  ExternalLink,
   Eye,
   FileText,
   Folder,
@@ -71,7 +70,6 @@ import {
   LakeflowJobsBrandIcon,
   MultiAgentSupervisorIcon,
   KnowledgeAssistantIcon,
-  AgentsIcon,
   AIFunctionsIcon,
   AIGatewayBrandIcon,
   MetricViewsIcon,
@@ -98,8 +96,8 @@ import {
   getConfigStatus,
   type TemplateDetail,
   type TemplateFile,
-  type DemoResourceLinks,
 } from "@/lib/custom-api";
+import { LiveDemoPanel } from "./live-demo-panel";
 
 // The read-only architecture preview reuses the full ReactFlow editor. Lazy so
 // the heavy diagram chunk isn't pulled into the gallery's initial bundle.
@@ -112,11 +110,12 @@ type TabKey = "overview" | "architecture" | "files";
 // Product catalog — maps every capability id a template can carry to the
 // Databricks PRODUCT it represents (proper name + brand icon), so the modal's
 // "Products in this template" section shows real products, not prettified
-// slugs. Coverage is exhaustive: every capability block id (the 26 under
+// slugs. Coverage is exhaustive: every capability block id (under
 // references/blocks/capabilities/) PLUS the extra ids templates use in
-// resources.json (`agent-bricks`, `databricks-one`) PLUS ingestion aliases
+// resources.json (`databricks-one`) PLUS ingestion aliases
 // (`zerobus`, `streaming`). Anything not mapped falls back to a titleized
 // slug + a neutral icon, and we log it so the catalog can be extended.
+// KA/MAS entries are legacy: existing templates still carry them.
 //
 // `order` groups products along the data journey (sources → pipeline →
 // governance → BI → conversational → agents → app/serving) so the row reads
@@ -162,7 +161,8 @@ const PRODUCT_CATALOG: Record<string, ProductInfo> = {
   "genie-code": { name: "Genie Code", icon: GenieCodeBrandIcon, order: 42 },
 
   // ── Agents / AI (50–59) ────────────────────────────────────────────────────
-  "agent-bricks": { name: "Agent Bricks", icon: AgentsIcon, order: 50 },
+  "unstructured-documents": { name: "Unstructured Documents (PDF)", icon: UnstructuredDataIcon, order: 50 },
+  // Legacy KA/MAS: deprecated for new projects, kept so existing templates still render.
   "knowledge-assistant": { name: "Knowledge Assistant", icon: KnowledgeAssistantIcon, order: 51 },
   "supervisor-agent": { name: "Supervisor Agent", icon: MultiAgentSupervisorIcon, order: 52 },
   "vector-search": { name: "Vector Search", icon: VectorSearchBrandIcon, order: 53 },
@@ -210,46 +210,11 @@ function resolveProducts(
   return out.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
 }
 
-/** A big primary-action link button (Dashboard / Ask Genie / App). */
-function LinkButton({
-  href,
-  icon: Icon,
-  label,
-  tone,
-}: {
-  href: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  tone: "dashboard" | "genie" | "app";
-}) {
-  const toneCls =
-    tone === "genie"
-      ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-      : tone === "app"
-        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/15"
-        : "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-500/15";
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn(
-        "inline-flex items-center gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] font-semibold transition-colors no-underline",
-        toneCls,
-      )}
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-      <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-    </a>
-  );
-}
-
 export function TemplateGallerySheet({
   templateId,
   onClose,
-  links,
   onFork,
+  workshopDownloadOnly = false,
   isAdmin = false,
   onStatusChange,
   onToggleOfficial,
@@ -258,9 +223,12 @@ export function TemplateGallerySheet({
   /** null → closed. Keyed off the id so any caller can open it. */
   templateId: string | null;
   onClose: () => void;
-  links?: DemoResourceLinks;
   /** Fork into a new project (as-is — adapt happens post-fork on the overview). */
   onFork?: (t: TemplateDetail) => void;
+  /** On the workshop landing (/templates?type=WORKSHOP) a workshop's footer is
+   *  download-only — the "Use this template" fork dropdown is hidden. Workshops
+   *  opened from any other view keep the fork option. No effect on non-workshops. */
+  workshopDownloadOnly?: boolean;
   /** Admin controls (approve/reject, feature, delete) render only when true. */
   isAdmin?: boolean;
   /** Set the template's status (APPROVED / REJECTED). Parent refreshes its list. */
@@ -439,8 +407,10 @@ export function TemplateGallerySheet({
   }, [templateId, selectedFile, tab]);
 
   const isApproved = detail?.status === "APPROVED";
-  // Workshop templates get a single split-button (Download + fork-as-option),
-  // instead of the standard side-by-side Download DAB + "Use this template".
+  // Workshop templates get a download-primary split-button (Download +
+  // fork-in-dropdown) instead of the standard side-by-side Download DAB + "Use
+  // this template". On the workshop landing (workshopDownloadOnly) the dropdown
+  // is dropped, leaving download as the only action.
   const isWorkshop = detail?.template_type === "WORKSHOP";
   const fileTree = useMemo(() => buildFileTree(files), [files]);
   const hasArch = archState !== "absent";
@@ -581,6 +551,9 @@ export function TemplateGallerySheet({
                     {detail.description}
                   </p>
                 )}
+                {/* Deployed in this workspace → one-click access to every live asset.
+                    In the header so it's visible from every tab. */}
+                {detail?.live_demo && <LiveDemoPanel live={detail.live_demo} className="mt-4" />}
               </div>
 
               {/* ── Tabs ─────────────────────────────────────────────────────── */}
@@ -705,32 +678,6 @@ export function TemplateGallerySheet({
                           </div>
                         );
                       })()}
-
-                      {/* Live-resource links (internal gallery only) */}
-                      {links && (links.dashboard || links.genie || links.app || links.data) && (
-                        <div className="flex flex-wrap gap-2">
-                          {links.dashboard && (
-                            <LinkButton href={links.dashboard} icon={AIBIBrandIcon} label="Dashboard" tone="dashboard" />
-                          )}
-                          {links.genie && (
-                            <LinkButton href={links.genie} icon={GenieBrandIcon} label="Ask Genie" tone="genie" />
-                          )}
-                          {links.app && (
-                            <LinkButton href={links.app} icon={DatabricksAppsBrandIcon} label="Open App" tone="app" />
-                          )}
-                          {links.data && (
-                            <a
-                              href={links.data}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 text-[13px] font-medium text-muted-foreground no-underline transition-colors hover:bg-muted hover:text-foreground"
-                            >
-                              <Database className="h-4 w-4" /> Data
-                              <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-                            </a>
-                          )}
-                        </div>
-                      )}
 
                       {/* Products — the Databricks products this template is
                           built from (resolved from its capability ids). Only
@@ -951,22 +898,29 @@ export function TemplateGallerySheet({
               {/* Footer — download the DAB + (optional) fork.
                   Workshops collapse to ONE split-button on the right: primary =
                   "Download a copy of this workshop", chevron dropdown = "Use this
-                  template" (fork). Non-workshops keep the side-by-side layout. */}
+                  template" (fork). On the workshop landing (workshopDownloadOnly)
+                  the dropdown is dropped → download-only. Non-workshops keep the
+                  side-by-side layout. */}
               <div className="flex shrink-0 items-center gap-3 border-t bg-muted/10 px-6 py-4">
                 {isWorkshop ? (
                   <div className="ml-auto inline-flex items-center">
-                    {/* Primary: download the workshop → full-sheet takeover flow. */}
+                    {/* Primary: download the workshop → full-sheet takeover flow.
+                        On the workshop landing (?type=WORKSHOP) this is the ONLY
+                        action — the point of that view is building it yourself
+                        from the downloaded copy. Elsewhere it keeps the fork
+                        dropdown. */}
                     <Button
                       onClick={handleDownloadWorkshop}
                       disabled={isLoading || !detail}
                       title="Download this workshop as a zip you can import into your workspace"
-                      className={onFork ? "rounded-r-none" : undefined}
+                      className={onFork && !workshopDownloadOnly ? "rounded-r-none" : undefined}
                     >
                       <Download className="mr-2 h-4 w-4" />
                       Download a copy of this workshop
                     </Button>
-                    {/* Secondary (dropdown): fork into an editable project. */}
-                    {onFork && (
+                    {/* Secondary (dropdown): fork into an editable project.
+                        Hidden on the workshop landing. */}
+                    {onFork && !workshopDownloadOnly && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button

@@ -1,0 +1,4 @@
+# The repo-root .gitignore ignores package.json / package-lock.json; the app NEEDS them
+# (the Apps container runs npm install against the lockfile).
+!app/package.json
+!app/package-lock.json

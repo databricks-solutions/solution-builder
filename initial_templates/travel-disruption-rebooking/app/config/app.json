@@ -1,0 +1,49 @@
+{
+  // Aeralis Airways — IROPS Copilot (Winter Storm Harlan). JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // the bundle app config env in databricks.yml when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/irops.ts): the Genie agent — ops analytics over the tables + the
+  // IROPS policy & passenger-rights documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:travel-disruption-rebooking}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Writes the Duty Manager summary + personalised passenger notifications (chat completions).
+  "noticeModel": "${NOTICE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (VP Customer Experience view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.detractor_risk_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/policy_docs",
+
+  // Delta source schema for the boot-time Lakebase mirror of Winter Storm Harlan (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "IROPS Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "How bad is Harlan?", "prompt": "How badly is Winter Storm Harlan hitting us, and who is AutoProtect leaving stranded overnight?" },
+    { "label": "Which flight first?", "prompt": "Which cancelled flight should the desk re-plan first, and why?", "triggerAfter": ["AutoProtect"] },
+    { "label": "Did priority rebooking work before?", "prompt": "Compare AutoProtect with the DEN desk-priority pilot: same-day re-accommodation, cost per disrupted passenger and NPS.", "triggerAfter": ["AE 1418", "AE1418"] },
+    { "label": "EU261 on AE 97?", "prompt": "AE 97 Frankfurt-Chicago was cancelled by the storm. Do we owe EU261 compensation, and what care must we give those passengers?", "triggerAfter": ["pilot", "NPS"] }
+  ]
+}

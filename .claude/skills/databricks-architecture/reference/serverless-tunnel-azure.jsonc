@@ -1,0 +1,89 @@
+// =============================================================================
+// SERVERLESS → ON-PREMISES ON AZURE WITH NO INBOUND FIREWALL PORT: REVERSE SSH TUNNEL
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • A fallback when a Private Network Gateway (PNG) is not an option AND the corporate
+//     firewall forbids inbound connections from the cloud, even though on-prem is
+//     reachable over ExpressRoute, S2S VPN or SD-WAN.
+//   • On-premises tunnel hosts run autossh and open OUTBOUND SSH connections to proxy
+//     VMs in the customer's Azure hub. The proxy VMs run socat to accept the tunnels and
+//     expose each on-prem resource port on their network interface.
+//   • Databricks reaches the proxy VMs the same way as the Private Link Service option
+//     (reference/serverless-pls-azure.jsonc): an NCC private endpoint rule → Azure
+//     Private Link Service → Standard Load Balancer whose backend pool is the proxy VMs.
+//     Serverless traffic then flows back through the tunnel to the on-prem resources.
+//   • Watch out: not managed. The customer provisions, monitors and maintains the proxy
+//     VMs in the cloud AND the tunnel hosts on-prem. Run at least two proxy VMs in the
+//     backend pool so one tunnel failure does not cut connectivity, and map a distinct
+//     port on each proxy VM for each on-prem resource.
+//   • AWS: the same pattern with a Network Load Balancer behind a VPC endpoint service
+//     and proxy EC2 instances.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The hops run left to right across the top-level row, in two colours: red where
+//     serverless traffic travels on its own (into the proxy VMs), green for the hops it makes
+//     INSIDE the SSH tunnel (proxy VMs → gateway → link → tunnel host). The direction the
+//     tunnel is opened (from on-prem) goes in the tile captions and the frame subtitle, not in
+//     a second line looping back.
+//   • On-premises is one box: the resource card sits above the tunnel host in one column,
+//     so the last hop is a short vertical inside the box.
+//   • The workspace VNet carries no serverless traffic: one card, dashed peering.
+// =============================================================================
+[
+  {
+    "name": "Reverse SSH tunnel — Azure",
+    "story": "When a Private Network Gateway is not an option and the corporate firewall blocks inbound connections from the cloud, an on-premises tunnel host runs autossh and opens outbound SSH tunnels to proxy VMs in the customer's Azure hub VNet. The proxy VMs run socat to accept the tunnels and expose each on-prem resource port. Serverless reaches the proxy VMs through a private endpoint rule in the workspace's Network Connectivity Configuration (NCC), an Azure Private Link Service and a Standard Load Balancer, then the traffic flows through the tunnel to the on-prem database, server or API. The customer runs at least two proxy VMs and maintains both ends.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Reverse SSH tunnel on Azure","subtitle":"On-premises opens the tunnel outbound, so no inbound firewall port · fallback when PNG is not an option"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "per", "type": "logo", "icon": "file:cloud/azure/networking/private-endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "an NCC private endpoint rule targeting the Private Link Service", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "gap": 72, "align": "start", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 78, "align": "center", "children": [
+          {"id": "pls-subnet", "type": "box", "title": "PLS subnet", "subtitle": "10.0.0.0/28", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "pls", "type": "logo", "icon": "file:cloud/azure/networking/private-link-service", "text": "Private Link Service", "caption": "bottom", "track": "line-serverless"}
+          ] },
+          {"id": "fe-subnet", "type": "box", "title": "Frontend subnet", "subtitle": "10.0.0.16/28", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "lb", "type": "logo", "icon": "file:cloud/azure/networking/load-balancer", "text": "Standard Load Balancer", "caption": "bottom", "ai_reasoning": "backend pool = the proxy VMs", "track": "line-serverless"}
+          ] },
+          {"id": "be-subnet", "type": "box", "title": "Backend subnet", "subtitle": "10.0.0.32/28", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "proxy", "type": "logo", "icon": "file:cloud/azure/compute/virtual-machines", "text": "Proxy VMs (2+) · tunnel end", "caption": "bottom", "ai_reasoning": "at least two, so a single tunnel failure does not cut connectivity; socat exposes one port per on-prem resource", "track": "line-serverless"}
+          ] },
+          {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.1.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "track": "line-serverless"}
+          ] }
+        ] },
+        {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "not on the serverless path, so one card"}
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / VPN", "caption": "bottom", "track": "line-serverless"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 141, "align": "center", "children": [
+        {"id": "host", "type": "logo", "icon": "lucide:server", "text": "Tunnel host · opens SSH outbound", "caption": "bottom", "ai_reasoning": "opens the SSH connections outbound, so the firewall needs no inbound rule", "track": "line-serverless"},
+        {"id": "res", "type": "card", "title": "Resource subnet", "icon": "file:cloud/azure/networking/subnet", "body": "Database · Server · API", "ai_reasoning": "the targets; one card because each is reached the same way (a port on the proxy VMs)"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "per", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "per", "to": "pls", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e3", "from": "pls", "to": "lb", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "lb", "to": "proxy", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "proxy", "to": "gw", "arrow": "end", "color": "#16A34A", "ai_reasoning": "green from here: the traffic is inside the SSH tunnel the on-prem host opened"},
+      {"id": "e6", "from": "gw", "to": "er", "arrow": "end", "color": "#16A34A"},
+      {"id": "e7", "from": "er", "to": "host", "arrow": "end", "color": "#16A34A"},
+      {"id": "e8", "from": "host@b", "to": "res@t", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e10", "from": "pls-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering", "ai_reasoning": "hub ↔ workspace VNet peering, not used by serverless traffic"}
+    ]
+  }
+]

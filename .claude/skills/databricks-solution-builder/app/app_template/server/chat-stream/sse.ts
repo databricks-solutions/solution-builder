@@ -2,7 +2,7 @@
  * Tiny helpers for writing SSE events from the chat-stream handlers.
  *
  * Keeps the event shape consistent across `agent-stream.ts` +
- * `mas-stream.ts` so the browser only has to parse one taxonomy:
+ * `agent-stream.ts` so the browser only has to parse one taxonomy:
  *
  *   response.output_text.delta              → final-answer token
  *   response.reasoning_summary_text.delta   → reasoning token

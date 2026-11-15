@@ -31,8 +31,6 @@ export default defineConfig({
     // Stubs so the shared app code (custom-api/config) compiles outside the app.
     __API_BASE_URL__: JSON.stringify(""),
     __IS_ELECTRON__: JSON.stringify(false),
-    // Standalone architecture export is customer-facing → never embed Sage.
-    __SAGE_EMBED__: JSON.stringify(false),
   },
   build: {
     // Temp out dir per mode; the build script copies the HTML out.

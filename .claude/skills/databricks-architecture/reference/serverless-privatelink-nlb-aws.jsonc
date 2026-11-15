@@ -1,0 +1,93 @@
+// =============================================================================
+// SERVERLESS → VPC / ON-PREMISES ON AWS WITHOUT PNG: PRIVATELINK TO YOUR OWN NLB
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first. When the Private Network
+// Gateway is an option, prefer serverless-png-aws.jsonc; this is the fallback.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Serverless compute runs in the Databricks-managed serverless plane, outside the
+//     customer's VPC. A private endpoint rule in the workspace's Network Connectivity
+//     Configuration (NCC) gives it a private, dedicated connection to ONE endpoint
+//     service in the customer's account, over AWS PrivateLink.
+//   • The customer builds the far side: a Network Load Balancer (NLB) as the front for
+//     the resources, with one listener per dedicated port (e.g. 1521, 3306) routing to a
+//     target group; targets are IPs in the VPC or on-premises. A VPC endpoint service
+//     exposes that NLB to Databricks.
+//   • Targets on-premises are reached by the VPC's own routes: Transit Gateway, then
+//     Direct Connect or Site-to-Site VPN. The workspace VPC is attached to the same
+//     Transit Gateway and is not on the serverless path.
+//   • When to use: PNG is not an option, and the target is in the VPC, transitively
+//     connected, or on-prem, and has no PrivateLink support of its own.
+//   • Watch out: not a managed solution; the customer provisions, monitors and maintains
+//     the NLB (cost, overhead, networking skills), and app teams go back to the infra team
+//     for every new target (a new listener + target group).
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in traffic order: serverless plane → shared services VPC (endpoint
+//     service, then the NLB) → Transit Gateway → Direct Connect gateway → the link → data centre.
+//     `track` lines the hops up across the containers: `t1` on the path's outer hops, `t2` on the
+//     endpoint service and the NLB.
+//   • The NLB is one tile; its listeners → target groups are its `desc`, not separate
+//     boxes, because they are configuration of one resource (a card beside it would pull
+//     the path off the icon line). The two NLB subnets (one per AZ) are one box whose
+//     subtitle carries both CIDRs.
+//   • PrivateLink is carried by the endpoint service's `desc`, not an edge label: the
+//     edge crosses two box borders close together and a label has no clean slot there.
+//
+// ADAPT IT: name the user's real ports and targets in the NLB card. A target inside the
+// VPC: drop the Transit Gateway → on-prem chain and point the NLB at it. With Site-to-Site
+// VPN only, there is no Direct Connect gateway: drop that node. Azure: Private Link service
+// + load balancer + proxy VMs (serverless-pls-azure.jsonc).
+// =============================================================================
+[
+  {
+    "name": "PrivateLink + NLB — AWS",
+    "story": "When the Private Network Gateway is not an option, serverless compute can still reach resources in the customer's VPC and on-premises over AWS PrivateLink. A private endpoint rule in the workspace's Network Connectivity Configuration (NCC) connects to a VPC endpoint service in the customer's shared services VPC. The endpoint service fronts a Network Load Balancer whose listeners map dedicated ports (e.g. 1521, 3306) to target groups; targets are IPs in the VPC or on-premises, reached through the Transit Gateway and Direct Connect / Site-to-Site VPN. The workspace VPC is attached to the same Transit Gateway and is not on the serverless path. The customer provisions and maintains the NLB, and adds a listener and target group for every new target.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"AWS PrivateLink to your Network Load Balancer","subtitle":"Serverless reaches on-premises through a VPC endpoint service · fallback when PNG is not an option"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "rule", "type": "logo", "icon": "file:cloud/aws/networking/vpc-endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "an NCC private endpoint rule pointing at the customer's endpoint service; Databricks creates the interface endpoint on its side", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "aws", "type": "box", "title": "AWS account", "titleIcon": "file:cloud/aws/general/account", "layout": "row", "gap": 78, "align": "start", "children": [
+        {"id": "shared-vpc", "type": "box", "title": "Shared services VPC", "titleIcon": "file:cloud/aws/general/vpc-group", "layout": "row", "gap": 78, "align": "center", "children": [
+          {"id": "eps", "type": "logo", "icon": "file:cloud/aws/networking/privatelink", "text": "VPC endpoint service", "desc": "exposes the NLB over AWS PrivateLink", "showDesc": true, "caption": "bottom", "ai_reasoning": "the customer-side PrivateLink object; the NCC rule connects to it, the customer accepts the connection", "track": "line-eps"},
+          {"id": "nlb-subnets", "type": "box", "title": "NLB subnets", "subtitle": "10.0.0.0/28 · 10.0.0.16/28 · two AZs", "titleIcon": "file:cloud/aws/general/private-subnet", "ai_reasoning": "the NLB has a node in each of two subnets (one per AZ); one box with both CIDRs instead of two boxes with a duplicated NIC", "layout": "column", "children": [
+            {"id": "nlb", "type": "logo", "icon": "file:cloud/aws/networking/network-load-balancer", "text": "Network Load Balancer", "desc": "listeners :1521, :3306 → target groups", "showDesc": true, "caption": "bottom", "ai_reasoning": "listeners and target groups are configuration of one NLB, so they are its description; ports are the deck examples, targets are IPs in the VPC or on-prem, one listener per target port", "track": "line-eps"}
+          ] }
+        ] },
+        {"id": "col-tgw", "type": "group", "layout": "column", "gap": 140, "align": "center", "children": [
+          {"id": "tgw", "type": "logo", "icon": "file:cloud/aws/networking/transit-gateway", "text": "Transit Gateway", "caption": "bottom", "track": "line-serverless"},
+          {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/aws/networking/vpc", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "attached to the Transit Gateway; no serverless traffic crosses it, so one card"}
+        ] },
+        {"id": "dxgw", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect-gateway", "text": "Direct Connect gateway", "caption": "bottom", "track": "line-serverless"}
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect", "text": "Direct Connect / S2S VPN", "caption": "bottom", "track": "line-serverless"},
+      {"id": "dc", "type": "box", "title": "Corporate data center", "titleIcon": "file:cloud/aws/general/corporate-data-center", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "track": "line-serverless"},
+        {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+        {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "rule", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "rule", "to": "eps", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the PrivateLink connection: the only hop from the Databricks plane into the customer's account"},
+      {"id": "e3", "from": "eps", "to": "nlb", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "nlb", "to": "tgw", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "on-prem target IPs are routed by the VPC's route table to the Transit Gateway"},
+      {"id": "e5", "from": "tgw", "to": "dxgw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "dxgw", "to": "link", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "link", "to": "op-server", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e8", "from": "tgw@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "TGW attachment"}
+    ]
+  }
+]

@@ -1,0 +1,54 @@
+{
+  // Orbitline+ — Content Metadata Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/copilot.ts): the Genie agent — content-strategy analytics over the
+  // tables + the Standards Guide documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:media-content-metadata-copilot}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Editor-brief writer (chat completions) used by the title workbench's AI re-tag.
+  "writerModel": "${WRITER_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (content-strategy view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/standards_guide",
+
+  // Delta sources for the boot-time Lakebase mirror of the title library (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": {
+      "scorecard":   "gold_title_scorecard",
+      "scenes":      "scenes",
+      "collections": "collections",
+      "retagPilot":  "gold_retag_pilot"
+    }
+  },
+
+  "branding": {
+    "appName": "Metadata Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Where is the discovery gap?", "prompt": "What share of impressions does the Harborlight library get compared with its share of the catalogue, and is it because the titles are worse?" },
+    { "label": "Did re-tagging work?", "prompt": "What happened to impressions and play starts for the 40 titles re-tagged in the July pilot, compared with the rest of Harborlight?", "triggerAfter": ["Harborlight"] },
+    { "label": "Kids-row risks", "prompt": "Which titles in kids or family rows are missing content warnings, and what does the Standards Guide say we must do?", "triggerAfter": ["pilot", "x"] },
+    { "label": "Clips for a collection", "prompt": "Find me clips for a 'Stormy Seas' promo: boats at night in a storm.", "triggerAfter": ["Standards", "§"] }
+  ]
+}

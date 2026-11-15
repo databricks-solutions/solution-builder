@@ -22,6 +22,10 @@ REQUIRES: databricks-sdk>=0.114.0.
 
 Parameters (base_parameters):
 - catalog, schema, warehouse_id
+- parent_path (optional): workspace folder the space lives in. When set, the
+  idempotent lookup only matches a space with this title IN THIS FOLDER — the
+  bare title is not unique (another user may already own a space with the
+  exact same title in their home folder; a title-only match would update it).
 
 Outputs (dbutils.jobs.taskValues):
 - genie_space_id
@@ -44,9 +48,11 @@ SPACE_DESCRIPTION = (
 dbutils.widgets.text("catalog", "", "Catalog")
 dbutils.widgets.text("schema", "", "Schema")
 dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
+dbutils.widgets.text("parent_path", "", "Parent folder")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 warehouse_id = dbutils.widgets.get("warehouse_id")
+parent_path = dbutils.widgets.get("parent_path").strip() or None
 assert catalog and schema and warehouse_id, "catalog + schema + warehouse_id are required"
 
 # COMMAND ----------
@@ -80,15 +86,24 @@ print(f"tables: {len(payload['data_sources']['tables'])}, "
 
 w = WorkspaceClient()
 
-# Idempotent lookup by exact title (paginate the response object).
+# Idempotent lookup by exact title (paginate the response object). With a
+# parent_path, also require the space to live in that folder (get_space returns
+# parent_path without the /Workspace prefix, so normalize both sides).
+def _norm(p):
+    p = (p or "").rstrip("/")
+    return p[len("/Workspace"):] if p.startswith("/Workspace/") else p
+
 existing_id = None
 page_token = None
 while True:
     resp = w.genie.list_spaces(page_size=200, page_token=page_token)
     for sp in (resp.spaces or []):
-        if sp.title == SPACE_TITLE:
-            existing_id = sp.space_id
-            break
+        if sp.title != SPACE_TITLE:
+            continue
+        if parent_path and _norm(w.genie.get_space(sp.space_id).parent_path) != _norm(parent_path):
+            continue
+        existing_id = sp.space_id
+        break
     if existing_id or not getattr(resp, "next_page_token", None):
         break
     page_token = resp.next_page_token
@@ -104,6 +119,7 @@ else:
     created = w.genie.create_space(
         warehouse_id=warehouse_id, serialized_space=serialized,
         title=SPACE_TITLE, description=SPACE_DESCRIPTION,
+        parent_path=parent_path,
     )
     space_id = created.space_id
 

@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
@@ -14,7 +15,7 @@ from typing import Optional
 
 from databricks.sdk import WorkspaceClient
 from fastapi import BackgroundTasks, HTTPException, Request
-from sqlmodel import func, select, text
+from sqlmodel import delete, func, select, text
 
 from ..core import Dependencies, create_router
 # Cross-workspace deploy targets live in the OPTIONAL remote_deploy/ module.
@@ -28,6 +29,7 @@ from ..core._config import logger
 from ..core.auth import is_admin
 from ..services.llm_service import LLMService, ModelSize
 from ..models import (
+    AgentUsage,
     DescriptionAiEditRequest,
     DescriptionAiEditResponse,
     DiscoveryAnalysis,
@@ -60,6 +62,7 @@ from ..models import (
     compute_project_stage,
     merge_project_stage,
     generate_uuid,
+    resource_suffix,
     utc_now,
 )
 from ..services.file_sync import FileSyncService, decompress_content
@@ -139,6 +142,32 @@ def _find_shared_warehouse(ws) -> tuple[str | None, str | None]:
     return pick_query_warehouse(ws)
 
 
+def _deploy_target(session, user_email, config, project=None) -> str | None:
+    """The cross-workspace target host this project's agent will run against, or
+    None when it runs in the app's own workspace."""
+    if _user_target is None:
+        return None
+    from ..core.auth import target_deploy_active
+    if project is not None:
+        target = _user_target.resolve_project_target(
+            project=project, user_email=user_email, session=session, config=config)
+    else:
+        target = _user_target.resolve_user_target(
+            user_target=_user_target.get_user_target(session, user_email), config=config)
+    return target if target and target_deploy_active(config, target) else None
+
+
+def _find_project_warehouse(ws, target: str | None, config) -> tuple[str | None, str | None]:
+    """The warehouse for the system prompt. Cross-workspace, the agent's CLI points
+    at the TARGET, so the warehouse must come from there (as the deployer SP);
+    one from the app's own workspace does not exist for the agent."""
+    if target:
+        from ..remote_deploy.probe import make_sp_target_client
+        return pick_query_warehouse(make_sp_target_client(
+            target, config.deployer_sp_client_id, config.deployer_sp_client_secret))
+    return _find_shared_warehouse(ws)
+
+
 def _find_shared_cluster(ws) -> tuple[str | None, str | None]:
     """Find a cluster with 'shared' in the name (uses cached list).
 
@@ -166,6 +195,16 @@ def _generate_schema_name(project_name: str) -> str:
     # Limit length
     clean_name = clean_name[:50]
     return f"{DEFAULT_SCHEMA_PREFIX}{clean_name}"
+
+
+def _metadata_input(description: str, source_brief: str | None) -> str:
+    """The text the metadata LLM reads. A picked story card's title + hook often
+    drops who the demo is FOR (e.g. "SA on the Lufthansa account"), so the user's
+    raw brief rides along — capped, the call only needs the gist."""
+    brief = (source_brief or "").strip()
+    if not brief or brief in description:
+        return description
+    return f"{description}\n\nThe user's original request:\n{brief[:4000]}"
 
 
 def _generate_project_metadata(llm: LLMService, description: str) -> dict[str, str]:
@@ -635,6 +674,12 @@ def _require_owner(
 # under the ~60min expiry so an in-flight agent turn won't hit expiry mid-run).
 DRIVER_TOKEN_MAX_AGE = timedelta(minutes=50)
 
+# Legacy narrative backfill runs an LLM call inside GET /projects/{id}. After a
+# failure, don't retry it on every poll (an LLM outage would stall each GET) —
+# wait this long before the next attempt. Success clears the entry.
+LEGACY_BACKFILL_RETRY_S = 300.0
+_legacy_backfill_failed_at: dict[str, float] = {}
+
 
 def active_driver(session, project_id: str) -> Optional[str]:
     """Email of the current conversation driver, or None if unclaimed."""
@@ -678,8 +723,25 @@ def claim_driver(session, project_id: str, user_email: str) -> None:
         session.commit()
 
 
-def _driver_out_fields(session, project: "Project", my_role: str, user_email: str) -> dict:
-    """The driver-related fields for a ProjectOut, resolved for `user_email`."""
+def _driver_out_fields(
+    session, project: "Project", my_role: str, user_email: str, config=None
+) -> dict:
+    """The driver-related fields for a ProjectOut, resolved for `user_email`.
+
+    In SP mode (the project runs as the deployer service principal, not a per-user
+    OBO token) the whole driver/take-over model is bypassed: any writer may always
+    send, there's no token to expire, and the UI hides the driver banner. We report
+    `is_sp_mode=True` + `is_driver=(writer)` so the frontend can gate on one flag."""
+    from ..core.auth import project_runs_as_sp
+
+    if config is not None and project_runs_as_sp(config, project):
+        return {
+            "active_driver_email": project.active_driver_email,  # SP_DRIVER_SENTINEL once stamped
+            "is_driver": my_role != ACCESS_VIEWER,
+            "driver_token_age_seconds": None,
+            "driver_token_expired": False,
+            "is_sp_mode": True,
+        }
     age = driver_token_age_seconds(session, project.id)
     return {
         "active_driver_email": project.active_driver_email,
@@ -690,7 +752,40 @@ def _driver_out_fields(session, project: "Project", my_role: str, user_email: st
         ),
         "driver_token_age_seconds": age,
         "driver_token_expired": driver_token_expired(session, project.id),
+        "is_sp_mode": False,
     }
+
+
+def _take_over_project_out(session, project: "Project", my_role: str,
+                           user_email: str, config) -> "ProjectOut":
+    """Build the ProjectOut that take_over_project returns. Shared by its SP-mode
+    early return (no-op) and its normal completion path — same shape either way."""
+    return ProjectOut(
+        id=project.id,
+        name=project.name,
+        user_email=project.user_email,
+        description=project.description,
+        customer=project.customer,
+        narrative=project.narrative,
+        narrative_readme_hash=project.narrative_readme_hash,
+        project_type=project.project_type,
+        stage=project.stage,
+        architecture_first=project.architecture_first,
+        mode=project.mode,
+        created_at=project.created_at,
+        updated_at=project.updated_at,
+        cluster_id=project.cluster_id,
+        cluster_name=project.cluster_name,
+        warehouse_id=project.warehouse_id,
+        warehouse_name=project.warehouse_name,
+        default_catalog=project.default_catalog,
+        default_schema=project.default_schema,
+        target_workspace_host=project.target_workspace_host,
+        source_template_id=project.source_template_id,
+        source_template_name=_resolve_template_name(session, project.source_template_id),
+        my_role=my_role,
+        **_driver_out_fields(session, project, my_role, user_email, config),
+    )
 
 
 def _build_project_list_items(
@@ -775,6 +870,7 @@ def _build_project_list_items(
                 customer=p.customer,
                 project_type=p.project_type,
                 stage=stage,
+                mode=p.mode or "story",
                 created_at=p.created_at,
                 updated_at=p.updated_at,
                 message_count=msg_count_by_project.get(p.id, 0),
@@ -889,16 +985,22 @@ def _resolve_capabilities(
     capabilities: list[str] | None,
     grounding_tables: list[str],
     allow_data_write: bool,
+    mode: str = "story",
 ) -> list[str]:
-    """Drop write-needing capabilities for a read-only grounded demo.
+    """Drop write-needing capabilities for a read-only grounded demo, and keep a
+    workshop to the capabilities Genie Code can build (`WORKSHOP_CAPABILITIES`).
 
-    No-op unless the project is grounded on real tables (`grounding_tables`
+    The grounded filter is a no-op unless the project is grounded (`grounding_tables`
     non-empty) AND the user did not opt into data-write. The user's real tables
     are read-only regardless; this only shapes which resources the demo builds.
     """
     caps = capabilities or []
     if grounding_tables and not allow_data_write:
         caps = [c for c in caps if c not in _GROUNDED_WRITE_CAPABILITIES]
+    if mode == "workshop":
+        from ..core.constants import WORKSHOP_CAPABILITIES
+
+        caps = [c for c in caps if c in WORKSHOP_CAPABILITIES]
     return caps
 
 
@@ -931,8 +1033,11 @@ def create_project(
     # capabilities (data-gen, ingest, app, lakebase, ML training) unless the user
     # opted into data-write. Used for BOTH the app-spec scaffold and resources.json.
     resolved_capabilities = _resolve_capabilities(
-        body.capabilities, body.grounding_tables, body.allow_data_write
+        body.capabilities, body.grounding_tables, body.allow_data_write, body.mode
     )
+
+    # Resolved here, not in the worker thread: it reads the DB session.
+    target = _deploy_target(session, user_email, config)
 
     with ThreadPoolExecutor(max_workers=3) as ex:
         # Independent of everything except project_id — start it immediately.
@@ -955,9 +1060,9 @@ def create_project(
         # there's no concurrent request on `ws` in the common case.
         llm_service = LLMService(WorkspaceClient(), config)
         meta_future = ex.submit(
-            _generate_project_metadata, llm_service, body.description
+            _generate_project_metadata, llm_service, _metadata_input(body.description, body.source_brief)
         )
-        wh_future = ex.submit(_find_shared_warehouse, ws)
+        wh_future = ex.submit(_find_project_warehouse, ws, target, config)
 
         metadata = meta_future.result()
         # Architecture-first keeps its fast, topic-derived DISPLAY name (the LLM
@@ -970,7 +1075,12 @@ def create_project(
             project_name = metadata["name"]
             project_description = metadata.get("description") or body.description[:200]
         company = metadata.get("company") or ""
-        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+        # Fold the per-project suffix into the schema base so it's `demo_<slug>_<sfx>`
+        # BEFORE the collision check (the two mechanisms stack: the descriptive slug
+        # + the id-derived suffix make collision effectively impossible, and the
+        # existence check below stays as a final belt-and-suspenders backstop).
+        suffix = resource_suffix(project_id)
+        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}_{suffix}"
         warehouse_id, warehouse_name = wh_future.result()
 
         # Pick a non-colliding schema NAME before the DB write so the row records
@@ -1025,6 +1135,11 @@ def create_project(
             _schema_cache.forget(config.default_catalog, default_schema)
         raise
     session.refresh(project)
+    try:
+        from ..services.metrics import get_metrics
+        get_metrics().bump("projects_created")
+    except Exception:  # noqa: BLE001
+        pass
 
     # Provision the default schema on the user's behalf so the agent doesn't
     # spend its first 5-10 tool calls discovering a CREATE_SCHEMA grant gap
@@ -1063,7 +1178,10 @@ def create_project(
     # to a resource that doesn't exist yet.
     project_dir = get_project_directory(project.id)
     (project_dir / "resources.json").write_text(
-        json.dumps(build_initial_resources_json(resolved_capabilities), indent=2),
+        json.dumps(
+            build_initial_resources_json(resolved_capabilities, resource_suffix(project.id)),
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
@@ -1112,9 +1230,12 @@ def create_project(
                     n += 1
                 safe_name = f"{stem}-{n}{suffix}"
             seen_names.add(safe_name)
-            (uploads_dir / f"{safe_name}.extracted.md").write_text(
-                f.text, encoding="utf-8"
-            )
+            # Images carry no extracted text (f.text is empty) — the agent
+            # reads the original image directly, so skip the empty sibling.
+            if f.text:
+                (uploads_dir / f"{safe_name}.extracted.md").write_text(
+                    f.text, encoding="utf-8"
+                )
             if f.original_b64:
                 try:
                     raw = base64.b64decode(f.original_b64, validate=False)
@@ -1330,7 +1451,11 @@ def get_project(
     # so the response already has it. This blocks the GET for ~1-3s (LLM
     # latency), which is fine — it only triggers once per project, on the
     # first open after README exists but narrative was never written.
-    if not (project.narrative or "").strip():
+    last_failed = _legacy_backfill_failed_at.get(project_id)
+    backfill_cooling_down = (
+        last_failed is not None and time.monotonic() - last_failed < LEGACY_BACKFILL_RETRY_S
+    )
+    if not (project.narrative or "").strip() and not backfill_cooling_down:
         from ..services.narrative import (
             generate_narrative,
             read_project_readme,
@@ -1344,15 +1469,18 @@ def get_project(
             try:
                 generate_narrative(project_id, project, session, WorkspaceClient(), config)
                 session.refresh(project)
+                _legacy_backfill_failed_at.pop(project_id, None)
                 logger.info(
                     f"[get_project] {project_id}: legacy backfill complete"
                 )
             except NarrativeError as e:
+                _legacy_backfill_failed_at[project_id] = time.monotonic()
                 logger.info(
                     f"[get_project] {project_id}: legacy backfill skipped "
                     f"({e.code}: {e})"
                 )
             except Exception as e:
+                _legacy_backfill_failed_at[project_id] = time.monotonic()
                 logger.warning(
                     f"[get_project] {project_id}: legacy backfill failed: {e}",
                     exc_info=True,
@@ -1386,7 +1514,7 @@ def get_project(
         source_template_name=_resolve_template_name(session, project.source_template_id),
         my_role=my_role,
         link_access=project.link_access,
-        **_driver_out_fields(session, project, my_role, user_email),
+        **_driver_out_fields(session, project, my_role, user_email, config),
     )
 
 @router.patch(
@@ -1484,13 +1612,17 @@ async def set_project_brand(
     the resulting brand.json is what the solution-builder skill + app read to theme
     the generated app. Returns the refreshed project (with `brand`)."""
     user_email = _get_user_email(headers)
-    project = _require_write_access(session, project_id, user_email, config.template_admin_emails)
+    # Blocking DB/file work runs off the loop (the request session is used by one
+    # thread at a time, sequentially, same as agent.py's _load_initial).
+    project = await asyncio.to_thread(
+        _require_write_access, session, project_id, user_email, config.template_admin_emails
+    )
 
     company = body.company.strip()
     palette = body.palette or []
     website = body.website
     # Preserve existing logo + screenshot on a manual (search=False) save.
-    existing = read_brand(project_id)
+    existing = await asyncio.to_thread(read_brand, project_id)
     logo_name = existing.company_logo if existing else None
     screenshot_name = existing.company_official_website_screenshot if existing else None
     # project-root-relative paths for the file-sync (files live under brand/).
@@ -1507,7 +1639,7 @@ async def set_project_brand(
             website = f"https://{resolved.domain}" if resolved.domain else None
         # Save the logo (brand/company_logo.<ext>) — only when one was resolved.
         if resolved.logo_data_url:
-            saved = write_logo(project_id, resolved.logo_data_url)
+            saved = await asyncio.to_thread(write_logo, project_id, resolved.logo_data_url)
             if saved:
                 logo_name = saved
                 synced_files.append(rel_path(saved))
@@ -1515,7 +1647,7 @@ async def set_project_brand(
         if resolved.site_screenshot:
             raw = _decode_data_url(resolved.site_screenshot)
             if raw:
-                saved = write_screenshot(project_id, raw)
+                saved = await asyncio.to_thread(write_screenshot, project_id, raw)
                 if saved:
                     screenshot_name = saved
                     synced_files.append(rel_path(saved))
@@ -1525,51 +1657,56 @@ async def set_project_brand(
         company_logo=logo_name,
         company_official_website_screenshot=screenshot_name,
     )
-    write_brand(project_id, brand)
 
-    # Persist brand.json (+ screenshot) to the DB so they survive a restore, and
-    # set the company on the project (drives the "customize" chip).
-    file_sync: FileSyncService = request.app.state.file_sync
-    file_sync.sync_files_to_db_sync(project_id, synced_files)
-    project.customer = company or None
-    project.updated_at = datetime.now(timezone.utc)
-    session.add(project)
-    session.commit()
-    session.refresh(project)
+    def _persist() -> ProjectOut:
+        write_brand(project_id, brand)
 
-    msg_count = session.exec(
-        select(func.count()).select_from(Message).where(Message.project_id == project.id)
-    ).one()
-    file_count = session.exec(
-        select(func.count()).select_from(ProjectFile).where(ProjectFile.project_id == project.id)
-    ).one()
+        # Persist brand.json (+ screenshot) to the DB so they survive a restore, and
+        # set the company on the project (drives the "customize" chip).
+        file_sync: FileSyncService = request.app.state.file_sync
+        file_sync.sync_files_to_db_sync(project_id, synced_files)
+        project.customer = company or None
+        project.updated_at = datetime.now(timezone.utc)
+        session.add(project)
+        session.commit()
+        session.refresh(project)
 
-    return ProjectOut(
-        id=project.id,
-        name=project.name,
-        user_email=project.user_email,
-        description=project.description,
-        customer=project.customer,
-        brand=brand,
-        narrative=project.narrative,
-        narrative_readme_hash=project.narrative_readme_hash,
-        project_type=project.project_type,
-        stage=project.stage,
-        architecture_first=project.architecture_first,
-        created_at=project.created_at,
-        updated_at=project.updated_at,
-        message_count=msg_count,
-        file_count=file_count,
-        cluster_id=project.cluster_id,
-        cluster_name=project.cluster_name,
-        warehouse_id=project.warehouse_id,
-        warehouse_name=project.warehouse_name,
-        default_catalog=project.default_catalog,
-        default_schema=project.default_schema,
-        target_workspace_host=project.target_workspace_host,
-        source_template_id=project.source_template_id,
-        source_template_name=_resolve_template_name(session, project.source_template_id),
-    )
+        msg_count = session.exec(
+            select(func.count()).select_from(Message).where(Message.project_id == project.id)
+        ).one()
+        file_count = session.exec(
+            select(func.count()).select_from(ProjectFile).where(ProjectFile.project_id == project.id)
+        ).one()
+
+        return ProjectOut(
+            id=project.id,
+            name=project.name,
+            user_email=project.user_email,
+            description=project.description,
+            customer=project.customer,
+            brand=brand,
+            narrative=project.narrative,
+            narrative_readme_hash=project.narrative_readme_hash,
+            project_type=project.project_type,
+            stage=project.stage,
+            architecture_first=project.architecture_first,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            message_count=msg_count,
+            file_count=file_count,
+            cluster_id=project.cluster_id,
+            cluster_name=project.cluster_name,
+            warehouse_id=project.warehouse_id,
+            warehouse_name=project.warehouse_name,
+            default_catalog=project.default_catalog,
+            default_schema=project.default_schema,
+            target_workspace_host=project.target_workspace_host,
+            source_template_id=project.source_template_id,
+            source_template_name=_resolve_template_name(session, project.source_template_id),
+        )
+
+    # write_brand, the file sync and the commits are blocking: keep them off the loop.
+    return await asyncio.to_thread(_persist)
 
 
 @router.post(
@@ -1609,7 +1746,7 @@ def provision_architecture_project(
         with ThreadPoolExecutor(max_workers=2) as ex:
             meta_future = ex.submit(_generate_project_metadata, llm_service, seed)
             wh_future = (
-                ex.submit(_find_shared_warehouse, ws)
+                ex.submit(_find_project_warehouse, ws, _deploy_target(session, user_email, config, project), config)
                 if not project.warehouse_id
                 else None
             )
@@ -1625,7 +1762,7 @@ def provision_architecture_project(
             project.customer = metadata["company"]
         if not project.default_catalog:
             project.default_catalog = config.default_catalog
-        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}"
+        base_schema = f"{DEFAULT_SCHEMA_PREFIX}{metadata['schema_name']}_{resource_suffix(project.id)}"
         project.default_schema = _resolve_unique_schema_name(
             user_ws,
             warehouse_id=project.warehouse_id,
@@ -1667,7 +1804,10 @@ def provision_architecture_project(
                 pass  # unreadable → replace with a clean seed
         if reseed:
             res_path.write_text(
-                json.dumps(build_initial_resources_json(body.capabilities), indent=2),
+                json.dumps(
+                    build_initial_resources_json(body.capabilities, resource_suffix(project.id)),
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
         if "databricks-apps" in body.capabilities:
@@ -1973,6 +2113,9 @@ def delete_project(
     ).all()
     for msg in messages:
         session.delete(msg)
+
+    # Delete token-usage rows (the chat "$" chip)
+    session.exec(delete(AgentUsage).where(AgentUsage.project_id == project_id))
 
     # Delete files from DB (pass session to avoid new connection)
     file_sync: FileSyncService = request.app.state.file_sync
@@ -2410,7 +2553,25 @@ async def take_over_project(
 
     user_email = _get_user_email(headers)
     # Read-only access check (no mutation) can run before the lock.
-    _require_write_access(session, project_id, user_email, config.template_admin_emails)
+    await asyncio.to_thread(
+        _require_write_access, session, project_id, user_email, config.template_admin_emails
+    )
+
+    # SP mode: no driver to take over — the agent always runs as the deployer SP
+    # (see AUTH.md / core.auth.project_runs_as_sp). Take-over is a no-op; return
+    # the project unchanged so the (hidden) UI control can't error.
+    from ..core.auth import project_runs_as_sp
+    _sp_proj = await asyncio.to_thread(session.get, Project, project_id)
+
+    def _driver_view():
+        # Blocking DB reads (access check + ProjectOut build): run off the loop.
+        project, my_role = _get_project_access(
+            session, project_id, user_email, config.template_admin_emails
+        )
+        return _take_over_project_out(session, project, my_role, user_email, config)
+
+    if project_runs_as_sp(config, _sp_proj):
+        return await asyncio.to_thread(_driver_view)
 
     from ..services.active_stream import get_stream_manager
     manager = get_stream_manager()
@@ -2484,35 +2645,7 @@ async def take_over_project(
         await asyncio.to_thread(_do_takeover)
 
     # Return a fresh project view with driver fields resolved for the caller.
-    project, my_role = _get_project_access(
-        session, project_id, user_email, config.template_admin_emails
-    )
-    return ProjectOut(
-        id=project.id,
-        name=project.name,
-        user_email=project.user_email,
-        description=project.description,
-        customer=project.customer,
-        narrative=project.narrative,
-        narrative_readme_hash=project.narrative_readme_hash,
-        project_type=project.project_type,
-        stage=project.stage,
-        architecture_first=project.architecture_first,
-        mode=project.mode,
-        created_at=project.created_at,
-        updated_at=project.updated_at,
-        cluster_id=project.cluster_id,
-        cluster_name=project.cluster_name,
-        warehouse_id=project.warehouse_id,
-        warehouse_name=project.warehouse_name,
-        default_catalog=project.default_catalog,
-        default_schema=project.default_schema,
-        target_workspace_host=project.target_workspace_host,
-        source_template_id=project.source_template_id,
-        source_template_name=_resolve_template_name(session, project.source_template_id),
-        my_role=my_role,
-        **_driver_out_fields(session, project, my_role, user_email),
-    )
+    return await asyncio.to_thread(_driver_view)
 
 
 @router.get(
@@ -2531,25 +2664,46 @@ def get_driver_status(
     so a non-driver polls this to keep the banner/send-gate accurate."""
     user_email = _get_user_email(headers)
     project, my_role = _get_project_access(session, project_id, user_email, config.template_admin_emails)
+    from ..core.auth import project_runs_as_sp
+    if project_runs_as_sp(config, project):
+        # SP mode: no driver, no token to expire — any writer may always send.
+        return DriverStatus(
+            active_driver_email=project.active_driver_email,
+            is_driver=(my_role != ACCESS_VIEWER),
+            driver_token_age_seconds=None,
+            driver_token_expired=False,
+            is_sp_mode=True,
+        )
     return DriverStatus(
         active_driver_email=project.active_driver_email,
         is_driver=(my_role != ACCESS_VIEWER and project.active_driver_email in (None, user_email)),
         driver_token_age_seconds=driver_token_age_seconds(session, project_id),
         driver_token_expired=driver_token_expired(session, project_id),
+        is_sp_mode=False,
     )
 
 
-def _fresh_resources_from(session, source_project_id: str) -> dict:
+def _fresh_resources_from(session, source_project_id: str, new_project_id: str) -> dict:
     """resources.json for a clone: keep the source's capability selection but
-    reset created_resources to empty so the clone points at no live Databricks
-    objects until its owner builds their own."""
+    reset created_resources to empty AND give the clone its OWN resource_suffix
+    (from its new id, not the source's) so it points at no live Databricks objects
+    and its resources can't collide with the source's until its owner builds."""
+    sfx = resource_suffix(new_project_id)
     try:
         raw = _load_resources_text(session, source_project_id)
         data = json.loads(raw) if raw else {}
         caps = data.get("capabilities") or {"buildable": [], "talking_track": []}
-        return {"capabilities": caps, "created_resources": {}}
+        out: dict = {"capabilities": caps}
+        if sfx:
+            out["resource_suffix"] = sfx
+        out["created_resources"] = {}
+        return out
     except (json.JSONDecodeError, TypeError, ValueError):
-        return {"capabilities": {"buildable": [], "talking_track": []}, "created_resources": {}}
+        out = {"capabilities": {"buildable": [], "talking_track": []}}
+        if sfx:
+            out["resource_suffix"] = sfx
+        out["created_resources"] = {}
+        return out
 
 
 @router.post(
@@ -2602,7 +2756,10 @@ def clone_project(
         select(ProjectFile).where(ProjectFile.project_id == project_id)
     ).all()
     for f in src_files:
-        if f.relative_path == "resources.json":
+        # context/deployed-links.json and deck/ hold the SOURCE's live links; the clone has
+        # no resources until it builds, so it starts without a deck (as a template fork does)
+        # and builds its own from its own links.
+        if f.relative_path in ("resources.json", "context/deployed-links.json") or f.relative_path.startswith("deck/"):
             continue
         session.add(
             ProjectFile(
@@ -2622,7 +2779,7 @@ def clone_project(
     session.commit()
 
     (project_dir / "resources.json").write_text(
-        json.dumps(_fresh_resources_from(session, project_id), indent=2),
+        json.dumps(_fresh_resources_from(session, project_id, new_id), indent=2),
         encoding="utf-8",
     )
 

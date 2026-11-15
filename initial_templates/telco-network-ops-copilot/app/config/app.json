@@ -1,0 +1,50 @@
+{
+  // Halcyon Wireless — NOC Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/copilot.ts): the Genie agent — network analytics
+  // + the NOC-runbook documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:telco-network-ops-copilot}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Per-incident triage agent (chat completions + tools) in services/triage.ts.
+  "triageModel": "${TRIAGE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (VP Network Operations view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "${PIPELINE_ID:}",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.cell_kpi_anomaly_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/noc_runbooks",
+
+  // Delta source for the boot-time Lakebase mirror of the open incident queue (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": { "incidents": "noc_incidents" }
+  },
+
+  "branding": {
+    "appName": "NOC Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "What's down?", "prompt": "Which aggregation router has the most cell sites down right now, and how many subscribers are affected?" },
+    { "label": "Who do we call?", "prompt": "Which enterprise accounts are on the sites that are down, and how fast does the runbook say we must notify them?", "triggerAfter": ["subscribers", "sites"] },
+    { "label": "Silent degradations", "prompt": "Which cells have the biggest increase in dropped-call rate over the last 3 weeks?", "triggerAfter": ["notify", "SLA", "minutes"] },
+    { "label": "Ignored warnings", "prompt": "What share of our outages had an early warning that was ignored, by category?", "triggerAfter": ["dropped", "VSWR", "cell"] }
+  ]
+}

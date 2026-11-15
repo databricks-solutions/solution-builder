@@ -1,0 +1,22 @@
+<h2>3/ Review the proposals before you accept them ⚠️</h2>
+<p><strong>This is the step people skip, and it's the one that matters.</strong> The scanner infers semantics from column names and sampled values, and it gets things wrong. On this very dataset it has proposed:</p>
+<table>
+  <thead><tr><th>Column</th><th>Proposed</th><th>Why it's wrong</th></tr></thead>
+  <tbody>
+    <tr><td><code>customer_lat</code>, <code>customer_lng</code></td><td><code>pii = ssn</code></td><td>Coordinates are not a national ID. Accepting this null-masks the columns — and <strong>kills the returns map</strong> on your Operations page.</td></tr>
+    <tr><td><code>customer_id</code></td><td><code>pii = address</code></td><td>A surrogate key is not an address. Masking it breaks drill-downs and joins.</td></tr>
+    <tr><td><code>facility</code></td><td><code>pii = address</code></td><td>A manufacturing site is not personal data — and this is the <code>Lyon-France</code> punchline.</td></tr>
+  </tbody>
+</table>
+<p>So: <strong>read every proposal and reject the wrong ones.</strong></p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>For each classification proposal, tell me the column, the proposed tag, and a sample value. I'll tell you which to accept. Reject anything where the tag doesn't actually describe the data — in particular don't classify latitude or longitude as a national-ID type, don't classify a surrogate key as an address, and don't classify a manufacturing facility as personal data.</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> after accepting, re-run your persona check from 1c. Coordinates should still render on the map for ops, <code>customer_id</code> should still join, and <code>facility</code> should still read <code>Lyon-France</code>. If any of those broke, a proposal you accepted is driving a mask it shouldn't.</p>
+<blockquote class="note"><p>💡 <strong>The lesson to say out loud in front of a customer:</strong> auto-classification is a <em>discovery</em> tool, not an authority. It finds candidates at a scale no human can; a human still decides what each one means. A governance demo that accepts every suggestion unreviewed teaches precisely the wrong habit.</p></blockquote>
+<hr />
+<h3 class="check">✅ Governed</h3>
+<p>ABAC + <strong>reviewed</strong> classification keep PII safe across every current and future table — without masking the columns the business actually needs.</p>
+<a class="next-card" href="#nb-06" data-target="nb-06"><span class="step-logo s6"><i data-icon="ml"></i></span><span class="nc-txt"><small>Next · optional</small><b>6. ML</b><em>the hidden-premium classifier</em></span><span class="nc-go"><i data-icon="chevron-right"></i></span></a>

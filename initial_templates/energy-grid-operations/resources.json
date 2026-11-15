@@ -1,0 +1,22 @@
+{
+    "short_description": "A utility control-room copilot: a temperature-aware load forecast flags the one transformer (T-104) that goes over nameplate in tomorrow's heat wave, asset health explains why it matters, and an agent ranks costed relief options (demand response vs feeder switching vs battery) — the operator approves one and it is written back to the action log.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ml-training-serving",
+            "aibi-dashboards",
+            "genie",
+            "databricks-apps",
+            "lakeflow-jobs",
+            "unity-catalog"
+        ],
+        "talking_track": [
+            "zerobus-ingest",
+            "lakeflow-connect",
+            "sdp",
+            "lakebase",
+            "genie-one"
+        ]
+    },
+    "created_resources": {}
+}

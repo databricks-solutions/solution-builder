@@ -33,7 +33,8 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component, d.params);
+  const slide = d.theme === "slide";
+  const nat = baseSize(d.component, d.params, d.theme);
   const UnityCatalog = DATABRICKS_ICONS.unityCatalogBrand;
   const AIGateway = DATABRICKS_ICONS.aiGatewayBrand;
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16, borderWidth: 1, shadow: 0 });
@@ -86,9 +87,9 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
         <div className="flex h-full w-full flex-col gap-1.5 p-2.5" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "top left" }}>
           {/* header = Unity Catalog (the top-level governance surface) */}
           <div className="flex items-baseline gap-1.5">
-            <UnityCatalog className="h-4 w-4 shrink-0 self-center" />
-            <span className="shrink-0 whitespace-nowrap text-[12px] font-bold text-foreground">Unity Catalog</span>
-            <span className="min-w-0 truncate text-[8.5px] text-muted-foreground">Unified governance for Data + AI</span>
+            <UnityCatalog className={`shrink-0 self-center ${slide ? "h-5 w-5" : "h-4 w-4"}`} />
+            <span className={`shrink-0 whitespace-nowrap font-bold text-foreground ${slide ? "text-[15px]" : "text-[12px]"}`}>Unity Catalog</span>
+            {!slide && <span className="min-w-0 truncate text-[8.5px] text-muted-foreground">Unified governance for Data + AI</span>}
           </div>
 
           {/* governed surfaces: ACL/ABAC/Audit + AI Gateway + Genie Ontology —
@@ -97,15 +98,17 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
             {/* Access control — ACL · ABAC · Audit across Data + AI */}
             {showAcl && (
             <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
-              <UnityCatalog className="h-4 w-4 shrink-0" />
+              <UnityCatalog className="shrink-0 h-4 w-4" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-                <span className="truncate text-[10px] font-semibold text-foreground">Access control</span>
-                <span className="text-[7.5px] leading-snug text-muted-foreground">Across Data + AI</span>
-                <span className="flex flex-wrap items-center gap-1">
-                  {["ACL", "ABAC", "Audit"].map((c) => (
-                    <span key={c} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">{c}</span>
-                  ))}
-                </span>
+                <span className="truncate font-semibold text-foreground text-[10px]">Access control</span>
+                {!slide && <span className="text-[7.5px] leading-snug text-muted-foreground">Across Data + AI</span>}
+                {!slide && (
+                  <span className="flex flex-wrap items-center gap-1">
+                    {["ACL", "ABAC", "Audit"].map((c) => (
+                      <span key={c} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">{c}</span>
+                    ))}
+                  </span>
+                )}
               </span>
             </div>
             )}
@@ -114,15 +117,17 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
                 the MIDDLE (between Access control and the AI Gateway). */}
             {showOntology && (
             <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
-              <FileSvgIcon iconKey="file:vendor/genie-ontology" className="h-4 w-4 shrink-0" />
+              <FileSvgIcon iconKey="file:vendor/genie-ontology" className="shrink-0 h-4 w-4" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-                <span className="truncate text-[10px] font-semibold text-foreground">Genie Ontology</span>
-                <span className="text-[7.5px] leading-snug text-muted-foreground">The semantic layer</span>
-                <span className="flex flex-wrap items-center gap-1">
-                  {["Metric views", "Glossary", "Domains"].map((c) => (
-                    <span key={c} className="rounded bg-muted px-1 py-px text-[7px] font-medium text-muted-foreground">{c}</span>
-                  ))}
-                </span>
+                <span className="truncate font-semibold text-foreground text-[10px]">Genie Ontology</span>
+                {!slide && <span className="text-[7.5px] leading-snug text-muted-foreground">The semantic layer</span>}
+                {!slide && (
+                  <span className="flex flex-wrap items-center gap-1">
+                    {["Metric views", "Glossary", "Domains"].map((c) => (
+                      <span key={c} className="rounded bg-muted px-1 py-px text-[7px] font-medium text-muted-foreground">{c}</span>
+                    ))}
+                  </span>
+                )}
               </span>
             </div>
             )}
@@ -131,21 +136,23 @@ export const GovernanceBlock = memo(function GovernanceBlock({ data, selected }:
                 On the RIGHT. */}
             {showGateway && (
             <div className="flex flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-background/70 px-2">
-              <AIGateway className="h-4 w-4 shrink-0" />
+              <AIGateway className="shrink-0 h-4 w-4" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[10px] font-semibold text-foreground">Unity AI Gateway</span>
+                  <span className="truncate font-semibold text-foreground text-[10px]">Unity AI Gateway</span>
                   <span className="flex items-center gap-1">
                     {FM_LOGOS.map((m) => (
                       <FileSvgIcon key={m.key} iconKey={m.key} className="h-3 w-3 shrink-0" />
                     ))}
                   </span>
                 </span>
-                <span className="flex flex-wrap items-center gap-1">
-                  {["Cost control", "MCP", "Audit"].map((c) => (
-                    <span key={c} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">{c}</span>
-                  ))}
-                </span>
+                {!slide && (
+                  <span className="flex flex-wrap items-center gap-1">
+                    {["Cost control", "MCP", "Audit"].map((c) => (
+                      <span key={c} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">{c}</span>
+                    ))}
+                  </span>
+                )}
               </span>
             </div>
             )}

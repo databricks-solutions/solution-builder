@@ -2,7 +2,7 @@
 
 ## Document Strategy
 
-Generate PDF documents that provide context the structured data cannot. The Knowledge Assistant will search these to find the "smoking gun" explaining root cause.
+Generate PDF documents that provide context the structured data cannot. The Genie agent searches these (they sit in the documents volume attached to it) to find the "smoking gun" explaining root cause.
 
 ## Documents to Generate
 

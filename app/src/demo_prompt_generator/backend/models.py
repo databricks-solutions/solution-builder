@@ -12,7 +12,7 @@ import uuid
 import zlib
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, Index, LargeBinary, String, Text
@@ -30,6 +30,36 @@ from .. import __version__
 def generate_uuid() -> str:
     """Generate a UUID string for project/execution IDs."""
     return str(uuid.uuid4())
+
+
+# Length of the per-project resource suffix (see `resource_suffix`).
+RESOURCE_SUFFIX_LEN = 6
+
+
+def resource_suffix(project_id: str) -> str:
+    """The short per-project identifier stamped onto every Databricks resource a
+    project creates — the schema tail (`demo_<slug>_<suffix>`) and the suffix the
+    build agent appends to workspace-level resource names (pipeline, dashboard,
+    Genie space, job, endpoint; legacy KA/MAS…).
+
+    It's the first `RESOURCE_SUFFIX_LEN` hex chars of the project's uuid4 id, so
+    it's stable, needs no round-trip, and matches the id prefix visible in the
+    project URL — you can eyeball a schema/resource name and know which project it
+    belongs to. Project ids are always uuid4 (`generate_uuid`); we lowercase +
+    keep only hex to stay a valid SQL/UC identifier fragment even if a non-uuid id
+    ever slips in.
+
+    The point is cross-fork isolation: two SAs forking the SAME template generate
+    the same descriptive base name, so without a per-project suffix they collide
+    into one shared schema (pipeline-ownership war). The suffix makes that collision
+    astronomically unlikely — two same-template forks would have to share a 6-hex
+    prefix (~1 in 16.7M). The SCHEMA also gets `_resolve_unique_schema_name` as a
+    hard backstop; the peripheral resource names the build agent derives from the
+    suffix (pipeline, dashboard, Genie, job, endpoint) rely on the suffix's
+    uniqueness alone, which is fine at this scale.
+    """
+    hexchars = "".join(c for c in (project_id or "").lower() if c in "0123456789abcdef")
+    return hexchars[:RESOURCE_SUFFIX_LEN]
 
 
 def utc_now() -> datetime:
@@ -112,6 +142,11 @@ _CAPABILITY_RESOURCE_KEYS: dict[str, list[str]] = {
     "unity-catalog": ["catalog", "schema"],
     "aibi-dashboards": ["dashboard_id"],
     "genie": ["genie_space_id"],
+    # Documents answered by the Genie agent (the replacement for KA). Built once the
+    # PDFs' UC volume is recorded; the index-SUCCEEDED wait happens in the build.
+    "unstructured-documents": ["documents_volume"],
+    # Legacy: existing demos still carry KA/MAS in their buildable list, so keep the
+    # keys to keep their BUILT meter honest. New projects never select these.
     "knowledge-assistant": ["knowledge_assistant_id", "knowledge_assistant_endpoint"],
     "supervisor-agent": ["multi_agent_supervisor_id", "multi_agent_supervisor_endpoint"],
     "databricks-apps": ["app_id", "app_name", "app_url"],
@@ -323,8 +358,7 @@ class TemplateType(str, Enum):
     - SOLUTION: a full, ready-to-deploy demo (the default; every user-published
       template and every non-workshop seed).
     - WORKSHOP: a training starting point — data generator + specs + a bootstrap
-      app the trainee builds out (the Tech Summit FY27 AI Customer Challenge
-      templates). NOT everything is pre-implemented.
+      app the trainee builds out. NOT everything is pre-implemented.
     - GENIE_WORKSHOP: a Genie-Code workshop — the trainee builds the resources
       live in notebooks via Genie Code prompts.
     - ARCHITECTURE: an architecture diagram only (no build), for the arch-first flow.
@@ -398,8 +432,8 @@ class Project(SQLModel, table=True):
     architecture_first: bool = SQLField(default=False)
     # Home-page entry mode: "story" (default build flow), "architecture"
     # (lead-with-diagram — see architecture_first), or "workshop" (Genie Code
-    # workshop: the agent generates notebooks + data-gen + context instead of
-    # provisioning resources). Drives which Build fork the agent takes.
+    # workshop: the agent writes the workshop HTML + data-gen + context instead
+    # of provisioning resources). Drives which Build fork the agent takes.
     mode: str = SQLField(default="story", max_length=20)
 
     # Cross-workspace deploy (Option A): the TARGET workspace this
@@ -429,6 +463,13 @@ class Project(SQLModel, table=True):
     # Claude Code session fields (1:1 conversation per project)
     session_id: Optional[str] = SQLField(default=None, max_length=100)
     active_execution_id: Optional[str] = SQLField(default=None, max_length=50)
+    # Boot-time resume crash-loop guard (SP mode). Incremented each time an
+    # interrupted conversation is auto-resumed on boot; reset to 0 on a clean
+    # turn completion. The resume scan STOPS auto-resuming a project once this
+    # reaches RESUME_MAX_ATTEMPTS (3) — a turn that reliably crashes the app is
+    # then left interrupted for a human instead of resume-crash-looping across
+    # deploys. See services/resume_agent. NULL is treated as 0.
+    resume_attempts: Optional[int] = SQLField(default=0)
     # The current "driver" of the conversation — the user whose PAT the agent's
     # Databricks CLI runs as. STICKY: starts null (owner claims on first send) and
     # stays whoever last drove, even when idle. Only the driver's requests refresh
@@ -678,6 +719,38 @@ class Message(SQLModel, table=True):
     )
 
 
+class AgentUsage(SQLModel, table=True):
+    """
+    Token usage of ONE model response, read from the project's Claude Code
+    transcripts (main conversation + every subagent). Keyed by the API message id
+    so re-ingesting a transcript is an idempotent upsert. Cost is NOT stored — it's
+    priced at read time (`services/agent_usage.py`) so a price-table fix applies
+    retroactively. Survives "clear chat" (cost is per project, not per chat).
+    """
+    __tablename__ = "agent_usage"
+
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    project_id: str = SQLField(sa_column=Column(String(50), index=True, nullable=False))
+    session_id: str = SQLField(max_length=64)  # the conversation (Claude session id)
+    message_id: str = SQLField(max_length=200)
+    agent_id: Optional[str] = SQLField(default=None, max_length=64)  # NULL = main agent
+    agent_type: Optional[str] = SQLField(default=None, max_length=100)
+    agent_description: Optional[str] = SQLField(default=None, sa_column=Column(Text, nullable=True))
+    model: str = SQLField(max_length=200)
+    input_tokens: int = SQLField(default=0)
+    output_tokens: int = SQLField(default=0)
+    cache_read_tokens: int = SQLField(default=0)
+    cache_write_5m_tokens: int = SQLField(default=0)
+    cache_write_1h_tokens: int = SQLField(default=0)
+    web_search_requests: int = SQLField(default=0)
+    inference_geo: Optional[str] = SQLField(default=None, max_length=32)
+    created_at: datetime = SQLField(default_factory=utc_now)
+
+    __table_args__ = (
+        Index("ix_agent_usage_project_message", "project_id", "message_id", unique=True),
+    )
+
+
 class Execution(SQLModel, table=True):
     """
     Stores execution state for Claude Code agent sessions.
@@ -753,6 +826,11 @@ class Template(SQLModel, table=True):
     # Hash of the seeded folder's file-set — lets the startup seeder skip unchanged
     # templates and diff-update only changed ones (see seed_templates.py).
     content_checksum: Optional[str] = SQLField(default=None, max_length=64)
+    # Live-demo links (JSON: {"assets": [{kind, label, url}], "demo_questions": [...]}) for a
+    # seeded template whose manifest `live_demo` points at THIS app's workspace. NULL on any
+    # other workspace, so a deployment never shows links into someone else's workspace.
+    # Recomputed by the startup seeder (see services/live_demo.py).
+    live_demo: Optional[str] = SQLField(default=None, sa_column=Column(Text))
 
     # Note: embedding column is created via migration (vector type not supported in SQLModel)
 
@@ -941,9 +1019,9 @@ class ProjectCreateRequest(BaseModel):
             "Only meaningful when architecture_first is true."
         ),
     )
-    mode: str = Field(
+    mode: Literal["story", "architecture", "workshop"] = Field(
         "story",
-        description="Home-page entry mode: 'story', 'architecture', or 'workshop' (Genie Code workshop — agent generates notebooks instead of provisioning resources).",
+        description="Home-page entry mode: 'story', 'architecture', or 'workshop' (Genie Code workshop — agent writes a workshop HTML page instead of provisioning resources).",
     )
     grounding_tables: list[str] = Field(
         default_factory=list,
@@ -1183,6 +1261,11 @@ class ProjectOut(BaseModel):
     # once true, they're blocked until someone takes over. Null when unclaimed.
     driver_token_age_seconds: Optional[int] = None
     driver_token_expired: Optional[bool] = None
+    # SP mode: the agent runs as the deployer service principal (oauth-m2m), not a
+    # per-user OBO token, so the whole driver/take-over model is bypassed (see
+    # AUTH.md / core.auth.project_runs_as_sp). When true the UI hides the driver
+    # banner + take-over control and never gates sending on token freshness.
+    is_sp_mode: Optional[bool] = None
 
 
 class ProjectListItem(BaseModel):
@@ -1194,6 +1277,8 @@ class ProjectListItem(BaseModel):
     customer: Optional[str] = None
     project_type: str
     stage: str = ProjectStage.DRAFTING.value
+    # Home entry mode: 'story' (a full solution) | 'architecture' | 'workshop'.
+    mode: str = "story"
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
@@ -1244,6 +1329,9 @@ class DriverStatus(BaseModel):
     is_driver: bool = False
     driver_token_age_seconds: Optional[int] = None
     driver_token_expired: bool = False
+    # SP mode: driver model bypassed (agent runs as the deployer SP). UI hides the
+    # driver banner + never gates sending. See core.auth.project_runs_as_sp.
+    is_sp_mode: bool = False
 
 
 class HomeProjects(BaseModel):
@@ -1288,6 +1376,11 @@ class BrandOut(BaseModel):
     logo_data_url: Optional[str] = None
     logos: list[BrandLogoCandidate] = []
     palette: list[str] = []
+    # The brand's square symbol without the name (Airbnb's loop), as an SVG data URL,
+    # for avatars/app icons. symbol_source: "bimi" (the company's own email-logo
+    # record) or "simpleicons". Fresh resolves only; not cached.
+    symbol_data_url: Optional[str] = None
+    symbol_source: Optional[str] = None
     source: Optional[str] = None  # which logo source won (jsonld/og/svg/header-img/favicon/wikipedia)
     # the contact sheet the vision model saw when picking the logo (data URL) —
     # lets a human see exactly what was judged.
@@ -1302,6 +1395,19 @@ class BrandOut(BaseModel):
     # notes, timings). Powers debugging + the self-improvement loop. Each item:
     # {t_ms, kind, tool?, args?, summary?, reasoning?, detail?, ms?}.
     trace: list[dict[str, Any]] = []
+    # Server log lines emitted during this resolve (fresh resolves only; not cached).
+    logs: list[str] = []
+
+
+class BrandDiagnosticsOut(BaseModel):
+    """Runtime state of the brand service's scraping deps (see brand_service.diagnostics)."""
+    playwright_browsers_path: Optional[str] = None
+    installed_browsers: list[str] = []
+    install_log: Optional[str] = None
+    packages: dict[str, Optional[str]] = {}
+    # Shared libs the headless shell can't load (no root → --with-deps can't apt-install them).
+    missing_libs: list[str] = []
+    os: Optional[str] = None
 
 
 class ShareRoleUpdateRequest(BaseModel):
@@ -1412,6 +1518,45 @@ class DeployedResourcesOut(BaseModel):
     all_built: bool = False
 
 
+class UsageTotalsOut(BaseModel):
+    """Token totals + list-price cost. `cache_write_tokens` = 5-minute + 1-hour writes."""
+    responses: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_tokens: int
+    cost_usd: float
+    unpriced_responses: int  # responses from a model with no known price (cost excludes them)
+
+
+class AgentUsageOut(BaseModel):
+    agent: str  # "main" or the subagent type (e.g. "Explore")
+    subagents: int  # how many subagents of this type ran (0 for main)
+    totals: UsageTotalsOut
+
+
+class ConversationUsageOut(BaseModel):
+    session_id: str
+    started_at: datetime
+    ended_at: datetime
+    totals: UsageTotalsOut
+    agents: list[AgentUsageOut]
+
+
+class ModelUsageOut(BaseModel):
+    model: str  # as reported by the API (e.g. databricks-claude-opus-4-7)
+    priced_as: Optional[str] = None  # the price-table entry used; None = unpriced
+    estimated: bool = False  # True when priced as the closest older version of the family
+    totals: UsageTotalsOut
+
+
+class ProjectUsageOut(BaseModel):
+    """What a project's agent conversations cost so far (the chat's "$" chip)."""
+    totals: UsageTotalsOut
+    conversations: list[ConversationUsageOut]
+    models: list[ModelUsageOut]
+
+
 class MessageOut(BaseModel):
     """Chat message response.
 
@@ -1438,10 +1583,21 @@ class MessageCreateRequest(BaseModel):
     is_error: bool = False
 
 
+class ChatImage(BaseModel):
+    """An image pasted into the chat composer."""
+    filename: str
+    media_type: str = Field(..., description="image/png, image/jpeg, image/gif or image/webp")
+    data_b64: str
+
+
 class InvokeAgentRequest(BaseModel):
     """Request to invoke Claude Code agent."""
     project_id: str
     message: str = Field(..., description="User message to send to agent")
+    images: list[ChatImage] = Field(
+        default_factory=list,
+        description="Pasted images: saved under context/uploads/ and sent to the model as image blocks.",
+    )
     save_user_message: bool = Field(
         True,
         description="Persist a new user Message row for `message`. Set false when the message is already in the DB (e.g. auto-kicking the agent from a project's opening prompt).",
@@ -1474,6 +1630,36 @@ class ExecutionOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class LiveDemoAsset(BaseModel):
+    """One live resource of a deployed demo ("Try it live" button)."""
+    kind: str  # app / dashboard / genie / pipeline / job / knowledge_assistant (legacy) / model / data / folder
+    label: str
+    url: str
+
+
+class LiveDemo(BaseModel):
+    """Where a seed template is deployed live — only set in the SAME workspace as this app."""
+    workspace: str
+    assets: list[LiveDemoAsset] = []
+    demo_questions: list[str] = []
+
+
+class OfficialTemplate(BaseModel):
+    """An official (curated, seeded) template with everything a catalog needs:
+    story, products, screenshot, and — when deployed in this workspace — its live links."""
+    id: str
+    name: str
+    industry: Optional[str] = None
+    customer: Optional[str] = None
+    description: Optional[str] = None
+    narrative: Optional[str] = None
+    capabilities: Optional[list[str]] = None
+    template_type: str = TemplateType.SOLUTION.value
+    screenshot_url: Optional[str] = None  # hero image (GET), None when the template has none
+    screenshot_count: int = 0
+    live_demo: Optional[LiveDemo] = None  # same-workspace deployments only
+
+
 class TemplateListItem(BaseModel):
     """Template summary for list views."""
     id: str
@@ -1489,6 +1675,7 @@ class TemplateListItem(BaseModel):
     has_screenshot: bool = False  # Whether a hero screenshot is available (GET .../screenshot)
     # Total gallery images (hero + extras). 0 = none, 1 = hero only, >1 = carousel.
     screenshot_count: int = 0
+    has_live_demo: bool = False  # Deployed live in this workspace → "Live" badge + Try-it-live buttons
     submitted_at: datetime
     reviewed_at: Optional[datetime] = None
 
@@ -1516,6 +1703,7 @@ class TemplateDetail(BaseModel):
     reviewed_by: Optional[str] = None
     source_project_id: Optional[str] = None
     file_count: int = 0
+    live_demo: Optional[LiveDemo] = None  # "Try it live" links (same-workspace deployments only)
 
 
 class TemplateFile(BaseModel):
@@ -1696,17 +1884,10 @@ class UserUpdateRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class BlockCategory(str, Enum):
-    DOMAIN = "domain"
-    CAPABILITY = "capability"
-    PATTERN = "pattern"
-
-
 class BlockSpec(BaseModel):
-    """A proposed block from the decomposition phase."""
+    """A proposed capability block from the decomposition phase."""
     name: str = Field(..., description="Display name for the block")
     slug: str = Field(..., description="URL/file-safe identifier")
-    category: BlockCategory
     description: str = Field(..., description="One-line description of what this block covers")
     tags: list[str] = Field(default_factory=list)
     source_section: str = Field("", description="Which part of the source document this maps to")
@@ -1716,9 +1897,6 @@ class BlockFactoryRequest(BaseModel):
     """Request to decompose a document into blocks."""
     content: str = Field(..., description="Raw document text to decompose")
     source_name: str = Field("", description="Name/title of the source document for traceability")
-    category_hint: Optional[BlockCategory] = Field(
-        None, description="If set, bias all blocks toward this category"
-    )
     write: bool = Field(True, description="Write blocks to disk (false for dry-run/preview)")
 
 

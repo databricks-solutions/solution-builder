@@ -1,10 +1,10 @@
 # Databricks Asset Bundle — AI/BI Customer Support (no app, no Lakebase).
 #
 # Re-creates the whole demo from scratch on any workspace:
-#   1. `databricks bundle deploy` — creates the schema + dashboard shells + setup job.
+#   1. `databricks bundle deploy` — creates the schema + dashboard (published) + setup job.
 #   2. `databricks bundle run customer_support_setup` — generates data + builds the
 #      medallion (generate_data.py) and deploys the Genie space.
-# The dashboard is a DAB `dashboards` resource; its datasets are rebound to the
+# The dashboard is a DAB `dashboards` resource; its schema-less datasets are rebound to the
 # target catalog/schema via dataset_catalog / dataset_schema (needs CLI >= 0.283.0).
 #
 # Deploy is documented in dab_instructions.md — do NOT run it as part of authoring.
@@ -20,6 +20,9 @@ variables:
     default: aibi_customer_support
   warehouse_id:
     description: SQL warehouse the dashboard + Genie space use.
+  workspace_folder:
+    description: Workspace folder that holds the bundle files, dashboard and Genie space (by default the bundle root).
+    default: ${workspace.root_path}
 
 resources:
   schemas:
@@ -30,10 +33,14 @@ resources:
 
   dashboards:
     customer_support_dashboard:
-      display_name: "[AI/BI] AIBI - Customer Support: AI Efficiency"
+      display_name: "AI-BI - Customer Support: AI Efficiency"   # no "/": a dashboard in a folder is a workspace item
       file_path: ./dashboard/dashboard.lvdash.json
       warehouse_id: ${var.warehouse_id}
-      # Rebind the dashboard's datasets to the deployed catalog/schema.
+      parent_path: ${var.workspace_folder}
+      embed_credentials: true
+      # Rebind the dashboard's (schema-less) datasets to the deployed catalog/schema. The metric view is
+      # read through a SQL dataset (SELECT … MEASURE(…) FROM support_metrics GROUP BY ALL), NOT an
+      # `asset_name` dataset: asset_name must be fully qualified and is NOT rewritten by dataset_catalog.
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.demo_schema.name}
 
@@ -59,6 +66,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.demo_schema.name}
               warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
           environment_key: sdk_latest
       environments:
         - environment_key: sdk_default
@@ -75,6 +83,7 @@ resources:
               - databricks-sdk>=0.114.0
 
 targets:
+  # Portable targets (NO pinned host): used by Solution Builder forks / "Download DAB" on any workspace —
   dev:
     mode: development
     default: true

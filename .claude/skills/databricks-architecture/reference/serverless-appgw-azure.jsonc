@@ -1,0 +1,93 @@
+// =============================================================================
+// SERVERLESS → ON-PREMISES ON AZURE WITHOUT PNG: APPLICATION GATEWAY v2 (MANAGED REVERSE PROXY)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • An alternative when a Private Network Gateway (PNG) is not an option. Serverless
+//     reaches the customer network through a PRIVATE ENDPOINT RULE in the workspace's
+//     Network Connectivity Configuration (NCC), here pointing at an Azure Application
+//     Gateway v2 instead of a Private Link Service.
+//   • The customer creates two subnets in the hub VNet: one for the Application Gateway
+//     and one for its Private Link Configuration (the private IP addresses the private
+//     endpoint connects to). The gateway needs a standard public IP and frontend IP type
+//     "Both" (private-only does not support Private Link); bind the listener to the
+//     PRIVATE frontend and leave the public one unused. Then configure listeners,
+//     routing rules and backend pools; backends can be private IPs or FQDNs, including
+//     on-premises over the hub's ExpressRoute / S2S VPN gateway.
+//   • What it gives: a managed, terminating reverse proxy, no proxy VMs. Layer 7 for
+//     HTTP(S) / WebSockets (path- and host-header routing, cookie affinity) and Layer 4
+//     TCP/TLS proxying (Public Preview) for targets like Postgres or MySQL.
+//   • Watch out: NSGs on the App Gateway subnet must allow inbound from App Gateway
+//     Manager and Azure Load Balancer (optionally deny internet inbound at a lower
+//     priority). The Layer 4 proxy is itself in Public Preview.
+//   • Choose it when the targets are HTTP(S) and/or TCP and the customer wants a managed
+//     service. For ultra-low latency / high throughput or existing proxy VMs, use the
+//     Private Link Service + load balancer (reference/serverless-pls-azure.jsonc); if
+//     on-prem forbids inbound connections from the cloud, use the reverse SSH tunnel
+//     (reference/serverless-tunnel-azure.jsonc).
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in traffic order: serverless → private endpoint rule → Private Link
+//     Configuration IPs → Application Gateway → VPN / ExpressRoute gateway → link →
+//     on-premises. Each hop is one subnet box or one tile, and each carries `track: "t1"`,
+//     so the red path is a straight line.
+//   • Same skeleton as the other serverless-to-on-prem references, so the reader sees
+//     what changes between options: only the hub's middle hops.
+//   • The workspace VNet carries no serverless traffic: one card, dashed peering.
+//
+// ADAPT IT: name the actual backends (an HTTP API, a Postgres host) in place of the
+// generic on-prem trio when the user gives them; mark Layer 4 targets as Public Preview.
+// =============================================================================
+[
+  {
+    "name": "Application Gateway v2 — Azure",
+    "story": "When a Private Network Gateway is not an option, serverless can reach the customer network through a private endpoint rule in the workspace's Network Connectivity Configuration (NCC) that targets an Azure Application Gateway v2. The gateway sits in the customer's hub VNet with a Private Link Configuration in its own subnet; its listener is bound to the private frontend IP. Routing rules and backend pools forward HTTP(S) (Layer 7) or TCP/TLS (Layer 4, Public Preview) traffic to private IPs or FQDNs, including on-premises through the hub's ExpressRoute / S2S VPN gateway. It is a managed reverse proxy: no proxy VMs to run.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Application Gateway v2 on Azure","subtitle":"Serverless reaches on-premises through a managed reverse proxy · alternative when PNG is not an option"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 71,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "ai_reasoning": "where the traffic starts", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "per", "type": "logo", "icon": "file:cloud/azure/networking/private-endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "an NCC private endpoint rule targeting the Application Gateway's Private Link Configuration", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "gap": 72, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 116, "align": "center", "children": [
+          {"id": "plc-subnet", "type": "box", "title": "Private Link config subnet", "subtitle": "10.0.0.0/28", "titleIcon": "file:cloud/azure/networking/subnet", "ai_reasoning": "a dedicated subnet for the gateway's Private Link Configuration, separate from the gateway's own subnet", "layout": "column", "children": [
+            {"id": "plc-ip", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Private IP addresses", "caption": "bottom", "ai_reasoning": "the Private Link Configuration's IPs: where the Databricks private endpoint lands", "track": "line-serverless"}
+          ] },
+          {"id": "agw-subnet", "type": "box", "title": "App Gateway subnet", "subtitle": "10.0.1.0/24", "titleIcon": "file:cloud/azure/networking/subnet", "ai_reasoning": "its NSG must allow inbound from App Gateway Manager and Azure Load Balancer", "layout": "column", "children": [
+            {"id": "agw", "type": "logo", "icon": "file:cloud/azure/networking/application-gateway", "text": "Application Gateway v2", "caption": "bottom", "ai_reasoning": "managed reverse proxy; listener on the private frontend IP; routing rules and backend pools point at on-prem IPs or FQDNs", "track": "line-serverless"}
+          ] },
+          {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.2.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "track": "line-serverless"}
+          ] }
+        ] },
+        {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "VNet injection for classic compute; not on the serverless path, so one card"}
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / S2S VPN", "caption": "bottom", "track": "line-serverless"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "track": "line-serverless"},
+        {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+        {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "per", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "per", "to": "plc-ip", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the private endpoint connection into the hub"},
+      {"id": "e3", "from": "plc-ip", "to": "agw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "agw", "to": "gw", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "backend pool targets are on-prem IPs / FQDNs, routed to the gateway"},
+      {"id": "e5", "from": "gw", "to": "er", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "er", "to": "op-server", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "agw-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering", "ai_reasoning": "hub ↔ workspace VNet peering, not used by serverless traffic"}
+    ]
+  }
+]

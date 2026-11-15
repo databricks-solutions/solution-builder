@@ -32,12 +32,13 @@ import {
   serializeArchitectureTabs,
   validateArchitecture,
   type ArchitectureIssue,
+  type ArchitectureTheme,
   type PlatformSchema,
 } from "@/lib/platform-architecture";
 import { saveProjectFile, getArchitectureStandaloneTemplate, type DeployedResourceLink } from "@/lib/custom-api";
 import { useArchDoc } from "./platform-diagram/collab/use-arch-doc";
 import { PresenceBar } from "./platform-diagram/collab/collab-cursors";
-import { Check, ChevronDown, Download, Loader2, X, AlertTriangle, Wand2 } from "lucide-react";
+import { Check, ChevronDown, Download, Loader2, X, AlertTriangle, Wand2, Presentation, Wrench } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -320,18 +321,25 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
     setStatus("saving");
     savePending.current = true;
     inFlightMd.current = md;
+    let permanent = false;
     saveProjectFile(projectId, "architecture.md", md)
       .then(() => {
         retryDelay.current = 0;
         if (pendingMd.current === md) { pendingMd.current = null; setStatus("saved"); }
         // else: a newer edit superseded this one → still pending, saved below.
       })
-      .catch(() => { setStatus("unsaved"); })  // keep pending → retried below
+      .catch((err: unknown) => {
+        // 401/403/404 won't heal by retrying (expired login, no access, project
+        // gone): stop and surface "Save failed" instead of looping forever.
+        const code = (err as { status?: number }).status;
+        permanent = code === 401 || code === 403 || code === 404;
+        setStatus(permanent ? "error" : "unsaved");  // keep pending → retried below
+      })
       .finally(() => {
         savePending.current = false;
         inFlightMd.current = null;
         const still = pendingMd.current;
-        if (!still) return;
+        if (!still || permanent) return;
         // Something still un-persisted: either a newer edit (save it immediately)
         // or a failed one (retry with capped backoff so a flapping backend doesn't
         // spin). setStatus stays "unsaved"/"saving" until a PUT confirms.
@@ -369,8 +377,11 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // debounce-snapshots doc→architecture.md. `selfAuthoredBody` marks our own edit
   // so the observe-driven tabBodies update isn't treated as an external reseed
   // (which would drop the live selection).
-  const persistTab = useCallback((index: number, body: string) => {
-    selfAuthoredBody.current = body;
+  const persistTab = useCallback((index: number, body: string, relayout = false) => {
+    // A nested diagram whose save changed the layout (a node dropped into another
+    // container, re-ordered, resized) must be RE-PARSED so everything snaps into place:
+    // not marking it as our own echo makes the next render rebuild the canvas from it.
+    selfAuthoredBody.current = relayout ? null : body;
     if (onSave) {
       // Standalone: no shared doc — keep the host-save path (whole multi-tab md).
       const bodies = tabBodiesRef.current.slice();
@@ -394,9 +405,10 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // if a late debounce fires after a switch.
   const onPersist = useCallback(
     (layout: PlatformSchema["layout"]) => {
-      persistTab(activeIndex, serializeArchitecture(schemaRef.current, layout));
+      const body = serializeArchitecture(schemaRef.current, layout);
+      persistTab(activeIndex, body, schemaRef.current.tree ? layoutChanged(body, layout, defaultLogosOn) : false);
     },
-    [persistTab, activeIndex],
+    [persistTab, activeIndex, defaultLogosOn],
   );
 
   // Yjs-backed shared doc: merges concurrent edits per-object, DRIVES tabBodies/
@@ -464,6 +476,18 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   const onSetTrademark = useCallback((on: boolean) => {
     setTrademark(on);
     const next: PlatformSchema = { ...schemaRef.current, enableTrademarkLogos: on };
+    persistActive(serializeArchitecture(next, next.layout));
+  }, [persistActive]);
+
+  // Switch the diagram's presentation theme (slide ⇄ technical) and persist.
+  // Theme changes each tile's footprint (the slide preset floors sizes), so we
+  // DON'T reuse the current pixel layout — serialize re-emits every unmoved
+  // node's symbolic placement and `computeLayout` re-resolves sizes/positions
+  // under the new theme on the next parse. Only user-dragged nodes keep a pinned
+  // `at`. `serializeArchitecture` already omits `theme` when it's the default
+  // ("slide"), so a technical→slide switch cleanly drops the field.
+  const onSetTheme = useCallback((theme: ArchitectureTheme) => {
+    const next: PlatformSchema = { ...schemaRef.current, theme };
     persistActive(serializeArchitecture(next, next.layout));
   }, [persistActive]);
 
@@ -594,6 +618,35 @@ function PlatformDiagram({ content, deployedResources, projectId, defaultEditMod
   // `toolbarStatus` on Canvas) so it doesn't leave a gap on the right.
   const builtInExtras = hideChrome ? undefined : (
     <div className="flex items-center gap-2">
+      {/* Theme toggle — technical (dense, the default) ⇄ slide (deck-ready,
+          bigger tiles). Hidden in read-only. Reflects the active tab's resolved
+          theme. Styled to match the View/Edit segmented toggle in the same bar
+          (bg-muted/60 track, bg-card active pill, text-[11px], no per-button
+          hover) so the two toggles read as one control family. */}
+      {!readOnly && (
+        <div className="flex items-center rounded-md bg-muted/60 p-0.5" title="Diagram theme">
+          <button
+            type="button"
+            onClick={() => onSetTheme("technical")}
+            aria-pressed={schema.theme === "technical"}
+            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
+              schema.theme === "technical" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+            }`}
+          >
+            <Wrench className="h-3.5 w-3.5" /> Technical
+          </button>
+          <button
+            type="button"
+            onClick={() => onSetTheme("slide")}
+            aria-pressed={schema.theme === "slide"}
+            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${
+              schema.theme === "slide" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+            }`}
+          >
+            <Presentation className="h-3.5 w-3.5" /> Slide
+          </button>
+        </div>
+      )}
       {/* Download menu — PNG/SVG capture, or a self-contained standalone HTML
           (the architecture-skill editor template with THIS diagram baked into
           its inline JSON block). */}
@@ -809,6 +862,19 @@ const IssuesBadge = memo(function IssuesBadge({
     </div>
   );
 });
+
+/** True when a nested diagram's saved body lays out differently from what the canvas
+ *  shows (a node changed container, order or size): the canvas must be rebuilt from it. */
+function layoutChanged(body: string, live: PlatformSchema["layout"], defaultLogosOn: boolean): boolean {
+  const next = parseArchitecture(body, defaultLogosOn).layout.nodes;
+  for (const [id, p] of Object.entries(next)) {
+    const q = live.nodes[id];
+    if (!q) return true;
+    if (Math.abs(q.x - p.x) > 1 || Math.abs(q.y - p.y) > 1) return true;
+    if (p.w !== undefined && q.w !== undefined && (Math.abs(q.w - p.w) > 1 || Math.abs((q.h ?? 0) - (p.h ?? 0)) > 1)) return true;
+  }
+  return Object.keys(live.nodes).some((id) => !(id in next) && !id.startsWith("__"));
+}
 
 const SaveChip = memo(function SaveChip({ status }: { status: SaveStatus }) {
   // Icon-only, and the slot is ALWAYS rendered (fixed size) so the toolbar

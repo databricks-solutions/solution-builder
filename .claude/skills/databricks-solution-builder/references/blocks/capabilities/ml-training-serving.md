@@ -40,7 +40,7 @@ One notebook, one artifact. Re-running = retraining. Gold table is the only thin
 ## Pair with these in the demo
 
 - **Genie Code** — (story only, open the coding assistant and ask it to write the notebook from a plain-English prompt. *"Train XGBoost with Optuna, register to UC, write gold predictions"* etc)
-- **Feature Store** — name-drop as the answer to "how do we share features across teams and avoid train/serve skew?" Avoid adding feature store unless really required. Good callout on the feature-engineering cell.
+- **Feature Store** — only when the `feature-store` capability is selected; then follow `feature-store.md` and `DEMO_SKILL_DIR/references/example-luxebeauty/ml/premium_train_score_with_feature_store.py`. Not selected → plain gold table + in-process / `spark_udf` scoring (`premium_train_score.py`), no feature-store code or wording. `feature-store.md` has the step-by-step diff between the two notebooks.
 - **SDP** — training data comes from silver/gold tables SDP produces. Batch predictions are *another* gold table SDP-adjacent consumers read.
 - **dashboard** — all read the predictions table, never the model directly. Same governance covers the model and the data it learned from.
 - **App/Agent** - read from the predictions tables synchronized to lakebase (PG) for fast, realtime access 
@@ -81,7 +81,7 @@ If any of those are true, skip the endpoint and just go with prediction as a bat
 - **SDP** → produces training features + label; consumes predictions as another gold table.
 - **Unity Catalog** → governs the registered model: permissions, lineage, audit.
 - **Dashboards / Genie** → read predictions table.
-- **Multi-agent supervisor / Knowledge Assistant** → agents call Genie over the predictions table (no direct model call needed for batch shape).
+- **Genie agent** → answers questions over the predictions table (no direct model call needed for batch shape).
 - **Databricks Apps / Lakebase** → predictions can sync to Lakebase for low-latency app reads.
 
 ## URLs

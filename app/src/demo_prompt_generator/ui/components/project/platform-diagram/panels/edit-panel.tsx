@@ -7,16 +7,23 @@
  * The body varies by selection:
  *   • multi-select (2+)   → shared style controls + Group/Ungroup + z-order + Remove all
  *   • single annotation   → annotation controls + style controls + z-order
- *   • single group / Agent Bricks → Ungroup + the single-node controls
+ *   • single group / Databricks Agent → Ungroup + the single-node controls
  *   • single plain node   → Change type / Rotate / Scale / style / z-order / Remove
+ *
+ * A single selection also gets numeric "Size & position" fields (footprint px +
+ * top-left flow coords). They're the reachable counterpart of the resize grips:
+ * a node parked at the right edge of the canvas can have its grips sit under
+ * this very panel, so exact entry is the only way to resize it there.
  *
  * All the style + annotation controls are the SAME components used by the edge
  * context menu (panels/style-controls), so there's one source of truth.
  */
-import { memo } from "react";
-import { type AnnotationData, type ComponentOption } from "@/lib/platform-architecture";
+import { memo, useState, type ReactNode } from "react";
+import { CATALOG, type AnnotationData, type ComponentOption } from "@/lib/platform-architecture";
 import { type StylePatch } from "../shared";
 import { StyleControls, AnnotationMenu, type MenuItemFn } from "./style-controls";
+import { applyMdFormat, type MdFormat } from "../md-format";
+import { applyToActiveMdEditor } from "../md-text";
 import {
   X,
   Trash2,
@@ -27,7 +34,7 @@ import {
   Replace,
   BringToFront,
   SendToBack,
-  Copy,
+  PaintRoller,
   Group,
   Ungroup,
   ArrowLeft,
@@ -35,7 +42,210 @@ import {
   ArrowUp,
   ArrowDown,
   Type,
+  WrapText,
+  Ruler,
+  Bold,
+  Italic,
+  List,
+  Heading2,
 } from "lucide-react";
+
+/** Exact on-canvas geometry of a single selection. `w`/`h` are the FOOTPRINT
+ *  (what the box occupies on the canvas, i.e. already rotation-swapped); `x`/`y`
+ *  are its TOP-LEFT in flow coordinates — the numbers a user reads off the
+ *  canvas. Top-left (not centre) so changing W/H grows right/down and leaves
+ *  X/Y alone, the Figma/Lucid convention. */
+export interface NodeGeometry {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const GEO_FIELDS = [
+  ["w", "W", "Width in px"],
+  ["h", "H", "Height in px"],
+  ["x", "X", "Left edge (canvas x)"],
+  ["y", "Y", "Top edge (canvas y)"],
+] as const;
+
+/** Numeric size/position entry for the single selection.
+ *
+ *  Each field keeps a local DRAFT while focused so a half-typed value ("-", or
+ *  "12" on the way to "120") never commits, and drops back to the live value on
+ *  blur/Escape. Commit is on Enter or blur — one history step per edit, not one
+ *  per keystroke. Keydown is stopped so the canvas's window shortcuts
+ *  (Backspace = delete node, arrows = nudge, Escape = clear selection) can't
+ *  fire while typing a number. */
+const GeometryFields = memo(function GeometryFields({
+  geometry,
+  onSetGeometry,
+}: {
+  geometry: NodeGeometry;
+  onSetGeometry: (patch: Partial<NodeGeometry>) => void;
+}) {
+  const [draft, setDraft] = useState<Partial<Record<keyof NodeGeometry, string>>>({});
+  const clear = (k: keyof NodeGeometry) =>
+    setDraft((d) => {
+      if (d[k] === undefined) return d;
+      const next = { ...d };
+      delete next[k];
+      return next;
+    });
+  const commit = (k: keyof NodeGeometry, raw: string) => {
+    clear(k);
+    const v = Math.round(Number(raw));
+    if (!Number.isFinite(v) || raw.trim() === "" || v === geometry[k]) return;
+    onSetGeometry({ [k]: v });
+  };
+  return (
+    <div className="px-2 py-1.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Ruler className="h-3.5 w-3.5" /> Size &amp; position
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        {GEO_FIELDS.map(([k, label, hint]) => (
+          <label
+            key={k}
+            title={hint}
+            className="flex items-center gap-1 rounded border border-border bg-background px-1.5 py-1 focus-within:border-primary"
+          >
+            <span className="w-2.5 text-[10px] font-medium text-muted-foreground">{label}</span>
+            <input
+              type="number"
+              step={1}
+              value={draft[k] ?? String(geometry[k])}
+              onChange={(e) => setDraft((d) => ({ ...d, [k]: e.target.value }))}
+              onBlur={(e) => commit(k, e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") { commit(k, e.currentTarget.value); e.currentTarget.blur(); }
+                else if (e.key === "Escape") { clear(k); e.currentTarget.blur(); }
+              }}
+              className="w-full min-w-0 bg-transparent text-[11.5px] tabular-nums text-foreground outline-none"
+            />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/** Annotation kinds whose `text` renders as markdown (see md-text). */
+const MD_VARIANTS = new Set(["box", "note", "text"]);
+const MD_BUTTONS: Array<{ kind: MdFormat; label: string; hint: string; icon: ReactNode }> = [
+  { kind: "bold", label: "Bold", hint: "⌘B", icon: <Bold className="h-3.5 w-3.5" /> },
+  { kind: "italic", label: "Italic", hint: "⌘I", icon: <Italic className="h-3.5 w-3.5" /> },
+  { kind: "bullet", label: "Bullet list", hint: "- item", icon: <List className="h-3.5 w-3.5" /> },
+  { kind: "heading", label: "Title", hint: "## title", icon: <Heading2 className="h-3.5 w-3.5" /> },
+];
+
+/** Bold / Italic / Bullet / Title. While the text is being edited (double-click
+ *  the node) they toggle the format on the SELECTED text; otherwise on the whole
+ *  text. mousedown is prevented so clicking a button doesn't blur the editor —
+ *  that would commit the edit and lose the selection before the click lands. */
+function MarkdownFormatRow({ text, onText }: { text: string; onText: (text: string) => void }) {
+  return (
+    <div className="px-2 py-1.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Type className="h-3.5 w-3.5" /> Text format
+        <span className="ml-auto text-[10px] opacity-70">markdown</span>
+      </div>
+      <div className="flex gap-1">
+        {MD_BUTTONS.map((b) => (
+          <button
+            key={b.kind}
+            type="button"
+            title={`${b.label} (${b.hint}) — applies to the selected text while editing, else to all of it`}
+            aria-label={b.label}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (applyToActiveMdEditor(b.kind)) return;
+              onText(applyMdFormat(text, 0, text.length, b.kind).value);
+            }}
+            className="grid h-7 flex-1 cursor-pointer place-items-center rounded border border-border text-foreground hover:bg-muted"
+          >
+            {b.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Catalog title for a component id ("model-serving" → "Model Serving Endpoint").
+ *  Undefined for ids outside the catalog (e.g. demo-authored source tiles). */
+function catalogTitle(id?: string): string | undefined {
+  if (!id) return undefined;
+  for (const band of Object.values(CATALOG)) {
+    const hit = band.find((c) => c.id === id);
+    if (hit) return hit.label;
+  }
+  return undefined;
+}
+
+/** A labelled text field that keeps a local draft while focused and commits on
+ *  Enter / blur (one history step per edit, not one per keystroke). Escape reverts.
+ *  Keydown is stopped so canvas shortcuts (Backspace = delete) can't fire while
+ *  typing. Empty commits are skipped when `allowEmpty` is false. */
+const CommitField = memo(function CommitField({
+  label,
+  value,
+  placeholder,
+  multiline = false,
+  allowEmpty = true,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  multiline?: boolean;
+  allowEmpty?: boolean;
+  onCommit: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (raw: string) => {
+    setDraft(null);
+    if (raw === value) return;
+    if (!allowEmpty && raw.trim() === "") return;
+    onCommit(raw);
+  };
+  const common = {
+    value: draft ?? value,
+    placeholder,
+    onChange: (e: React.ChangeEvent<HTMLInputElement & HTMLTextAreaElement>) => setDraft(e.target.value),
+    onBlur: (e: React.FocusEvent<HTMLInputElement & HTMLTextAreaElement>) => commit(e.target.value),
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
+    className: "w-full rounded border border-border bg-background px-2 py-1 text-[11.5px] text-foreground outline-none focus:border-primary",
+  };
+  return (
+    <label className="flex flex-col gap-1 px-2 py-1.5">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      {multiline ? (
+        <textarea
+          rows={3}
+          {...common}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); }
+          }}
+          className={`${common.className} resize-none leading-snug`}
+        />
+      ) : (
+        <input
+          type="text"
+          {...common}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); }
+          }}
+        />
+      )}
+    </label>
+  );
+});
 
 export const EditPanel = memo(function EditPanel({
   selectionCount,
@@ -53,12 +263,22 @@ export const EditPanel = memo(function EditPanel({
   onSetSourceFontSize,
   showDescription,
   onSetShowDescription,
+  wrapDescription,
+  onSetWrapDescription,
   options,
   params,
   onSetParam,
   nodeTitle,
   onSetTitle,
   titlePlaceholder,
+  componentId,
+  label,
+  onSetLabel,
+  desc,
+  onSetDesc,
+  descLockedReason,
+  geometry,
+  onSetGeometry,
   onClose,
   onRotate,
   onRemove,
@@ -86,7 +306,7 @@ export const EditPanel = memo(function EditPanel({
   isGroup?: boolean;
   /** Selection (2+) can be grouped → offer Group. */
   canGroup?: boolean;
-  /** Selection is a single Agent Bricks composite → Ungroup explodes it. */
+  /** Selection is a single Databricks Agent composite → Ungroup explodes it. */
   isAgentBricks?: boolean;
   /** Set when the single selected node is a data SOURCE tile → show the
    *  label-position control. The current placement (right default). */
@@ -100,6 +320,10 @@ export const EditPanel = memo(function EditPanel({
    *  writes an explicit true/false. Undefined → no toggle for this selection. */
   showDescription?: boolean;
   onSetShowDescription?: (show: boolean) => void;
+  /** Wrap-description toggle — set for source / product tiles. `wrapDescription`
+   *  is the current on/off; the setter flips it. Undefined → no wrap toggle. */
+  wrapDescription?: boolean;
+  onSetWrapDescription?: (wrap: boolean) => void;
   /** Toggleable component options (checkboxes). Set when the single selection is
    *  a component that declares `options`. `params` is the node's current values;
    *  `onSetParam` writes one key. */
@@ -112,6 +336,26 @@ export const EditPanel = memo(function EditPanel({
   nodeTitle?: string;
   onSetTitle?: (title: string) => void;
   titlePlaceholder?: string;
+  /** Catalog id of the single selected component — the header shows its catalog
+   *  title ("Model Serving Endpoint"). Unknown ids fall back to "Element". */
+  componentId?: string;
+  /** Node label (plain tiles, sources, untitled composites) + its setter. Commits
+   *  through the same path as double-click rename, so undo/collab/save all match. */
+  label?: string;
+  onSetLabel?: (label: string) => void;
+  /** Description line (plain tiles + sources) + its setter. Commits through the same
+   *  path as double-click edit on the canvas. */
+  desc?: string;
+  onSetDesc?: (desc: string) => void;
+  /** Set when the active theme hides this node's description whatever its showDesc
+   *  flag says (slide). The toggle still shows the rendered (off) state but is locked. */
+  descLockedReason?: string;
+  /** Exact geometry of the single selection (see NodeGeometry). Undefined → the
+   *  Size & position fields are hidden (multi-select). Editing a field PINS the
+   *  node, exactly like dragging or nudging it: it then serializes as a pixel
+   *  `at` + `size` instead of its authored symbolic placement. */
+  geometry?: NodeGeometry;
+  onSetGeometry?: (patch: Partial<NodeGeometry>) => void;
   onClose: () => void;
   onRotate: () => void;
   onRemove: () => void;
@@ -148,22 +392,50 @@ export const EditPanel = memo(function EditPanel({
   // "Show description" toggle — a checkable Item, shown for source / logo /
   // product-tile single selection. Editing the text itself is inline (double-
   // click the node), so the panel only owns the visibility toggle.
+  // Locked (slide theme): the row shows the RENDERED state (off) and says why,
+  // instead of a checkbox that would toggle without changing the canvas.
   const DescToggle =
     onSetShowDescription !== undefined ? (
+      descLockedReason ? (
+        <div
+          title={descLockedReason}
+          className="flex cursor-not-allowed items-center gap-2 rounded px-2 py-1.5 text-[12.5px] text-muted-foreground"
+        >
+          <span className="grid h-4 w-4 place-items-center"><Type className="h-3.5 w-3.5" /></span>
+          Show description
+          <span className="ml-auto text-[10.5px] text-muted-foreground/70">{showDescription ? "on" : "off"} · {descLockedReason}</span>
+        </div>
+      ) : (
+        <Item
+          icon={<Type className="h-3.5 w-3.5" />}
+          label="Show description"
+          onClick={() => onSetShowDescription(!showDescription)}
+          active={!!showDescription}
+        />
+      )
+    ) : null;
+
+  // "Wrap description" — multi-line instead of truncate (box auto-grows). Only
+  // useful when the description is actually shown, so gate on showDescription.
+  const WrapDescToggle =
+    onSetWrapDescription !== undefined && showDescription ? (
       <Item
-        icon={<Type className="h-3.5 w-3.5" />}
-        label="Show description"
-        onClick={() => onSetShowDescription(!showDescription)}
-        active={!!showDescription}
+        icon={<WrapText className="h-3.5 w-3.5" />}
+        label="Wrap description"
+        onClick={() => onSetWrapDescription(!wrapDescription)}
+        active={!!wrapDescription}
       />
     ) : null;
+
+  const GeoFields =
+    geometry && onSetGeometry ? <GeometryFields geometry={geometry} onSetGeometry={onSetGeometry} /> : null;
 
   const title =
     selectionCount > 1
       ? `${selectionCount} selected`
       : annotation
-        ? "Annotation"
-        : "Element";
+        ? (annotation.variant === "card" ? "Card" : annotation.variant === "html" ? "HTML block" : "Annotation")
+        : (catalogTitle(componentId) ?? label ?? "Element");
 
   return (
     <div className="flex h-full w-[240px] shrink-0 flex-col border-l border-border bg-card">
@@ -192,7 +464,7 @@ export const EditPanel = memo(function EditPanel({
               </>
             )}
             <StyleControls style={style} onStyle={onStyle} />
-            <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
+            <Item icon={<PaintRoller className="h-3.5 w-3.5" />} label="Copy style (paint)" onClick={onCopyStyle} />
             <Divider />
             {ZItems}
             <Divider />
@@ -201,13 +473,17 @@ export const EditPanel = memo(function EditPanel({
         ) : annotation ? (
           <>
             <AnnotationMenu a={annotation} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} onRotate={onRotate} onRemove={onRemove} />
+            {MD_VARIANTS.has(annotation.variant) && (
+              <MarkdownFormatRow text={annotation.text ?? ""} onText={(text) => onAnno({ text })} />
+            )}
             {/* A logo owns its own Title + Description inputs (in AnnotationMenu),
                 where an empty description hides the line — so no "Show description"
                 toggle for logos. Other annotation kinds keep the toggle. */}
             {annotation.variant !== "logo" && DescToggle}
+            {GeoFields}
             <Divider />
-            <StyleControls style={style} onStyle={onStyle} showIconColor={annotation.variant === "logo"} noBoxDefaults={annotation.variant === "logo"} />
-            <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
+            <StyleControls style={style} onStyle={onStyle} showIconColor={annotation.variant === "logo" || annotation.variant === "card"} noBoxDefaults={annotation.variant === "logo"} />
+            <Item icon={<PaintRoller className="h-3.5 w-3.5" />} label="Copy style (paint)" onClick={onCopyStyle} />
             <Divider />
             {ZItems}
           </>
@@ -216,6 +492,15 @@ export const EditPanel = memo(function EditPanel({
             <Item icon={<Replace className="h-3.5 w-3.5" />} label="Change type…" onClick={onChangeType} />
             {(isGroup || isAgentBricks) && <Item icon={<Ungroup className="h-3.5 w-3.5" />} label="Ungroup" onClick={onUngroup} hint="⇧⌘G" />}
             <Item icon={<RotateCw className="h-3.5 w-3.5" />} label="Rotate 90°" onClick={onRotate} hint="R" />
+            {/* Label + description — the same edits as double-clicking the node on
+                the canvas (onRename / onSetDescription), so undo, collab and save
+                all see one code path. Hidden for titled composites (they use Title). */}
+            {onSetLabel && label !== undefined && (
+              <CommitField label="Label" value={label} allowEmpty={false} onCommit={onSetLabel} />
+            )}
+            {onSetDesc && desc !== undefined && (
+              <CommitField label="Description" value={desc} placeholder="Add a description…" multiline onCommit={onSetDesc} />
+            )}
             {/* Editable block title (composites that expose one, e.g. medallion). */}
             {onSetTitle && (
               <div className="px-2 py-1.5">
@@ -306,6 +591,8 @@ export const EditPanel = memo(function EditPanel({
             )}
             {/* Description-line visibility (source + product tile). */}
             {DescToggle}
+            {/* Wrap the description to multiple lines (box auto-grows). */}
+            {WrapDescToggle}
             {/* Content scale slider — shrink/grow the icon+label inside the box. */}
             <div className="px-2 py-1.5">
               <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
@@ -343,9 +630,14 @@ export const EditPanel = memo(function EditPanel({
                 />
               </div>
             )}
+            {/* Exact box geometry — the numeric counterpart of the resize grips
+                (and the only way to size a node whose grips sit under this
+                panel / off-screen). */}
+            {GeoFields}
             <Divider />
-            <StyleControls style={style} onStyle={onStyle} />
-            <Item icon={<Copy className="h-3.5 w-3.5" />} label="Copy style" onClick={onCopyStyle} />
+            {/* Every catalog tile, source, composite and logo carries an icon: the colour control applies. */}
+            <StyleControls style={style} onStyle={onStyle} showIconColor />
+            <Item icon={<PaintRoller className="h-3.5 w-3.5" />} label="Copy style (paint)" onClick={onCopyStyle} />
             <Divider />
             {ZItems}
             <Divider />

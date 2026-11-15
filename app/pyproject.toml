@@ -24,7 +24,7 @@ dependencies = [
     # skills= option on ClaudeAgentOptions. Still works (deprecation only,
     # not removed); we use "Skill" in services/agent.py — migrate when we
     # touch that file next.
-    "claude-agent-sdk>=0.2.83",
+    "claude-agent-sdk>=0.2.164",
     "pyyaml>=6.0",
     "watchdog>=4.0.0",
     # MCP tools dependencies
@@ -114,3 +114,23 @@ artifacts = [
     "src/demo_prompt_generator/databricks_agent_skill",
 ]
 exclude = ["src/demo_prompt_generator/ui"]
+
+# ── Test + coverage config (used by .github/workflows/test.yml) ──────────────
+# pytest-cov + pytest-json-report are layered in at CI runtime via
+# `uv run --with ...`, so they are NOT declared as deps here (keeps uv.lock
+# untouched — no re-lock needed just for CI reporting tooling).
+[tool.pytest.ini_options]
+testpaths = ["tests_backend"]
+markers = [
+    "live: needs a live Databricks workspace or external creds — deselected in CI via `-m 'not live'`",
+    "integration: needs the ephemeral Postgres service the CI job provides",
+]
+
+[tool.coverage.run]
+source = ["demo_prompt_generator"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# Aspirational only — CI does NOT fail on coverage yet. Grow the suite, then raise this.
+fail_under = 0

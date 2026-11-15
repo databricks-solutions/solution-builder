@@ -19,7 +19,6 @@ import { useEffect, useState } from 'react';
 import { fetchResources, type WorkspaceResources } from '@/lib/api';
 import { FlowKeyframes, Fork } from './Flow';
 import {
-  AgentBricksIcon,
   AIBIIcon,
   AgentsIcon,
   AppsIcon,
@@ -48,14 +47,11 @@ const EMPTY: WorkspaceResources = {
   pipeline:      { id: '', url: '' },
   warehouse:     { id: '', url: '' },
   lakebase:      { id: '', url: '' },
-  mas:           { id: '', url: '' },
-  ka:            { id: '', url: '' },
   gateway:       { id: '', url: '' },
   databricksOne: { id: '', url: '' },
-  agentBricks:   { id: '', url: '' },
   catalog:       { id: '', url: '' },
   model:         { id: '', url: '' },
-  volume:        { id: '', url: '' },
+  documents:     { id: '', url: '' },
   app:           { id: '', url: '' },
 };
 
@@ -73,7 +69,7 @@ const CSS = `
   border-radius:16px;overflow:hidden;margin-bottom:48px;
   /* Escape the parent's max-width so the panel runs edge-to-edge of the
      PlatformView gutters — the Agentic Data row needs the width. */
-  margin-left:calc(50% - 50vw + 16px);margin-right:calc(50% - 50vw + 16px);
+  margin-left:0;margin-right:0;
   background:var(--card)}
 .pd-wrap{position:relative;z-index:1;max-width:1480px;margin:0 auto;
   padding:24px clamp(14px,2.5vw,28px) 20px}
@@ -187,6 +183,10 @@ a.pd-lfgrp:hover{background:color-mix(in srgb, var(--accent) 10%, transparent)}
   box-shadow:0 0 6px color-mix(in srgb, var(--accent) 80%, transparent);
   vertical-align:middle;margin:0 4px 1px 0}
 
+/* 1280-1400px: the 200px label column leaves the story too narrow (Lakeflow + fork + Lakehouse/Lakebase) — stack the label above the items */
+@media (max-width:1400px){
+  .pd-row{grid-template-columns:1fr}
+}
 @media (max-width:1180px){
   .pd-story{flex-wrap:wrap;gap:14px}
 }
@@ -363,18 +363,12 @@ export function PlatformDiagram() {
                 <span className="pd-sub">"Why do I have so many returns?"</span>
               </span>
             </div>
-            {/* Default href = the workspace-wide Agent Bricks landing
-                page ({host}/ml/agents) — works on any workspace, even
-                when the demo doesn't deploy a MAS.
-                If your demo DOES deploy a specific Multi-Agent
-                Supervisor endpoint (set masEndpointName in
-                config/app.json), swap the href below to:
-                  href={href(R.mas.url)}
-                which deep-links to {host}/ml/endpoints/{masEndpointName}. */}
+            {/* Genie Agent: one agent over the governed tables + the documents
+                volume (see config/app.json genieSpaceId). */}
             <Prod
-              href={href(R.agentBricks.url)}
-              icon={<AgentBricksIcon />}
-              title="Agent Bricks"
+              href={href(R.genie.url)}
+              icon={<GenieIcon />}
+              title="Genie Agent"
               sub="Diagnose the spike, draft apology emails, file refunds"
             />
           </Row>
@@ -463,7 +457,7 @@ export function PlatformDiagram() {
           </span>
           <a
             className="pd-zb pd-up"
-            href={href(R.volume.url)}
+            href={href(R.documents.url)}
             target="_blank"
             rel="noopener noreferrer"
             title="Manufacturing PDFs on a Unity Catalog Volume"
@@ -487,7 +481,7 @@ export function PlatformDiagram() {
           </div>
           <div className="pd-src">
             <span className="pd-tile"><SrcIcon d={SRC.pdf} /></span>
-            <span className="pd-tx"><b>Manufacturing PDFs</b><span>incident reports → KA</span></span>
+            <span className="pd-tx"><b>Manufacturing PDFs</b><span>incident reports → Genie Agent</span></span>
           </div>
         </div>
 

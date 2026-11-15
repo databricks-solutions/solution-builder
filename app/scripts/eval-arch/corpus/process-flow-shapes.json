@@ -1,0 +1,45 @@
+[
+  {
+    "name": "Process flow shapes",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "story": "Eval case for SKILL.md 'Process flows': a branching flow drawn entirely with `type:\"shape\"` nodes. Deliberately hostile in the ways a flow fails — a diamond with two labelled branches, prose on every edge, a long-span edge skipping two lanes (the SLA escalation), pointed shapes (diamond/triangle) whose labels must stay inside the outline, and a wide label in a narrow parallelogram. Also covers every shape kind at least once, so a geometry regression in any symbol shows up here.",
+    "columns": ["intake", "assess", "decide", "act", "close"],
+    "rowGrid": true,
+    "nodes": [
+      { "id": "start", "type": "shape", "shape": "ellipse", "col": "intake", "row": 0, "text": "Return lodged" },
+      { "id": "intake-form", "type": "shape", "shape": "parallelogram", "col": "intake", "row": 2, "text": "Read order and customer history" },
+      { "id": "enrich", "type": "shape", "shape": "rounded", "col": "assess", "row": 0, "text": "Enrich with returns features" },
+      { "id": "score", "type": "shape", "shape": "rounded", "col": "assess", "row": 2, "text": "Score fraud risk" },
+      { "id": "features", "type": "shape", "shape": "cylinder", "col": "assess", "row": 4, "text": "Feature store" },
+      { "id": "risk-gate", "type": "shape", "shape": "diamond", "col": "decide", "row": 0, "text": "High risk?" },
+      { "id": "value-gate", "type": "shape", "shape": "diamond", "col": "decide", "row": 2, "text": "Over $500?" },
+      { "id": "prep", "type": "shape", "shape": "hexagon", "col": "decide", "row": 4, "text": "Queue for agent" },
+      { "id": "manual", "type": "shape", "shape": "rectangle", "col": "act", "row": 0, "text": "Manual review" },
+      { "id": "auto", "type": "shape", "shape": "rounded", "col": "act", "row": 2, "text": "Auto-approve refund" },
+      { "id": "breach", "type": "shape", "shape": "triangle", "col": "act", "row": 4, "text": "SLA breach" },
+      { "id": "ledger", "type": "shape", "shape": "cylinder", "col": "close", "row": 0, "text": "Write decision to ledger" },
+      { "id": "notice", "type": "shape", "shape": "document", "col": "close", "row": 2, "text": "Customer notice" },
+      { "id": "end", "type": "shape", "shape": "ellipse", "col": "close", "row": 4, "text": "Case closed" }
+    ],
+    "edges": [
+      { "from": "start", "to": "enrich", "label": "Claim submitted online" },
+      { "from": "intake-form", "to": "score", "label": "Order and customer context" },
+      { "from": "enrich", "to": "risk-gate", "label": "Enriched claim" },
+      { "from": "score", "to": "value-gate", "label": "Model risk score" },
+      { "from": "features", "to": "score", "label": "Point-in-time features" },
+      { "from": "risk-gate", "to": "manual", "label": "Yes, route to a human" },
+      { "from": "risk-gate", "to": "value-gate", "label": "No, keep automating" },
+      { "from": "value-gate", "to": "manual", "label": "Yes, needs approval" },
+      { "from": "value-gate", "to": "auto", "label": "No, refund immediately" },
+      { "from": "prep", "to": "manual", "label": "Assigned to agent" },
+      { "from": "manual", "to": "ledger", "label": "Reviewed outcome" },
+      { "from": "auto", "to": "ledger", "label": "Approved automatically" },
+      { "from": "auto", "to": "notice", "label": "Refund issued" },
+      { "from": "manual", "to": "breach", "label": "Unactioned past 48 hours" },
+      { "from": "notice", "to": "end", "label": "Customer notified" },
+      { "from": "ledger", "to": "end", "label": "Decision recorded" }
+    ]
+  }
+]

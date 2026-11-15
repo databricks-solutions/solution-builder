@@ -130,7 +130,7 @@ export function DeployTargetControl() {
                 type="button"
                 onClick={openTargetEditor}
                 title="Change target workspace"
-                className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 hover:bg-muted hover:text-foreground transition-colors"
+                className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-1.5 py-0.5 hover:bg-muted hover:text-foreground transition-colors"
               >
                 <Pencil className="size-3" />
                 Edit

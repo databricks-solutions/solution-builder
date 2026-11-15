@@ -124,6 +124,7 @@ export async function syncFromDelta(
       lot_id: string | null;
       facility: string | null;
       region: string | null;
+      status: string | null;
     }>(
       warehouseId,
       // silver_returns is already denormalized per spec 01-lakeflow.md
@@ -143,7 +144,8 @@ export async function syncFromDelta(
               r.category,
               r.lot_id,
               r.facility,
-              r.region
+              r.region,
+              r.status
        FROM ${fq('returns')} r`,
     ),
     // Predictions for the same customer set that owns the returns. If
@@ -242,7 +244,10 @@ export async function syncFromDelta(
           lotId: r.lot_id,
           facility: r.facility,
           region: r.region,
-          status: 'pending' as const,
+          // Honor the Delta status: historical ('completed') and ~93% of bad-lot
+          // ('approved') returns are already refunded — only Delta 'pending'
+          // rows (or rows with no status) form the open queue.
+          status: (r.status && r.status !== 'pending' ? 'approved' : 'pending') as 'approved' | 'pending',
         })),
       ).onConflictDoNothing(),
     );

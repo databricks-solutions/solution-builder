@@ -13,7 +13,7 @@
 Before starting:
 - Dashboard open to Quality Command Center
 - Genie Space ready
-- KA ready
+- Documents indexed (Genie answers from them)
 - Date context: "Today is March 18, 2024"
 
 ---
@@ -64,15 +64,15 @@ Before starting:
 
 ## Act 3: Get the Full Picture (3 min)
 
-**[Open Knowledge Assistant or MAS]**
+**[Open Genie and ask about the documents]**
 
 > "The data tells us WHAT happened - Machine 7, tolerance drift, maintenance overdue. But WHY was maintenance skipped? Maria needs context the data doesn't have."
 
 **[Type: "What maintenance issues exist for CNC Machine 7?"]**
 
-> "The Knowledge Assistant searches through maintenance records and finds something critical."
+> "Genie searches through maintenance records and finds something critical."
 
-**[Show KA response with maintenance report]**
+**[Show Genie answer with maintenance report]**
 
 > "A maintenance inspection on March 5th - three days before the scheduled PM - found bearing wear at 78% of replacement threshold. Vibration was elevated. The technician recommended immediate bearing replacement.
 >
@@ -154,7 +154,7 @@ Before starting:
 > "The data sources are examples. Lakeflow Connect supports 50+ sources, or we can ingest from any system via APIs or file drops."
 
 **"How long to set this up?"**
-> "The data pipeline typically takes 2-4 weeks. The AI components - Genie and Knowledge Assistant - can be configured in days once the data is ready."
+> "The data pipeline typically takes 2-4 weeks. The AI components - Genie with its attached documents - can be configured in days once the data is ready."
 
 **"Is the ML model production-ready?"**
 > "This is a demo model. In production, you'd train on your specific equipment and validate with your maintenance team. But the approach is proven."

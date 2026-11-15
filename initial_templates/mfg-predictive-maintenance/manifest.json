@@ -1,0 +1,10 @@
+{
+  "id": "mfg-predictive-maintenance",
+  "name": "Manufacturing — Predictive Maintenance Control Room",
+  "customer": "TechRobotics Industries",
+  "industry": "Manufacturing",
+  "narrative": "Marcus Chen is the plant reliability engineer at TechRobotics' Greenville plant. Line 2's OEE has slipped from 79% to 73% in two weeks, and his control room shows why: the ML failure-risk model, trained on a year of sensor data and registered in Unity Catalog, rates RA-207, the robot that paces the line, at 94% likely to fail within 7 days. That robot costs $12,800 for every hour it is down, and the model estimates about 3.5 days before its J3 reducer seizes.\n\nThe aha comes when he asks the copilot why. It connects the sensor drift to the maintenance history: a contractor greased RA-207 with a substitute grease while the OEM grease was backordered. The plant manuals forbid that grease, and six months earlier the same mistake destroyed RA-203's reducer. The copilot then finds two more robots from the same contractor visit, including one that isn't drifting yet, so the model can't see it. It books all three repairs into Saturday's planned window, reserves the parts in Lakebase and puts about $210K of risk-weighted downtime cost avoided on the board.",
+  "dbdemos_tracker": {
+    "app_id": "mfg-predictive-maintenance"
+  }
+}

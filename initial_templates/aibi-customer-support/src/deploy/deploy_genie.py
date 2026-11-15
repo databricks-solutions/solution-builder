@@ -4,8 +4,8 @@ Deploy the demo's Genie Space — DAB setup-job task (environment_key: sdk_lates
 
 Reads the committed serialized Genie space (../../genie/genie_space.json, the
 serialized_space v2 export format), substitutes {{CATALOG}}/{{SCHEMA}}, then
-creates or updates the space via the SDK. Idempotent: looks up by title, updates
-if present, creates if not.
+creates or updates the space via the SDK. Idempotent: looks up by title (scoped to
+our parent_path + catalog.schema), updates if present, creates if not.
 
 GOTCHAS (proven the hard way — do NOT "simplify" away):
   • data_sources.tables MUST be sorted by identifier, or create_space fails with
@@ -22,6 +22,7 @@ REQUIRES: databricks-sdk>=0.114.0.
 
 Parameters (base_parameters):
 - catalog, schema, warehouse_id
+- parent_path (optional) — workspace folder for a NEW space (default: /Workspace/<catalog>/<schema>)
 
 Outputs (dbutils.jobs.taskValues):
 - genie_space_id
@@ -42,9 +43,11 @@ SPACE_DESCRIPTION = (
 dbutils.widgets.text("catalog", "", "Catalog")
 dbutils.widgets.text("schema", "", "Schema")
 dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
+dbutils.widgets.text("parent_path", "", "Parent folder")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 warehouse_id = dbutils.widgets.get("warehouse_id")
+parent_path = dbutils.widgets.get("parent_path")
 assert catalog and schema and warehouse_id, "catalog + schema + warehouse_id are required"
 
 # COMMAND ----------
@@ -78,13 +81,22 @@ print(f"tables: {len(payload['data_sources']['tables'])}, "
 
 w = WorkspaceClient()
 
-# Idempotent lookup by exact title (paginate the response object).
+# Idempotent lookup by exact title, SCOPED to this deployment: a same-titled space can exist in the
+# workspace (e.g. another user's dbdemos install), so only reuse a space that lives in our
+# parent_path (when given) AND whose tables point at our catalog.schema. Paginate the response object.
+def _ours(space_id):
+    sp = w.genie.get_space(space_id, include_serialized_space=True)
+    if parent_path and (sp.parent_path or "").removeprefix("/Workspace") != parent_path.removeprefix("/Workspace"):
+        return False
+    tables = json.loads(sp.serialized_space or "{}").get("data_sources", {}).get("tables", [])
+    return any(t.get("identifier", "").startswith(f"{catalog}.{schema}.") for t in tables)
+
 existing_id = None
 page_token = None
 while True:
     resp = w.genie.list_spaces(page_size=200, page_token=page_token)
     for sp in (resp.spaces or []):
-        if sp.title == SPACE_TITLE:
+        if sp.title == SPACE_TITLE and _ours(sp.space_id):
             existing_id = sp.space_id
             break
     if existing_id or not getattr(resp, "next_page_token", None):
@@ -99,10 +111,11 @@ if existing_id:
     space_id = existing_id
 else:
     print("Creating new space…")
-    created = w.genie.create_space(
-        warehouse_id=warehouse_id, serialized_space=serialized,
-        title=SPACE_TITLE, description=SPACE_DESCRIPTION,
-    )
+    kwargs = dict(warehouse_id=warehouse_id, serialized_space=serialized,
+                  title=SPACE_TITLE, description=SPACE_DESCRIPTION)
+    if parent_path:
+        kwargs["parent_path"] = parent_path
+    created = w.genie.create_space(**kwargs)
     space_id = created.space_id
 
 print(f"Genie space ready: {space_id}")

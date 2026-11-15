@@ -1,0 +1,1464 @@
+{
+  "datasets": [
+    {
+      "name": "kpi_system_monthly",
+      "displayName": "System readmissions monthly",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', discharge_date) AS month,\n",
+        "  sum(CAST(readmitted_30d AS INT)) AS readmits,\n",
+        "  count(*) AS discharges\n",
+        "FROM gold_discharges\n",
+        "WHERE outcome_window_closed AND status = 'discharged' AND in_hrrp_window\n",
+        "  AND DATE_TRUNC('MONTH', discharge_date) > (SELECT DATE_TRUNC('MONTH', MIN(discharge_date)) FROM gold_discharges)\n",
+        "  AND DATE_TRUNC('MONTH', discharge_date) < (SELECT DATE_TRUNC('MONTH', MAX(discharge_date)) FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged')\n",
+        "GROUP BY 1\n",
+        "ORDER BY 1"
+      ],
+      "columns": [
+        {
+          "displayName": "System readmission %",
+          "expression": "SUM(`readmits`) / SUM(`discharges`)"
+        }
+      ]
+    },
+    {
+      "name": "kpi_4w_monthly",
+      "displayName": "4 West HF monthly",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', discharge_date) AS month,\n",
+        "  sum(CAST(readmitted_30d AS INT)) AS readmits,\n",
+        "  count(*) AS discharges,\n",
+        "  sum(CAST(weekend_discharge AS INT)) AS weekend_discharges,\n",
+        "  sum(CASE WHEN weekend_discharge AND followup_7d_scheduled THEN 1 ELSE 0 END) AS weekend_followups\n",
+        "FROM gold_discharges\n",
+        "WHERE outcome_window_closed AND status = 'discharged' AND unit_id = 'LRMC-4W' AND hrrp_condition = 'HF'\n",
+        "  AND DATE_TRUNC('MONTH', discharge_date) > (SELECT DATE_TRUNC('MONTH', MIN(discharge_date)) FROM gold_discharges)\n",
+        "  AND DATE_TRUNC('MONTH', discharge_date) < (SELECT DATE_TRUNC('MONTH', MAX(discharge_date)) FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged')\n",
+        "GROUP BY 1\n",
+        "ORDER BY 1"
+      ],
+      "columns": [
+        {
+          "displayName": "4W HF readmission %",
+          "expression": "SUM(`readmits`) / SUM(`discharges`)"
+        },
+        {
+          "displayName": "4W weekend 7-day follow-up %",
+          "expression": "SUM(`weekend_followups`) / SUM(`weekend_discharges`)"
+        }
+      ]
+    },
+    {
+      "name": "kpi_4w_before",
+      "displayName": "4 West HF before (pre 26 weeks)",
+      "queryLines": [
+        "SELECT CAST(sum(CAST(readmitted_30d AS INT)) AS DOUBLE) / count(*) AS before_rate\n",
+        "FROM gold_discharges\n",
+        "WHERE outcome_window_closed AND status = 'discharged'\n",
+        "  AND unit_id = 'LRMC-4W' AND hrrp_condition = 'HF' AND NOT last_26_weeks"
+      ]
+    },
+    {
+      "name": "penalty",
+      "displayName": "Penalty",
+      "queryLines": [
+        "SELECT hospital_name, round(penalty_usd) AS penalty_usd, round(penalty_pct, 4) AS penalty_pct,\n",
+        "  CASE top_condition WHEN 'THA_TKA' THEN 'Hip/knee' WHEN 'HF' THEN 'Heart failure' WHEN 'AMI' THEN 'Heart attack'\n",
+        "    WHEN 'PN' THEN 'Pneumonia' WHEN 'COPD' THEN 'COPD' WHEN 'CABG' THEN 'Bypass graft' ELSE top_condition END AS top_condition,\n",
+        "  hf_err_estimate, hf_err_last_6m, CAST(excess_readmissions AS INT) AS excess_readmissions\n",
+        "FROM hrrp_penalty_estimate"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    },
+    {
+      "name": "penalty_total",
+      "displayName": "Penalty Total",
+      "queryLines": [
+        "SELECT round(sum(penalty_usd)) AS penalty_usd, round(max(CASE WHEN hospital_id = 'LRMC' AND top_condition = 'HF' THEN top_condition_usd END)) AS lrmc_hf_line_usd, round(max(CASE WHEN hospital_id = 'LRMC' AND top_condition = 'HF' THEN top_condition_usd END) / 1000) AS lrmc_hf_line_k FROM hrrp_penalty_estimate"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    },
+    {
+      "name": "hf_trend",
+      "displayName": "HF trend (Larkspur units)",
+      "queryLines": [
+        "SELECT * FROM (\n",
+        "  WITH m AS (\n",
+        "    SELECT discharge_month, CASE WHEN unit_id = 'LRMC-4W' THEN '4 West' ELSE 'Other Larkspur units' END AS unit_group,\n",
+        "      sum(readmissions) AS rd, sum(discharges) AS dc\n",
+        "    FROM gold_readmission_monthly WHERE hrrp_condition = 'HF' AND hospital_id = 'LRMC' GROUP BY ALL)\n",
+        "  SELECT discharge_month, unit_group,\n",
+        "    round(100 * sum(rd) OVER (PARTITION BY unit_group ORDER BY discharge_month ROWS BETWEEN 5 PRECEDING AND CURRENT ROW)\n",
+        "               / sum(dc) OVER (PARTITION BY unit_group ORDER BY discharge_month ROWS BETWEEN 5 PRECEDING AND CURRENT ROW), 1) AS readmission_rate_pct,\n",
+        "    sum(dc) OVER (PARTITION BY unit_group ORDER BY discharge_month ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) AS discharges\n",
+        "  FROM m)\n",
+        "WHERE discharge_month >= '2025-01-01'\n",
+        "  AND discharge_month < (SELECT DATE_TRUNC('MONTH', MAX(discharge_date)) FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged')\n",
+        "ORDER BY discharge_month"
+      ]
+    },
+    {
+      "name": "unit_change",
+      "displayName": "Larkspur HF change by unit",
+      "queryLines": [
+        "SELECT unit_id, unit_name, round(100 * count_if(readmitted_30d AND NOT last_26_weeks) / count_if(NOT last_26_weeks), 1) AS rate_before_pct,\n",
+        " round(100 * count_if(readmitted_30d AND last_26_weeks) / count_if(last_26_weeks), 1) AS rate_last_26w_pct,\n",
+        " round(100 * count_if(readmitted_30d AND last_26_weeks) / count_if(last_26_weeks) - 100 * count_if(readmitted_30d AND NOT last_26_weeks) / count_if(NOT last_26_weeks), 1) AS change_pts,\n",
+        " count_if(last_26_weeks) AS discharges_last_26w\n",
+        "FROM gold_discharges\n",
+        "WHERE outcome_window_closed AND status = 'discharged' AND hrrp_condition = 'HF' AND hospital_id = 'LRMC'\n",
+        "GROUP BY unit_id, unit_name\n",
+        "HAVING count_if(last_26_weeks) >= 50\n",
+        "ORDER BY change_pts DESC"
+      ]
+    },
+    {
+      "name": "weekday",
+      "displayName": "Weekday",
+      "queryLines": [
+        "SELECT discharge_dow, CASE discharge_dow WHEN 'Mon' THEN 1 WHEN 'Tue' THEN 2 WHEN 'Wed' THEN 3 WHEN 'Thu' THEN 4 WHEN 'Fri' THEN 5 WHEN 'Sat' THEN 6 ELSE 7 END AS dow_order,\n",
+        " CASE WHEN last_26_weeks THEN 'Last 26 weeks' ELSE 'Before' END AS period,\n",
+        " round(100 * avg(CAST(followup_7d_scheduled AS INT)), 1) AS followup_booked_pct, round(100 * avg(CAST(readmitted_30d AS INT)), 1) AS readmission_rate_pct, count(*) AS discharges\n",
+        "FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND unit_id = 'LRMC-4W' AND hrrp_condition = 'HF' GROUP BY ALL"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    },
+    {
+      "name": "followup_effect",
+      "displayName": "7-day follow-up effect by condition",
+      "queryLines": [
+        "SELECT CASE hrrp_condition WHEN 'HF' THEN 'Heart failure' WHEN 'AMI' THEN 'Heart attack' WHEN 'PN' THEN 'Pneumonia'\n",
+        "  WHEN 'COPD' THEN 'COPD' WHEN 'THA_TKA' THEN 'Hip/knee' ELSE condition_label END AS condition_label,\n",
+        "  CASE WHEN followup_7d_scheduled THEN 'With 7-day follow-up' ELSE 'No follow-up booked' END AS followup,\n",
+        "  round(100 * sum(readmissions) / sum(discharges), 1) AS readmission_rate_pct, sum(discharges) AS discharges\n",
+        "FROM gold_followup_effect WHERE hrrp_condition <> 'OTHER' GROUP BY ALL"
+      ]
+    },
+    {
+      "name": "hrrp_err",
+      "displayName": "Hrrp Err",
+      "queryLines": [
+        "SELECT CASE WHEN hospital_id = 'LRMC' THEN 'Larkspur' ELSE 'Other hospitals' END AS hospital_group,\n",
+        "  hospital_name, hospital_id, condition_label, hrrp_condition, discharges,\n",
+        "  round(observed_rate, 4) AS observed_rate_pct, round(national_readmission_rate, 4) AS national_rate_pct,\n",
+        "  err_estimate, err_last_6m, round(penalty_contribution * medicare_base_drg_payments) AS penalty_usd,\n",
+        "  excess_readmissions,\n",
+        "  concat(hospital_id, ' · ', CASE hrrp_condition WHEN 'THA_TKA' THEN 'Hip/knee' ELSE hrrp_condition END) AS hospital_condition\n",
+        "FROM hrrp_performance\n",
+        "ORDER BY err_estimate DESC"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    },
+    {
+      "name": "note_risks",
+      "displayName": "Note Risks",
+      "queryLines": [
+        "SELECT 'Transportation barrier' AS risk, CASE WHEN note_transportation_barrier THEN 'Mentioned in note' ELSE 'Not mentioned' END AS in_note, round(100 * avg(CAST(readmitted_30d AS INT)), 1) AS readmission_rate_pct, count(*) AS discharges FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND is_hrrp_condition AND note_transportation_barrier IS NOT NULL GROUP BY ALL\n",
+        "UNION ALL SELECT 'Medication cost concern', CASE WHEN note_medication_affordability THEN 'Mentioned in note' ELSE 'Not mentioned' END, round(100 * avg(CAST(readmitted_30d AS INT)), 1), count(*) FROM gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND is_hrrp_condition AND note_medication_affordability IS NOT NULL GROUP BY ALL"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    },
+    {
+      "name": "worklist",
+      "displayName": "Worklist",
+      "queryLines": [
+        "SELECT patient_name, unit_id, condition_label, discharge_date,\n",
+        "  round(risk_score, 4) AS risk_pct, round(risk_if_followup, 4) AS risk_if_followup_pct,\n",
+        "  CASE WHEN followup_7d_scheduled THEN 'Booked' ELSE 'Not booked' END AS followup_7d_scheduled,\n",
+        "  CASE WHEN transportation_barrier THEN 'Yes' ELSE 'No' END AS transportation_barrier,\n",
+        "  risk_tier\n",
+        "FROM transition_worklist WHERE hrrp_condition <> 'OTHER'"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "readmission_reduction"
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Readmissions overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Larkspur Health — 30-day readmissions & CMS HRRP exposure\n",
+                "\n",
+                "Heart-failure readmissions on **Larkspur Regional's 4 West** rose sharply in the last 26 weeks while the other Larkspur units stayed flat. Weekend (Fri-Sun) HF discharges on 4 West now leave without a booked 7-day follow-up most of the time, since the unit lost its weekend discharge navigator."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_4w_monthly",
+                  "fields": [
+                    {
+                      "name": "hf4w_rate",
+                      "expression": "MEASURE(`4W HF readmission %`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "hf4w_rate",
+                  "displayName": "4 West HF readmission",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "4 West HF readmission"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_4w_before",
+                  "fields": [
+                    {
+                      "name": "before_rate",
+                      "expression": "`before_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "before_rate",
+                  "displayName": "4 West HF readmission (before)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "4 West HF readmission (before)"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_4w_monthly",
+                  "fields": [
+                    {
+                      "name": "wkfu_rate",
+                      "expression": "MEASURE(`4W weekend 7-day follow-up %`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "wkfu_rate",
+                  "displayName": "4 West weekend 7-day follow-up",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "4 West weekend 7-day follow-up"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_system_monthly",
+                  "fields": [
+                    {
+                      "name": "sys_rate",
+                      "expression": "MEASURE(`System readmission %`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sys_rate",
+                  "displayName": "Readmission, 3 hospitals",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Readmission, 3 hospitals"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "penalty_total",
+                  "fields": [
+                    {
+                      "name": "penalty_usd",
+                      "expression": "`penalty_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "penalty_usd",
+                  "displayName": "Est. HRRP penalty ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Est. HRRP penalty ($), 3 hospitals"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "penalty_total",
+                  "fields": [
+                    {
+                      "name": "lrmc_hf_line_k",
+                      "expression": "`lrmc_hf_line_k`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "lrmc_hf_line_k",
+                  "displayName": "Larkspur HF share ($ k)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "…of which Larkspur HF ($ k)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hf_trend",
+                  "fields": [
+                    {
+                      "name": "discharge_month",
+                      "expression": "`discharge_month`"
+                    },
+                    {
+                      "name": "readmission_rate_pct",
+                      "expression": "`readmission_rate_pct`"
+                    },
+                    {
+                      "name": "unit_group",
+                      "expression": "`unit_group`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "discharge_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Discharge month"
+                },
+                "y": {
+                  "fieldName": "readmission_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Readmission rate (%)"
+                },
+                "color": {
+                  "fieldName": "unit_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Unit group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "HF readmission rate, 6-month average: 4 West vs other Larkspur units"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "unit_change",
+                  "fields": [
+                    {
+                      "name": "unit_id",
+                      "expression": "`unit_id`"
+                    },
+                    {
+                      "name": "change_pts",
+                      "expression": "`change_pts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "unit_id",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Unit"
+                },
+                "y": {
+                  "fieldName": "change_pts",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Change (points)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Larkspur HF readmission change, last 26 wk vs before (pts)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 6,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekday",
+                  "fields": [
+                    {
+                      "name": "discharge_dow",
+                      "expression": "`discharge_dow`"
+                    },
+                    {
+                      "name": "followup_booked_pct",
+                      "expression": "`followup_booked_pct`"
+                    },
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "discharge_dow",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Mon",
+                        "Tue",
+                        "Wed",
+                        "Thu",
+                        "Fri",
+                        "Sat",
+                        "Sun"
+                      ]
+                    }
+                  },
+                  "displayName": "Discharge day"
+                },
+                "y": {
+                  "fieldName": "followup_booked_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Booked 7-day follow-up (%)"
+                },
+                "color": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Period"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "4 West HF: 7-day follow-up booked, by discharge day"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekday",
+                  "fields": [
+                    {
+                      "name": "discharge_dow",
+                      "expression": "`discharge_dow`"
+                    },
+                    {
+                      "name": "readmission_rate_pct",
+                      "expression": "`readmission_rate_pct`"
+                    },
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "discharge_dow",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Mon",
+                        "Tue",
+                        "Wed",
+                        "Thu",
+                        "Fri",
+                        "Sat",
+                        "Sun"
+                      ]
+                    }
+                  },
+                  "displayName": "Discharge day"
+                },
+                "y": {
+                  "fieldName": "readmission_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "30-day readmission (%)"
+                },
+                "color": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Period"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "4 West HF: 30-day readmission, by discharge day"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "followup_effect",
+                  "fields": [
+                    {
+                      "name": "readmission_rate_pct",
+                      "expression": "`readmission_rate_pct`"
+                    },
+                    {
+                      "name": "condition_label",
+                      "expression": "`condition_label`"
+                    },
+                    {
+                      "name": "followup",
+                      "expression": "`followup`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "readmission_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Readmission (%)"
+                },
+                "y": {
+                  "fieldName": "condition_label",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Condition"
+                },
+                "color": {
+                  "fieldName": "followup",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Follow-up"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Readmission % with vs without a 7-day follow-up (12 mo)"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "note_risks",
+                  "fields": [
+                    {
+                      "name": "risk",
+                      "expression": "`risk`"
+                    },
+                    {
+                      "name": "readmission_rate_pct",
+                      "expression": "`readmission_rate_pct`"
+                    },
+                    {
+                      "name": "in_note",
+                      "expression": "`in_note`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "risk",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Social risk in discharge note"
+                },
+                "y": {
+                  "fieldName": "readmission_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Readmission (%)"
+                },
+                "color": {
+                  "fieldName": "in_note",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Note"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Social risks only in the discharge notes (AI Functions) — readmission %"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 18,
+            "width": 3,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "hrrp",
+      "displayName": "HRRP exposure",
+      "layout": [
+        {
+          "widget": {
+            "name": "w14",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## CMS HRRP — estimated excess readmission ratio and penalty\n",
+                "\n",
+                "Medicare FFS 65+, trailing 12 months of closed 30-day windows. ERR estimated as observed vs national rate, credibility-weighted with 150 pseudo-discharges at the national rate (CMS risk-adjusts over 3 years). Penalty = min(3%, Σ payment share × (ERR − 1)) × Medicare base-operating DRG payments."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "penalty",
+                  "fields": [
+                    {
+                      "name": "hospital_name",
+                      "expression": "`hospital_name`"
+                    },
+                    {
+                      "name": "penalty_usd",
+                      "expression": "`penalty_usd`"
+                    },
+                    {
+                      "name": "penalty_pct",
+                      "expression": "`penalty_pct`"
+                    },
+                    {
+                      "name": "top_condition",
+                      "expression": "`top_condition`"
+                    },
+                    {
+                      "name": "hf_err_estimate",
+                      "expression": "`hf_err_estimate`"
+                    },
+                    {
+                      "name": "hf_err_last_6m",
+                      "expression": "`hf_err_last_6m`"
+                    },
+                    {
+                      "name": "excess_readmissions",
+                      "expression": "`excess_readmissions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "hospital_name",
+                    "displayName": "Hospital"
+                  },
+                  {
+                    "fieldName": "penalty_usd",
+                    "displayName": "Estimated penalty",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "penalty_pct",
+                    "displayName": "Penalty rate",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "top_condition",
+                    "displayName": "Top condition"
+                  },
+                  {
+                    "fieldName": "hf_err_estimate",
+                    "displayName": "HF ERR, 12 mo",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "hf_err_last_6m",
+                    "displayName": "HF ERR, last 6 mo",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "excess_readmissions",
+                    "displayName": "Excess readmissions"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Estimated HRRP penalty by hospital"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hrrp_err",
+                  "fields": [
+                    {
+                      "name": "hospital_condition",
+                      "expression": "`hospital_condition`"
+                    },
+                    {
+                      "name": "err_estimate",
+                      "expression": "`err_estimate`"
+                    },
+                    {
+                      "name": "hospital_group",
+                      "expression": "`hospital_group`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "err_estimate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Excess readmission ratio (ERR)"
+                },
+                "y": {
+                  "fieldName": "hospital_condition",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hospital and condition"
+                },
+                "color": {
+                  "fieldName": "hospital_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hospital"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Estimated ERR, 12 mo (1.0 = national rate)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hrrp_err",
+                  "fields": [
+                    {
+                      "name": "hospital_condition",
+                      "expression": "`hospital_condition`"
+                    },
+                    {
+                      "name": "err_last_6m",
+                      "expression": "`err_last_6m`"
+                    },
+                    {
+                      "name": "hospital_group",
+                      "expression": "`hospital_group`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "err_last_6m",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Excess readmission ratio (ERR)"
+                },
+                "y": {
+                  "fieldName": "hospital_condition",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hospital and condition"
+                },
+                "color": {
+                  "fieldName": "hospital_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Hospital"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Estimated ERR, last 6 mo (1.0 = national rate)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hrrp_err",
+                  "fields": [
+                    {
+                      "name": "hospital_name",
+                      "expression": "`hospital_name`"
+                    },
+                    {
+                      "name": "condition_label",
+                      "expression": "`condition_label`"
+                    },
+                    {
+                      "name": "discharges",
+                      "expression": "`discharges`"
+                    },
+                    {
+                      "name": "observed_rate_pct",
+                      "expression": "`observed_rate_pct`"
+                    },
+                    {
+                      "name": "national_rate_pct",
+                      "expression": "`national_rate_pct`"
+                    },
+                    {
+                      "name": "err_estimate",
+                      "expression": "`err_estimate`"
+                    },
+                    {
+                      "name": "err_last_6m",
+                      "expression": "`err_last_6m`"
+                    },
+                    {
+                      "name": "penalty_usd",
+                      "expression": "`penalty_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "hospital_name",
+                    "displayName": "Hospital"
+                  },
+                  {
+                    "fieldName": "condition_label",
+                    "displayName": "Condition"
+                  },
+                  {
+                    "fieldName": "discharges",
+                    "displayName": "Discharges"
+                  },
+                  {
+                    "fieldName": "observed_rate_pct",
+                    "displayName": "Observed rate",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "national_rate_pct",
+                    "displayName": "National rate",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "err_estimate",
+                    "displayName": "ERR, 12 mo",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "err_last_6m",
+                    "displayName": "ERR, last 6 mo",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "penalty_usd",
+                    "displayName": "Penalty",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "HRRP performance detail"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "worklist",
+      "displayName": "Worklist",
+      "layout": [
+        {
+          "widget": {
+            "name": "w19",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Care-transitions worklist — open discharges ranked by readmission risk\n",
+                "\n",
+                "Planned discharges and patients discharged in the last 7 days, scored by `readmission_risk_model@champion`. risk if follow-up = the same patient with a 7-day follow-up booked. Transportation barriers come from the discharge note (AI Functions)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w20",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "worklist",
+                  "fields": [
+                    {
+                      "name": "patient_name",
+                      "expression": "`patient_name`"
+                    },
+                    {
+                      "name": "condition_label",
+                      "expression": "`condition_label`"
+                    },
+                    {
+                      "name": "discharge_date",
+                      "expression": "`discharge_date`"
+                    },
+                    {
+                      "name": "risk_pct",
+                      "expression": "`risk_pct`"
+                    },
+                    {
+                      "name": "risk_if_followup_pct",
+                      "expression": "`risk_if_followup_pct`"
+                    },
+                    {
+                      "name": "followup_7d_scheduled",
+                      "expression": "`followup_7d_scheduled`"
+                    },
+                    {
+                      "name": "transportation_barrier",
+                      "expression": "`transportation_barrier`"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "patient_name",
+                    "displayName": "Patient"
+                  },
+                  {
+                    "fieldName": "condition_label",
+                    "displayName": "Condition"
+                  },
+                  {
+                    "fieldName": "discharge_date",
+                    "displayName": "Discharged"
+                  },
+                  {
+                    "fieldName": "risk_pct",
+                    "displayName": "Readmit risk",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "risk_if_followup_pct",
+                    "displayName": "Risk if followed up",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "followup_7d_scheduled",
+                    "displayName": "7-day follow-up"
+                  },
+                  {
+                    "fieldName": "transportation_barrier",
+                    "displayName": "Transport barrier"
+                  },
+                  {
+                    "fieldName": "risk_tier",
+                    "displayName": "Risk tier"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open discharges (HRRP conditions)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 12
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

@@ -10,7 +10,7 @@
  */
 import type { Request } from 'express';
 import { getExecutionContext } from '@databricks/appkit';
-import { authHeaders } from './auth.js';
+import { authedFetch } from './auth.js';
 export async function ensureMlflowExperiment(
   host: string,
   experimentPath: string,
@@ -106,12 +106,10 @@ export async function postMlflowAssessment(args: {
   const { req, host, traceId, userEmail, value, rationale } = args;
   try {
     const base = host.replace(/\/$/, '');
-    const headers = await authHeaders(req);
-    headers.set('Content-Type', 'application/json');
     const url = `${base}/api/2.0/mlflow/traces/${traceId}/assessments`;
-    const resp = await fetch(url, {
+    const resp = await authedFetch(req, url, {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(30 * 1000),
       body: JSON.stringify({
         assessment: {

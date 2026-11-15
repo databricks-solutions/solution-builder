@@ -69,14 +69,14 @@ SCENARIOS: list[Scenario] = [
         slug="healthcare",
         description=(
             "Patient-readmission risk demo for a hospital network. "
-            "Combine clinical notes (knowledge assistant + vector search) with a "
+            "Combine clinical notes (discharge-summary PDFs answered by a Genie agent) with a "
             "tabular ML model for 30-day readmission risk."
         ),
-        capabilities=["knowledge-assistant", "vector-search", "ml-training-serving"],
+        capabilities=["unstructured-documents", "genie", "ml-training-serving"],
         initial_prompt=(
             "Build a patient-readmission risk demo. "
-            "Knowledge Assistant over discharge-summary documents, vector search over the same corpus, "
-            "and a tabular ML model that scores 30-day readmission risk on synthetic patient data."
+            "A Genie agent answers questions over discharge-summary PDFs in a dedicated documents volume, "
+            "and a tabular ML model scores 30-day readmission risk on synthetic patient data."
         ),
         drive_messages=[
             "Proceed: architect the components and produce architecture.md.",
@@ -90,22 +90,21 @@ SCENARIOS: list[Scenario] = [
         description=(
             "Warranty optimization demo for a heavy-machinery OEM (Manufacturing > Machinery sub-vertical). "
             "Synthetic warranty claims + telemetry land in Delta, a Genie space answers quantitative "
-            "warranty-cost questions, a multi-agent supervisor routes between Genie and a claims-triage agent, "
-            "and a Databricks App gives field service a UI to inspect claims and the supervisor's verdict."
+            "warranty-cost questions, the same Genie agent answers from claims-triage policy PDFs, "
+            "and a Databricks App gives field service a UI to inspect claims."
         ),
-        capabilities=["synthetic-data-gen", "genie", "supervisor-agent", "databricks-apps"],
+        capabilities=["synthetic-data-gen", "genie", "unstructured-documents", "databricks-apps"],
         initial_prompt=(
             "Build a warranty-optimization demo for a heavy-machinery OEM (Manufacturing > Machinery sub-vertical). "
             "Use synthetic-data-gen to create warranty claims and machine-telemetry tables in Delta, "
-            "stand up a Genie space over the Gold warranty tables for ad-hoc cost/failure-mode questions, "
-            "wire a multi-agent supervisor that routes between Genie (quantitative) and a claims-triage agent, "
-            "and ship a Databricks App (FastAPI + React) where a field-service manager can inspect a claim "
-            "and see the supervisor's recommendation."
+            "stand up a Genie agent over the Gold warranty tables for ad-hoc cost/failure-mode questions, "
+            "attach a dedicated documents volume of claims-triage policy PDFs to the same Genie agent, "
+            "and ship a Databricks App (FastAPI + React) where a field-service manager can inspect a claim."
         ),
         drive_messages=[
             "Looks good — proceed to architect the pipeline and produce architecture.md.",
-            "Now write the specifications for each component (specifications/*.md) — synthetic data tables, Genie space, supervisor agent, and the Databricks App.",
-            "Build it: write the SQL/Python for synthetic data, the Genie config, the supervisor agent definition, the app code, and capture deployed resource IDs in resources.json.",
+            "Now write the specifications for each component (specifications/*.md) — synthetic data tables, Genie agent with the documents volume, and the Databricks App.",
+            "Build it: write the SQL/Python for synthetic data, the PDFs + volume upload, the Genie agent config, the app code, and capture deployed resource IDs (including documents_volume) in resources.json.",
         ],
         target_stage="BUILT",
     ),

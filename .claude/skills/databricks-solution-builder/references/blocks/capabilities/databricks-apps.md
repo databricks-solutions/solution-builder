@@ -15,7 +15,7 @@ Full-stack web applications (FastAPI + React, Streamlit, or Gradio) deployed on 
 
 - When the demo needs custom interactive experience: forms, workflows, approval screens, real-time monitoring, multi-step wizards.
 - When audience cares about end-user experience — an app provides a polished, branded interface.
-- NOT needed for every demo — dashboards + Genie + supervisor cover most stories. Add only when it demonstrably adds value.
+- NOT needed for every demo — dashboards + Genie cover most stories. Add only when it demonstrably adds value.
 
 ## Key Decisions
 

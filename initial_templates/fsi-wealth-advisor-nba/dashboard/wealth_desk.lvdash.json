@@ -1,0 +1,1333 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "Kpis",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(SUM(CASE WHEN signal_type NOT IN ('Death of spouse','New grandchild','External outflow','Refi window','Concentrated position') THEN amount END) / 1e6, 1) AS money_in_motion_m,\n",
+        "  ROUND(SUM(CASE WHEN signal_type = 'CD maturity' THEN amount END) / 1e6, 1) AS cd_maturing_m,\n",
+        "  ROUND(SUM(CASE WHEN signal_type = 'Refi window' THEN amount END) / 1e6, 1) AS refi_window_m\n",
+        "FROM gold_household_signals\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "risk_kpis",
+      "displayName": "Risk Kpis",
+      "queryLines": [
+        "SELECT ROUND(SUM(aum_at_risk) / 1e6, 1) AS aum_at_risk_m, COUNT_IF(aum_at_risk > 0) AS households_at_risk,\n",
+        "  ROUND(100 * AVG(CAST(model_top_blocked AS INT)), 1) AS model_top_blocked_pct\n",
+        "FROM household_opportunities\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "conv_trend",
+      "displayName": "Conv Trend",
+      "queryLines": [
+        "SELECT month, ROUND(100 * SUM(CASE WHEN targeted THEN accepted END) / SUM(CASE WHEN targeted THEN offers END), 1) AS targeted_conversion_pct, ROUND(100 * SUM(CASE WHEN NOT targeted THEN accepted END) / SUM(CASE WHEN NOT targeted THEN offers END), 1) AS generic_conversion_pct FROM gold_nba_conversion GROUP BY month ORDER BY month\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "mim_by_signal",
+      "displayName": "Mim By Signal",
+      "queryLines": [
+        "SELECT signal_type, COUNT(DISTINCT household_id) AS households, ROUND(SUM(amount) / 1e6, 1) AS amount_m\n",
+        "FROM gold_household_signals WHERE signal_type NOT IN ('Death of spouse','New grandchild','External outflow')\n",
+        "GROUP BY signal_type\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "flows_monthly",
+      "displayName": "Flows Monthly",
+      "queryLines": [
+        "SELECT month, ROUND(SUM(sweep_cash) / 1e6, 1) AS sweep_cash_m, ROUND(SUM(external_outflows) / 1e6, 2) AS outflows_m,\n  ROUND(SUM(outflows_after_life_event) / 1e6, 2) AS outflows_after_life_event_m, ROUND(SUM(cash_outflows_to_online_banks) / 1e6, 2) AS cash_to_online_banks_m\nFROM gold_flows_monthly WHERE month < '2026-09-01' GROUP BY month\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "rates_long",
+      "displayName": "Rates Long",
+      "queryLines": [
+        "SELECT month, 'Sweep account' AS product, CAST(sweep_rate_pct AS DOUBLE) AS rate_pct FROM market_rates\n",
+        "UNION ALL SELECT month, 'Online bank savings', CAST(competitor_hysa_pct AS DOUBLE) FROM market_rates\n",
+        "UNION ALL SELECT month, 'CD renewal, 12 mo', CAST(cd_12m_renewal_pct AS DOUBLE) FROM market_rates\n",
+        "UNION ALL SELECT month, '30-yr mortgage', CAST(mortgage_30y_pct AS DOUBLE) FROM market_rates\n",
+        "ORDER BY month\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "risk_by_advisor",
+      "displayName": "Risk By Advisor",
+      "queryLines": [
+        "SELECT a.advisor_name, ROUND(SUM(o.aum_at_risk) / 1e6, 2) AS aum_at_risk_m, ROUND(SUM(o.money_in_motion) / 1e6, 1) AS money_in_motion_m, COUNT(*) AS households_with_signal\n",
+        "FROM household_opportunities o JOIN advisors a USING (advisor_id) GROUP BY ALL ORDER BY aum_at_risk_m DESC LIMIT 12\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "top_opportunities",
+      "displayName": "Top Opportunities",
+      "queryLines": [
+        "SELECT o.book_rank, a.advisor_name, o.primary_name, o.segment, ROUND(o.aum) AS aum, o.money_in_motion, o.aum_at_risk, o.signals,\n",
+        "  o.top_model_action, o.top_model_status, o.best_suitable_action, o.priority_score\n",
+        "FROM household_opportunities o JOIN advisors a USING (advisor_id) ORDER BY o.priority_score DESC LIMIT 25\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "conversion_by_approach",
+      "displayName": "Conversion By Approach",
+      "queryLines": [
+        "SELECT CASE WHEN targeted THEN concat('Targeted, ', response_speed) ELSE 'Generic annual review' END AS approach,\n",
+        "  SUM(offers) AS offers, ROUND(100.0 * SUM(accepted) / SUM(offers), 1) AS conversion_pct, ROUND(SUM(revenue_12m) / 1e3) AS revenue_k\n",
+        "FROM gold_nba_conversion GROUP BY 1\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "conversion_by_action",
+      "displayName": "Conversion By Action",
+      "queryLines": [
+        "SELECT CASE action_code WHEN 'ANNUAL-REVIEW' THEN 'Annual review' WHEN 'CASH-MMF' THEN 'Cash to money fund' WHEN 'CD-LADDER' THEN 'CD ladder' WHEN 'DIRECT-INDEX' THEN 'Direct index' WHEN 'EDU-529' THEN '529 education plan' WHEN 'ESTATE-REVIEW' THEN 'Estate review' WHEN 'IRA-ROLLOVER' THEN 'IRA rollover' WHEN 'MANAGED-PORTFOLIO' THEN 'Managed portfolio' WHEN 'MORTGAGE-REFI' THEN 'Mortgage refinance' WHEN 'PRIVATE-CREDIT' THEN 'Private credit' WHEN 'SBLOC' THEN 'Securities-backed loan' WHEN 'STRUCTURED-NOTE' THEN 'Structured note' ELSE action_code END AS action_code, ROUND(100.0 * SUM(accepted) / SUM(offers), 1) AS conversion_pct, SUM(offers) AS offers, SUM(complaints) AS complaints FROM gold_nba_conversion GROUP BY 1\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "retention",
+      "displayName": "Retention",
+      "queryLines": [
+        "SELECT CASE WHEN advisor_contacted_within_30d THEN 'Advisor called within 30 days' ELSE 'Nobody called' END AS follow_up,\n",
+        "  COUNT(*) AS events, ROUND(100 * AVG(assets_retained_pct), 1) AS assets_retained_pct, ROUND(SUM(outflows_6m) / 1e6, 1) AS outflows_m\n",
+        "FROM gold_life_event_retention GROUP BY 1\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "complaints",
+      "displayName": "Complaints",
+      "queryLines": [
+        "SELECT CASE WHEN would_fail_suitability THEN 'Fails suitability rules' ELSE 'Passes suitability rules' END AS suitability, CASE action_code WHEN 'ANNUAL-REVIEW' THEN 'Annual review' WHEN 'CASH-MMF' THEN 'Cash to money fund' WHEN 'CD-LADDER' THEN 'CD ladder' WHEN 'DIRECT-INDEX' THEN 'Direct index' WHEN 'EDU-529' THEN '529 education plan' WHEN 'ESTATE-REVIEW' THEN 'Estate review' WHEN 'IRA-ROLLOVER' THEN 'IRA rollover' WHEN 'MANAGED-PORTFOLIO' THEN 'Managed portfolio' WHEN 'MORTGAGE-REFI' THEN 'Mortgage refinance' WHEN 'PRIVATE-CREDIT' THEN 'Private credit' WHEN 'SBLOC' THEN 'Securities-backed loan' WHEN 'STRUCTURED-NOTE' THEN 'Structured note' ELSE action_code END AS action_code, COUNT_IF(complaint_filed) AS complaints, COUNT_IF(accepted) AS accepted_offers FROM nba_history WHERE accepted GROUP BY ALL\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "suitability_mix",
+      "displayName": "Suitability Mix",
+      "queryLines": [
+        "SELECT CASE action_code WHEN 'ANNUAL-REVIEW' THEN 'Annual review' WHEN 'CASH-MMF' THEN 'Cash to money fund' WHEN 'CD-LADDER' THEN 'CD ladder' WHEN 'DIRECT-INDEX' THEN 'Direct index' WHEN 'EDU-529' THEN '529 education plan' WHEN 'ESTATE-REVIEW' THEN 'Estate review' WHEN 'IRA-ROLLOVER' THEN 'IRA rollover' WHEN 'MANAGED-PORTFOLIO' THEN 'Managed portfolio' WHEN 'MORTGAGE-REFI' THEN 'Mortgage refinance' WHEN 'PRIVATE-CREDIT' THEN 'Private credit' WHEN 'SBLOC' THEN 'Securities-backed loan' WHEN 'STRUCTURED-NOTE' THEN 'Structured note' ELSE action_code END AS action_code, CASE suitability_status WHEN 'FAIL' THEN 'Fails rules' WHEN 'PASS' THEN 'Passes rules' WHEN 'REVIEW' THEN 'Needs review' ELSE suitability_status END AS suitability_status, COUNT(*) AS scored_actions FROM nba_recommendations GROUP BY ALL\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    },
+    {
+      "name": "desk_activity",
+      "displayName": "Desk Activity",
+      "queryLines": [
+        "SELECT * FROM (\n",
+        "SELECT CAST(d.decided_at AS DATE) AS logged_at, 'Morning Book (live)' AS source, h.primary_first_name || ' ' || h.primary_last_name AS client,\n",
+        "  a.advisor_name, CASE d.action_code WHEN 'ANNUAL-REVIEW' THEN 'Annual review' WHEN 'CASH-MMF' THEN 'Cash to money fund' WHEN 'CD-LADDER' THEN 'CD ladder' WHEN 'DIRECT-INDEX' THEN 'Direct index' WHEN 'EDU-529' THEN '529 education plan' WHEN 'ESTATE-REVIEW' THEN 'Estate review' WHEN 'IRA-ROLLOVER' THEN 'IRA rollover' WHEN 'MANAGED-PORTFOLIO' THEN 'Managed portfolio' WHEN 'MORTGAGE-REFI' THEN 'Mortgage refinance' WHEN 'PRIVATE-CREDIT' THEN 'Private credit' WHEN 'SBLOC' THEN 'Securities-backed loan' WHEN 'STRUCTURED-NOTE' THEN 'Structured note' ELSE d.action_code END AS action_code, COALESCE(d.decision, 'Not yet decided') AS decision, d.assets_in_scope AS assets_in_scope, CASE d.suitability_status WHEN 'FAIL' THEN 'Fails rules' WHEN 'PASS' THEN 'Passes rules' WHEN 'REVIEW' THEN 'Needs review' ELSE d.suitability_status END AS suitability_status\n",
+        "FROM advisor_decisions d JOIN households h USING (household_id) JOIN advisors a ON a.advisor_id = d.advisor_id\n",
+        "UNION ALL\n",
+        "SELECT CAST(n.offer_date AS DATE), 'Offer history', h.primary_first_name || ' ' || h.primary_last_name, a.advisor_name,\n",
+        "  CASE n.action_code WHEN 'ANNUAL-REVIEW' THEN 'Annual review' WHEN 'CASH-MMF' THEN 'Cash to money fund' WHEN 'CD-LADDER' THEN 'CD ladder' WHEN 'DIRECT-INDEX' THEN 'Direct index' WHEN 'EDU-529' THEN '529 education plan' WHEN 'ESTATE-REVIEW' THEN 'Estate review' WHEN 'IRA-ROLLOVER' THEN 'IRA rollover' WHEN 'MANAGED-PORTFOLIO' THEN 'Managed portfolio' WHEN 'MORTGAGE-REFI' THEN 'Mortgage refinance' WHEN 'PRIVATE-CREDIT' THEN 'Private credit' WHEN 'SBLOC' THEN 'Securities-backed loan' WHEN 'STRUCTURED-NOTE' THEN 'Structured note' ELSE n.action_code END, n.outcome, n.assets_moved, CASE WHEN n.would_fail_suitability THEN 'Fails rules' ELSE 'Passes rules' END\n",
+        "FROM nba_history n JOIN households h USING (household_id) JOIN advisors a ON a.advisor_id = n.advisor_id\n",
+        "WHERE n.offer_date >= DATE'2026-09-14' AND n.targeted\n",
+        ") ORDER BY logged_at DESC LIMIT 200\n"
+      ],
+      "catalog": "financial_services",
+      "schema": "wealth_advisor_nba"
+    }
+  ],
+  "pages": [
+    {
+      "name": "p1",
+      "displayName": "Money in motion",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Money in motion — Calder Pine Private Wealth\n",
+                "\n",
+                "Three Fed cuts (Jun / Jul / Sep 2026): CDs renew at **3.55%**, sweep pays **0.25%**, online banks advertise **4%**, 30-yr mortgages **5.90%**. Every one of those moves is a next-best-action moment — or an outflow."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "money_in_motion_m",
+                      "expression": "`money_in_motion_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "money_in_motion_m",
+                  "displayName": "Money in motion ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Money in motion ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "cd_maturing_m",
+                      "expression": "`cd_maturing_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "cd_maturing_m",
+                  "displayName": "CDs maturing ≤60 days ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CDs maturing ≤60 days ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "risk_kpis",
+                  "fields": [
+                    {
+                      "name": "aum_at_risk_m",
+                      "expression": "`aum_at_risk_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "aum_at_risk_m",
+                  "displayName": "AUM at risk ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "AUM at risk ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "refi_window_m",
+                      "expression": "`refi_window_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "refi_window_m",
+                  "displayName": "Mortgages in refi window ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mortgages in refi window ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "conv_trend",
+                  "fields": [
+                    {
+                      "name": "avg(targeted_conversion_pct)",
+                      "expression": "AVG(`targeted_conversion_pct`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(targeted_conversion_pct)",
+                  "displayName": "Targeted NBA conversion (%)"
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Targeted NBA conversion (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "conv_trend",
+                  "fields": [
+                    {
+                      "name": "avg(generic_conversion_pct)",
+                      "expression": "AVG(`generic_conversion_pct`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(generic_conversion_pct)",
+                  "displayName": "Generic review conversion (%)"
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Generic review conversion (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mim_by_signal",
+                  "fields": [
+                    {
+                      "name": "signal_type",
+                      "expression": "`signal_type`"
+                    },
+                    {
+                      "name": "amount_m",
+                      "expression": "`amount_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "signal_type",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Signal type"
+                },
+                "x": {
+                  "fieldName": "amount_m",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Money in motion ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Money in motion by signal ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "flows_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "sweep_cash_m",
+                      "expression": "`sweep_cash_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sweep_cash_m",
+                      "displayName": "Sweep cash ($M)"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sweep cash at 0.25%: up 65% from May to August ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rates_long",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "product",
+                      "expression": "`product`"
+                    },
+                    {
+                      "name": "rate_pct",
+                      "expression": "`rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Rate (%)"
+                },
+                "color": {
+                  "fieldName": "product",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Sweep account",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Online bank savings",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "CD renewal, 12 mo",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "30-yr mortgage",
+                        "color": "#9DB4D0"
+                      }
+                    ]
+                  },
+                  "displayName": "Product"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sweep stayed at 0.25% while every other rate fell"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "risk_by_advisor",
+                  "fields": [
+                    {
+                      "name": "advisor_name",
+                      "expression": "`advisor_name`"
+                    },
+                    {
+                      "name": "aum_at_risk_m",
+                      "expression": "`aum_at_risk_m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "advisor_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Advisor"
+                },
+                "x": {
+                  "fieldName": "aum_at_risk_m",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "AUM at risk ($M)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 12 advisors by AUM at risk ($M)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "top_opportunities",
+                  "fields": [
+                    {
+                      "name": "book_rank",
+                      "expression": "`book_rank`"
+                    },
+                    {
+                      "name": "advisor_name",
+                      "expression": "`advisor_name`"
+                    },
+                    {
+                      "name": "primary_name",
+                      "expression": "`primary_name`"
+                    },
+                    {
+                      "name": "money_in_motion",
+                      "expression": "`money_in_motion`"
+                    },
+                    {
+                      "name": "aum_at_risk",
+                      "expression": "`aum_at_risk`"
+                    },
+                    {
+                      "name": "signals",
+                      "expression": "`signals`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "book_rank",
+                    "displayName": "Book rank"
+                  },
+                  {
+                    "fieldName": "advisor_name",
+                    "displayName": "Advisor"
+                  },
+                  {
+                    "fieldName": "primary_name",
+                    "displayName": "Primary client"
+                  },
+                  {
+                    "fieldName": "money_in_motion",
+                    "displayName": "Money in motion ($)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "aum_at_risk",
+                    "displayName": "AUM at risk ($)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "signals",
+                    "displayName": "Signals"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 25 households firm-wide (priority score)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "p2",
+      "displayName": "Next best action & suitability",
+      "layout": [
+        {
+          "widget": {
+            "name": "w13",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Next best action — does it work, and is it suitable?\n",
+                "\n",
+                "Signal-triggered offers convert ~4× the generic annual review — faster is better. After a death or an inheritance, the call within 30 days decides whether the assets stay. The propensity model is not suitability-aware; the rules S1–S7 are applied on top."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "conversion_by_approach",
+                  "fields": [
+                    {
+                      "name": "approach",
+                      "expression": "`approach`"
+                    },
+                    {
+                      "name": "conversion_pct",
+                      "expression": "`conversion_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "approach",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Approach"
+                },
+                "x": {
+                  "fieldName": "conversion_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Conversion (%)"
+                },
+                "color": {
+                  "fieldName": "approach",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Targeted, < 14 days",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Targeted, 14-44 days",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Targeted, 45+ days",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Generic annual review",
+                        "color": "#9DB4D0"
+                      }
+                    ]
+                  },
+                  "displayName": "Approach"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Conversion by approach (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "retention",
+                  "fields": [
+                    {
+                      "name": "follow_up",
+                      "expression": "`follow_up`"
+                    },
+                    {
+                      "name": "assets_retained_pct",
+                      "expression": "`assets_retained_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "follow_up",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Follow-up"
+                },
+                "y": {
+                  "fieldName": "assets_retained_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Assets retained (%)"
+                },
+                "color": {
+                  "fieldName": "follow_up",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Advisor called within 30 days",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Nobody called",
+                        "color": "#9DB4D0"
+                      }
+                    ]
+                  },
+                  "displayName": "Follow-up"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Assets retained 6 months after a bereavement / inheritance (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "complaints",
+                  "fields": [
+                    {
+                      "name": "action_code",
+                      "expression": "`action_code`"
+                    },
+                    {
+                      "name": "complaints",
+                      "expression": "`complaints`"
+                    },
+                    {
+                      "name": "suitability",
+                      "expression": "`suitability`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "action_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Next best action"
+                },
+                "x": {
+                  "fieldName": "complaints",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Complaints"
+                },
+                "color": {
+                  "fieldName": "suitability",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Fails suitability rules",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Passes suitability rules",
+                        "color": "#9DB4D0"
+                      }
+                    ]
+                  },
+                  "displayName": "Suitability today"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Complaints on accepted offers, by suitability today"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "suitability_mix",
+                  "fields": [
+                    {
+                      "name": "action_code",
+                      "expression": "`action_code`"
+                    },
+                    {
+                      "name": "scored_actions",
+                      "expression": "`scored_actions`"
+                    },
+                    {
+                      "name": "suitability_status",
+                      "expression": "`suitability_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "action_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Next best action"
+                },
+                "x": {
+                  "fieldName": "scored_actions",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Scored actions"
+                },
+                "color": {
+                  "fieldName": "suitability_status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Fails rules",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Passes rules",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Needs review",
+                        "color": "#FFDD4A"
+                      }
+                    ]
+                  },
+                  "displayName": "Suitability"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Today's scored actions by suitability"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 8,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "conversion_by_action",
+                  "fields": [
+                    {
+                      "name": "action_code",
+                      "expression": "`action_code`"
+                    },
+                    {
+                      "name": "conversion_pct",
+                      "expression": "`conversion_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "action_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Next best action"
+                },
+                "x": {
+                  "fieldName": "conversion_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Conversion (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Conversion by next best action (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w19",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "desk_activity",
+                  "fields": [
+                    {
+                      "name": "logged_at",
+                      "expression": "`logged_at`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "client",
+                      "expression": "`client`"
+                    },
+                    {
+                      "name": "advisor_name",
+                      "expression": "`advisor_name`"
+                    },
+                    {
+                      "name": "action_code",
+                      "expression": "`action_code`"
+                    },
+                    {
+                      "name": "decision",
+                      "expression": "`decision`"
+                    },
+                    {
+                      "name": "assets_in_scope",
+                      "expression": "`assets_in_scope`"
+                    },
+                    {
+                      "name": "suitability_status",
+                      "expression": "`suitability_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "logged_at",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "source",
+                    "displayName": "Source"
+                  },
+                  {
+                    "fieldName": "client",
+                    "displayName": "Client"
+                  },
+                  {
+                    "fieldName": "advisor_name",
+                    "displayName": "Advisor"
+                  },
+                  {
+                    "fieldName": "action_code",
+                    "displayName": "Next best action"
+                  },
+                  {
+                    "fieldName": "decision",
+                    "displayName": "Outcome"
+                  },
+                  {
+                    "fieldName": "assets_in_scope",
+                    "displayName": "Assets ($)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "suitability_status",
+                    "displayName": "Suitability today"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Desk activity: meetings booked in the app and offers from the last 2 weeks"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

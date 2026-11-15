@@ -12,6 +12,7 @@ from itertools import islice
 from typing import Any, Optional
 
 from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors import NotFound
 from fastapi import HTTPException, Query
 from pydantic import BaseModel
 
@@ -237,7 +238,8 @@ def list_clusters(ws: Dependencies.Client):
 )
 def list_warehouses(ws: Dependencies.Client):
     """List available SQL warehouses (cached, RUNNING first)."""
-    cache_key = "warehouses"
+    # Per workspace: a cross-workspace project lists the TARGET's warehouses.
+    cache_key = f"warehouses:{getattr(getattr(ws, 'config', None), 'host', '')}"
     cached = _resource_cache.get(cache_key)
     if cached is not None:
         logger.debug("Returning cached warehouses")
@@ -424,6 +426,15 @@ def _selectable_principal(selectable_only: bool, headers) -> Optional[str]:
     return principal
 
 
+def _is_not_found(e: Exception) -> bool:
+    """A missing securable (catalog/schema/table) — a legacy/orphan reference or a
+    since-deleted object. `NotFound` is the SDK's mapping; the message check also
+    catches transports that raise a plain `DatabricksError` whose text says "does
+    not exist". These are expected/recoverable (return empty / skip the item), NOT
+    an ERROR + HTTP 500 — which was the top noisy 500 in prod OTel."""
+    return isinstance(e, NotFound) or "does not exist" in str(e).lower()
+
+
 @router.get(
     "/resources/catalogs",
     response_model=list[str],
@@ -473,8 +484,13 @@ def list_catalogs(
             cached = sorted([c.name for c in catalogs_list if c.name])
             _resource_cache.set(cache_key, cached, ttl=CATALOG_LIST_TTL)
         except Exception as e:
-            logger.error(f"Failed to list catalogs: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to list catalogs: {str(e)}")
+            if _is_not_found(e):
+                logger.info("list catalogs: securable not found — returning none")
+                cached = []
+                _resource_cache.set(cache_key, cached, ttl=CATALOG_LIST_TTL)
+            else:
+                logger.error(f"Failed to list catalogs: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to list catalogs: {str(e)}")
 
     # No query: type-to-search callers get nothing (they gate on typed input);
     # browse callers get the capped list so a dropdown can render immediately.
@@ -533,8 +549,19 @@ def list_schemas(
             cached = sorted([s.name for s in schemas_list if s.name])
             _resource_cache.set(cache_key, cached)
         except Exception as e:
-            logger.error(f"Failed to list schemas: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to list schemas: {str(e)}")
+            # A missing catalog (e.g. a legacy/orphan `ai_demo_gen` reference from
+            # before the workspace move, or a since-deleted catalog) is NOT a
+            # server error — return an empty schema list so the picker just shows
+            # nothing. Genuine failures (permission, transport) still 500.
+            if _is_not_found(e):
+                logger.info(f"Catalog {catalog!r} not found — returning no schemas")
+                cached = []
+                _resource_cache.set(cache_key, cached)
+            else:
+                logger.error(f"Failed to list schemas: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to list schemas: {str(e)}"
+                )
 
     # No query: type-to-search callers get nothing (they gate on typed input);
     # browse callers get the capped list so a dropdown can render immediately.
@@ -609,15 +636,20 @@ def list_tables(
             cached = sorted([t.name for t in tables_list if t.name])
             _resource_cache.set(cache_key, cached)
         except Exception as e:
-            logger.error(f"Failed to list tables for {catalog}.{schema}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    f"Failed to list tables in {catalog}.{schema}: {str(e)}. "
-                    "The app's service principal needs USE + SELECT on this "
-                    "catalog/schema to read table metadata."
-                ),
-            )
+            if _is_not_found(e):
+                logger.info(f"Schema {catalog}.{schema} not found — returning no tables")
+                cached = []
+                _resource_cache.set(cache_key, cached)
+            else:
+                logger.error(f"Failed to list tables for {catalog}.{schema}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Failed to list tables in {catalog}.{schema}: {str(e)}. "
+                        "The app's service principal needs USE + SELECT on this "
+                        "catalog/schema to read table metadata."
+                    ),
+                )
 
     # Unlike catalogs/schemas (thousands, so we gate on a typed query), a
     # schema's tables are a bounded set — return them all when there's no
@@ -690,6 +722,11 @@ def get_table_metadata(
                 )
                 _resource_cache.set(cache_key, cached)
             except Exception as e:
+                if _is_not_found(e):
+                    # Table gone (deep-link / cached selection to a since-deleted
+                    # table) — skip it rather than failing the whole batch with 500.
+                    logger.info(f"Table {full_name} not found — skipping")
+                    continue
                 logger.error(f"Failed to get metadata for {full_name}: {e}")
                 raise HTTPException(
                     status_code=500,

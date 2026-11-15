@@ -3,5 +3,8 @@
   "name": "LuxeBeauty Returns — Full App + Platform",
   "customer": "LuxeBeauty",
   "industry": "Retail & CPG",
-  "narrative": "Claire Dubois, a non-technical VP of Operations, opens her Monday console and sees refunds have tripled — ~$180K a week against a normal $60K — driven by three skincare products all running 30% return rates. She asks one question: why do I have so many returns?\n\nThe platform answers it: Genie traces the spike to a single bad production lot, a document search surfaces the manufacturing incident behind it, and an ML classifier flags which affected customers are high-value so the response can be tiered — premium buyers get a bigger apology, everyone else a standard one. Three questions, one resolved queue."
+  "narrative": "Claire Dubois, a non-technical VP of Operations, opens her Monday console and sees refunds have tripled — ~$180K a week against a normal $60K — driven by three skincare products all running 30% return rates. She asks one question: why do I have so many returns?\n\nThe platform answers it: Genie traces the spike to a single bad production lot, a document search surfaces the manufacturing incident behind it, and an ML classifier flags which affected customers are high-value so the response can be tiered — premium buyers get a bigger apology, everyone else a standard one. Three questions, one resolved queue.",
+  "dbdemos_tracker": {
+    "app_id": "aibi-app-luxebeauty-returns"
+  }
 }

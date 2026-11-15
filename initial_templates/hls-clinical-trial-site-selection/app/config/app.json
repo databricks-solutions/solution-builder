@@ -1,0 +1,50 @@
+{
+  // Halcyra Therapeutics — Trial Site Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/trial-copilot.ts): the Genie agent — portfolio analytics over the gold
+  // tables + the CASCADE-CKD protocol / SAP / SOP documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:hls-clinical-trial-site-selection}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Rescue-plan memo writer (chat completions) used by the trial workbench's rescue analysis.
+  "noticeModel": "${MEMO_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (portfolio view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.site_enrollment_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/protocol_docs",
+
+  // Delta source (gold tables + site_scores) and the trial the workbench focuses on.
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "trialId": "CASCADE-CKD"
+  },
+
+  "branding": {
+    "appName": "Trial Site Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Which trial is behind?", "prompt": "Which of our trials is furthest behind its enrollment plan, and by how much?" },
+    { "label": "What is killing enrollment?", "prompt": "What is driving screen failures in CASCADE-CKD, and does the site-coded EDC report tell the whole story?", "triggerAfter": ["CASCADE"] },
+    { "label": "Can we amend E4?", "prompt": "Can we amend exclusion E4 to allow patients on a stable SGLT2 inhibitor? What do the protocol and the SAP say, and can we relax the potassium limit too?", "triggerAfter": ["E4", "SGLT2"] },
+    { "label": "Where do we add sites?", "prompt": "Which new sites should we add to rescue CASCADE-CKD enrollment, and when would we reach the last patient in?", "triggerAfter": ["amend", "Amend", "SAP"] }
+  ]
+}

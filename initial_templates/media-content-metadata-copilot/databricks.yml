@@ -1,0 +1,255 @@
+# Orbitline+ — Content Metadata Copilot (AI content metadata generation, enrichment & taxonomy) — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable). Nothing is
+# created by hand: the bundle owns the Lakebase database, the AI/BI dashboard, the app's MLflow trace
+# experiment, the Databricks App and the setup job; the setup job builds the data, the vector indexes (and
+# the demo's own Vector Search endpoint), the Genie agent (tables + documents volume).
+#
+#   databricks bundle deploy  → Lakebase database + dashboard + experiment + app (resource) + setup job
+#   databricks bundle run metadata_setup
+#       generate_data (creates the schema + standards_guide volume) → enrich_titles (ai_query over every title)
+#       → build_gold (+ metric view) → vector_search (endpoint + title_profiles_index + scenes_index)
+#       upload_standards_guide (Standards Guide → standards_guide volume)
+#       → deploy_genie (Genie agent over the gold tables + that volume; waits for the documents index) → grant_app_uc → export_resources (demo_resources table the app reads at boot + exit JSON)
+#   databricks bundle run metadata_app   → deploys the app source and starts it
+#
+# See dab_instructions.md.
+
+bundle:
+  name: media_content_metadata_copilot
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo data
+    default: media_advertising
+  schema:
+    description: Schema for demo tables, metric view, vector indexes and the standards-guide volume
+    default: content_metadata_copilot
+  warehouse_id:
+    description: Serverless SQL warehouse (dashboard, Genie, app analytics) — pass --var warehouse_id=<id>
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the two Delta-sync indexes (created if you name a new one)
+    default: content-metadata-copilot-vs
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard and Genie space
+    default: /Workspace/Users/${workspace.current_user.userName}/media-content-metadata-copilot
+  app_name:
+    description: Databricks App name (unique per workspace, <= 30 chars)
+    default: content-metadata-copilot
+  lakebase_project_slug:
+    description: Lakebase project slug (projects/<slug>/…), created/reused by lakebase_setup_db.sh
+  lakebase_branch_id:
+    default: production
+  lakebase_database_id:
+    description: Lakebase database resource id (RFC1123, unique in the Lakebase project)
+  lakebase_database:
+    description: Postgres database name created by the bundle for the app
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the database. Non-personal: a GROUP role for the
+      workspace `admins` group, created once per Lakebase project.
+  writer_model:
+    description: Chat-completions model for the editor brief of the AI re-tag
+    default: databricks-claude-sonnet-4-5
+
+workspace:
+  root_path: ${var.workspace_folder}/.bundle/${bundle.target}
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "src/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+    - "app/shared/**"
+    - "app/package.json"        # the repo-root .gitignore ignores package*.json — the Apps
+    - "app/package-lock.json"   # container needs both to npm install
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/playwright-report/**"
+    - "app/test-results/**"
+    - "app/tests/**"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  # The bundle creates the app's Lakebase database in an EXISTING Lakebase project (defaults: project `<project>`,
+  # owner role `admins`; override with --var lakebase_project_slug / lakebase_owner_role).
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var lakebase_project_slug=… --var lakebase_owner_role=…]
+  default:
+    default: true
+
+resources:
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  postgres_databases:
+    metadata_db:
+      parent: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+      database_id: ${var.lakebase_database_id}
+      postgres_database: ${var.lakebase_database}
+      role: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/roles/${var.lakebase_owner_role}
+
+  dashboards:
+    metadata_dashboard:
+      display_name: "Orbitline+ - Content Discovery & Metadata Ops"
+      file_path: ./dashboard/content_metadata_ops.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  apps:
+    metadata_app:
+      name: ${var.app_name}
+      description: "Orbitline+ Metadata Copilot — AI metadata generation, taxonomy, content warnings, look-alikes & clips, editor write-back"
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.metadata_dashboard.id}
+          - name: WRITER_MODEL
+            value: ${var.writer_model}
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_slug}
+          # GENIE_SPACE_ID is NOT set here: the setup job creates the Genie agent and writes its id
+          # to <catalog>.<schema>.demo_resources, which the app reads at boot.
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: ${resources.postgres_databases.metadata_db.name}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT
+
+  jobs:
+    metadata_setup:
+      name: "[MEDIA] Content Metadata Copilot - Setup"
+      description: "Synthetic library → ai_query metadata generation → gold + metric view → vector indexes → Genie agent (tables + Standards Guide) → app grants"
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: enrich_titles
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/ai/enrich_titles.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: build_gold
+          depends_on: [{task_key: enrich_titles}]
+          spark_python_task:
+            python_file: ./src/gold/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: vector_search
+          depends_on: [{task_key: build_gold}]
+          spark_python_task:
+            python_file: ./src/vector_search/create_indexes.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}", "--endpoint", "${var.vector_search_endpoint}"]
+          environment_key: sdk_latest
+
+        - task_key: upload_standards_guide
+          depends_on: [{task_key: generate_data}]
+          notebook_task:
+            notebook_path: ./src/deploy/upload_standards_guide.py
+            base_parameters: {catalog: "${var.catalog}", schema: "${var.schema}"}
+          environment_key: default
+
+        - task_key: deploy_genie
+          depends_on: [{task_key: build_gold}, {task_key: upload_standards_guide}]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              warehouse_id: "${var.warehouse_id}"
+              parent_path: "${var.workspace_folder}"
+          environment_key: sdk_latest
+
+        - task_key: grant_app_uc
+          depends_on: [{task_key: vector_search}, {task_key: deploy_genie}]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_uc.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              vector_search_endpoint: "${var.vector_search_endpoint}"
+          environment_key: sdk_latest
+
+        - task_key: export_resources
+          depends_on: [{task_key: grant_app_uc}]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              dashboard_id: "${resources.dashboards.metadata_dashboard.id}"
+              warehouse_id: "${var.warehouse_id}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+              vector_search_endpoint: "${var.vector_search_endpoint}"
+              agent_mlflow_experiment_path: "${resources.experiments.agent_traces.name}"
+          environment_key: sdk_latest
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

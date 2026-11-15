@@ -31,9 +31,9 @@ literal arrays. So no executor-side Python dependency is required.
 Time: rolling by default (NOW = datetime.now()) so the dashboard's last
 data point lands on yesterday-real every run. Set LUXE_PIN_TIME=1 to
 freeze NOW to STORY_PINNED_NOW (2026-06-12) for reproducible demos where
-every artefact (lot id, dates, KA docs) needs to match a recorded baseline.
+every artefact (lot id, dates, PDF documents) needs to match a recorded baseline.
 
-PDFs for the Knowledge Assistant are produced by the separate
+PDFs for the Genie agent documents volume are produced by the separate
 `src/documents/html_to_pdf.py` — run it after this script.
 
 This is a **worked example of the technique**, NOT a fill-in-the-blanks
@@ -78,6 +78,10 @@ if IN_NOTEBOOK:
     dbutils.widgets.text("schema",  "", "Schema")
     CATALOG = dbutils.widgets.get("catalog")
     SCHEMA  = dbutils.widgets.get("schema")
+    # Job param pin_time=1 (the DAB setup job passes it) == env LUXE_PIN_TIME=1.
+    dbutils.widgets.text("pin_time", "", "Pin story time (1 = NOW 2026-06-12)")  # noqa: F821
+    if dbutils.widgets.get("pin_time") == "1":  # noqa: F821
+        os.environ["LUXE_PIN_TIME"] = "1"
 else:
     CATALOG = os.environ.get("DEMO_CATALOG")  # e.g. <your-catalog>
     SCHEMA  = os.environ.get("DEMO_SCHEMA")   # e.g. <your-schema>
@@ -97,7 +101,7 @@ N_BAD_ORDERS = 5_000          # bad-lot cohort size (≈ 5K units / 3 SKUs).
 # Default is ROLLING TIME (`datetime.now()`) so the dashboard always feels
 # "live" (last data point lands on yesterday-real). Set LUXE_PIN_TIME=1 to
 # freeze NOW to STORY_PINNED_NOW for reproducible demos where every artefact
-# (lot id, dates, KA docs) needs to match a recorded baseline across runs.
+# (lot id, dates, PDF documents) needs to match a recorded baseline across runs.
 STORY_PINNED_NOW = datetime(2026, 6, 12)
 NOW = (
     STORY_PINNED_NOW

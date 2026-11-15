@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
@@ -37,7 +37,7 @@ def list_project_messages(
     session: Dependencies.Session,
     headers: Dependencies.Headers,
     config: Dependencies.Config,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
 ):
     """List recent messages for a project, oldest first (limited to last N messages).
 

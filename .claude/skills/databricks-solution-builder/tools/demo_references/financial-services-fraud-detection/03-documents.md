@@ -2,7 +2,7 @@
 
 ## Document Strategy
 
-Generate PDF documents providing fraud intelligence context. The Knowledge Assistant searches these to identify the fraud pattern and compromised merchant.
+Generate PDF documents providing fraud intelligence context. The Genie agent searches these (they sit in the documents volume attached to it) to identify the fraud pattern and compromised merchant.
 
 ## Documents to Generate
 

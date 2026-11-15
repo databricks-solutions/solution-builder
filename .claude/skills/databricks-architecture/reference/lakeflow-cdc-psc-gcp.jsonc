@@ -1,0 +1,89 @@
+// =============================================================================
+// LAKEFLOW CONNECT DIRECT CDC FROM ON-PREMISES ON GCP: PRIVATE SERVICE CONNECT
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Lakeflow Connect Direct CDC: ONE scheduled serverless pipeline does the snapshot,
+//     the change data capture and the replication. There is no separate ingestion
+//     gateway to run. Private Preview, SQL Server and Oracle only; during the preview the
+//     connection to an on-prem database may have to be created in SQL, not in the UI.
+//   • The pipeline runs on serverless, outside the customer's VPC, so it needs a private
+//     path to the database. On Azure and AWS that path is a Private Network Gateway; on
+//     GCP it is the Private Service Connect chain of serverless-psc-gcp.jsonc, built by
+//     the customer in the hub VPC:
+//       1. a Hybrid Connectivity NEG with the database's private IP and port as endpoints;
+//       2. an internal TCP Proxy Load Balancer using the NEG as backend, its Envoy proxies
+//          in a regional proxy-only subnet advertised to on-prem over BGP (Cloud Router);
+//       3. a PSC service attachment fronting the forwarding rule (dedicated NAT subnet);
+//       4. a private endpoint rule in the workspace's NCC targeting that attachment.
+//   • The hub reaches on-prem over Cloud Interconnect or HA VPN. The workspace VPC is
+//     peered to the hub and is not on the pipeline's path.
+//
+// WHAT IT DEMONSTRATES (layout): the serverless-psc-gcp shape with a different source and
+// targets. The source is the Lakeflow Connect pipeline (not generic serverless), the
+// targets are the two supported databases, and the preview status sits in the frame
+// subtitle instead of a floating badge.
+//
+// ADAPT IT: on Azure / AWS replace the hub chain with a PNG subnet (see
+// serverless-png-azure.jsonc). When no connection into the data centre is allowed at all,
+// that is the Lakeflow Connect on-prem agent, not this path.
+// =============================================================================
+[
+  {
+    "name": "Lakeflow Connect Direct CDC — GCP",
+    "story": "Lakeflow Connect Direct CDC runs one scheduled serverless pipeline for snapshot, CDC and replication of an on-premises SQL Server or Oracle database, with no separate ingestion gateway. On GCP its private path is a Private Service Connect chain the customer builds in the hub VPC: a Hybrid Connectivity NEG holding the database's private IP and port, an internal TCP Proxy Load Balancer whose Envoy proxies run in a proxy-only subnet advertised to on-prem over BGP, and a PSC service attachment fronting the forwarding rule. A private endpoint rule in the workspace's NCC connects the pipeline to that attachment, and traffic reaches the data centre over Cloud Interconnect or HA VPN. Direct CDC is in Private Preview, for SQL Server and Oracle only.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Lakeflow Connect Direct CDC on GCP","subtitle":"A serverless CDC pipeline reads on-prem SQL Server / Oracle through Private Service Connect · Private Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "start",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "ai_reasoning": "Databricks-managed; outside the customer's Google Cloud project", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "cdc", "type": "logo", "icon": "file:databricks-line/lakeflow-connect", "text": "Lakeflow Connect Direct CDC", "caption": "bottom", "ai_reasoning": "one scheduled serverless pipeline does snapshot, CDC and replication; no ingestion gateway to run", "track": "line-cdc"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "pe-rule", "type": "logo", "icon": "file:databricks-line/endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "a PSC endpoint created by Databricks from the NCC rule; it targets the customer's service attachment", "track": "line-cdc"}
+        ] }
+      ] },
+      {"id": "gcp", "type": "box", "title": "Google Cloud", "titleIcon": "file:cloud/gcp/gcp", "layout": "column", "gap": 106, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VPC", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "row", "gap": 121, "align": "start", "children": [
+          {"id": "psc-subnet", "type": "box", "title": "PSC NAT subnet", "subtitle": "10.1.0.0/24", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "svc-att", "type": "logo", "icon": "file:cloud/gcp/networking/private-service-connect", "text": "PSC service attachment", "caption": "bottom", "ai_reasoning": "publishes the load balancer to Databricks; connections are NATed from the PSC NAT subnet", "track": "line-cdc"}
+          ] },
+          {"id": "lb-subnet", "type": "box", "title": "Load balancer subnet", "subtitle": "10.1.1.0/24", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "fwd", "type": "logo", "icon": "file:cloud/gcp/networking/load-balancing", "text": "Forwarding rule", "caption": "bottom", "ai_reasoning": "the internal TCP Proxy Load Balancer's frontend IP:port, the thing the service attachment fronts", "track": "line-cdc"}
+          ] },
+          {"id": "proxy-subnet", "type": "box", "title": "Proxy-only subnet", "subtitle": "10.1.2.0/24 · advertised via BGP", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "envoy", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-service-mesh", "text": "Envoy proxies", "caption": "bottom", "ai_reasoning": "Google-managed proxies of the TCP Proxy Load Balancer; they open the connection to the target, so on-prem sees their proxy-only subnet addresses", "track": "line-cdc"}
+          ] },
+          {"id": "col-neg", "type": "group", "layout": "column", "gap": 26, "align": "center", "children": [
+            {"id": "neg", "type": "logo", "icon": "lucide:layers", "text": "Hybrid NEG", "caption": "bottom", "ai_reasoning": "the load balancer backend: one endpoint per database IP:port", "track": "line-cdc"},
+            {"id": "router", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-router", "text": "Cloud Router", "caption": "bottom", "ai_reasoning": "exchanges routes with on-prem over BGP, including the proxy-only subnet so replies find their way back", "track": "line-router"}
+          ] }
+        ] },
+        {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/gcp/networking/vpc", "body": "<b>Workspace subnet</b> <span style=\"color:#64748b\">10.0.0.0/16</span>", "ai_reasoning": "classic compute; peered to the hub, not on the serverless path, so one card"}
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-interconnect", "text": "Interconnect / HA VPN", "caption": "bottom", "ai_reasoning": "Cloud Interconnect or Cloud VPN (S2S); either works", "track": "line-cdc"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "sqlserver", "type": "logo", "icon": "file:vendor/microsoft-sql-server", "text": "SQL Server", "caption": "bottom", "ai_reasoning": "Direct CDC Private Preview supports SQL Server and Oracle only", "track": "line-cdc"},
+        {"id": "oracle", "type": "logo", "icon": "file:vendor/oracle", "text": "Oracle", "caption": "bottom", "track": "line-router"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "cdc", "to": "pe-rule", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "pe-rule", "to": "svc-att", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the one hop from the Databricks plane into the customer project, over PSC"},
+      {"id": "e3", "from": "svc-att", "to": "fwd", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "fwd", "to": "envoy", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "envoy", "to": "neg", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "neg", "to": "link", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "link", "to": "sqlserver", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7b", "from": "link", "to": "oracle", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "same path; each database is its own NEG endpoint"},
+      {"id": "e8", "from": "router@r", "to": "link@b", "dashed": true, "label": "BGP routes", "ai_reasoning": "control plane only: route exchange, no data"},
+      {"id": "e9", "from": "proxy-subnet@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "VPC peering", "ai_reasoning": "hub ↔ workspace VPC; grey and dashed because serverless traffic does not use it"}
+    ]
+  }
+]

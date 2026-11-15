@@ -1,0 +1,20 @@
+<h2>3/ Add a global filter</h2>
+<div class="filt-panel">
+  <h4>Global filters</h4>
+  <div class="filt-f">
+    <span class="cap">Date</span>
+    <div class="filt-date">yyyy-mm-dd → yyyy-mm-dd</div>
+  </div>
+  <div class="filt-f"><span class="cap">Region</span><div class="filt-ctl">All <span class="chev">▾</span></div></div>
+  <div class="filt-f"><span class="cap">Source</span><div class="filt-ctl" style="border-color:#ffc4b8; color:#c0341d; font-weight:600;">Affected lot <span class="chev">▾</span></div></div>
+</div>
+<p>Right now each tile shows everything. Add a <strong>Global filters</strong> panel so Claire can slice every tile at once — by date, region, category, and (the important one) whether a return came from the <strong>affected lot</strong> or an everyday return.</p>
+<blockquote class="prompt" style="clear:both;">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Add global filters at the top of the dashboard that apply to all the tiles: a <strong>date</strong> range, <strong>region</strong>, <strong>product category</strong>, and a <strong>Source</strong> filter that splits "Affected lot" from "Everyday".<br><br>
+  For Source, add the derived column <code>CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday' END AS source</code> <strong>to every dataset the filter should affect</strong> — the daily-summary dataset AND each gold_returns dataset. Do <strong>not</strong> put <code>source</code> in a dataset of its own.<br><br>
+  Leave the forecast line chart <strong>unfiltered</strong> so the trend always shows the full picture. Republish.</p>
+</blockquote>
+<blockquote class="note"><p>⚠️ <strong>Why the prompt is so specific.</strong> An AI/BI filter only affects a widget whose <em>own dataset</em> contains the filtered column — there's no cross-dataset join. If the Assistant puts <code>source</code> in a little options-only dataset (a common shortcut), the dropdown appears and populates, and selecting a value does <strong>absolutely nothing</strong> — because no chart reads that dataset. It looks right and is inert.</p></blockquote>
+<p><span class="check">✅ Confirm — don't skip this.</span> Flip <strong>Source</strong> to "Affected lot" and watch the <strong>Refund $</strong> counter. It must <strong>change</strong>. If the number is identical with and without the filter, the filter is bound to the wrong dataset — tell the Assistant: <em>"the Source filter isn't affecting the KPI tiles; add the derived <code>source</code> column to the dataset those tiles read and rebind the filter to it."</em></p>

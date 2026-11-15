@@ -1,0 +1,1038 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT COUNT(*) FROM gold_alert_queue) AS open_alerts,\n",
+        "  (SELECT COUNT(*) FROM gold_alert_queue WHERE ml_risk_score >= 70) AS ml_critical_alerts,\n",
+        "  (SELECT ROUND(SUM(CASE WHEN status='closed_no_sar' THEN 1 ELSE 0 END) / SUM(CASE WHEN status IN ('closed_no_sar','sar_filed') THEN 1 ELSE 0 END), 4) FROM alerts) AS false_positive_rate,\n",
+        "  (SELECT COUNT(*) FROM sar_cases) + (SELECT COUNT(*) FROM case_decisions WHERE decision = 'file_sar') AS sars_filed,\n",
+        "  (SELECT ROUND(AVG(CASE WHEN sla_breached THEN 1 ELSE 0 END), 4) FROM sar_cases WHERE detection_ts >= '2026-04-01') AS sla_breach_rate_recent,\n",
+        "  (SELECT ROUND(AVG(days_to_file), 1) FROM sar_cases) AS avg_days_to_file\n"
+      ]
+    },
+    {
+      "name": "ds_monthly",
+      "displayName": "Alert volume + false-positive rate by month",
+      "queryLines": [
+        "SELECT date_trunc('month', alert_ts) AS month, COUNT(*) AS alerts,\n  SUM(CASE WHEN status='closed_no_sar' THEN 1 ELSE 0 END) AS false_positives,\n  SUM(CASE WHEN status='sar_filed' THEN 1 ELSE 0 END) AS sar_filed,\n  SUM(CASE WHEN status IN ('open','in_review') THEN 1 ELSE 0 END) AS still_open,\n  CASE WHEN SUM(CASE WHEN status IN ('closed_no_sar','sar_filed') THEN 1 ELSE 0 END) >= 0.6 * COUNT(*)\n    THEN ROUND(SUM(CASE WHEN status='closed_no_sar' THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN status IN ('closed_no_sar','sar_filed') THEN 1 ELSE 0 END),0), 4)\n    ELSE NULL END AS false_positive_rate\nFROM alerts WHERE alert_ts < '2026-09-01' GROUP BY 1"
+      ]
+    },
+    {
+      "name": "ds_monthly_status",
+      "displayName": "Alerts by month and outcome",
+      "queryLines": [
+        "SELECT date_trunc('month', alert_ts) AS month,\n",
+        "  CASE status WHEN 'closed_no_sar' THEN 'Closed - false positive' WHEN 'sar_filed' THEN 'SAR filed' ELSE 'Open / in review' END AS outcome, COUNT(*) AS alerts\n",
+        "FROM alerts GROUP BY 1, 2\n"
+      ]
+    },
+    {
+      "name": "ds_scenario",
+      "displayName": "False positives by TMS scenario",
+      "queryLines": [
+        "SELECT scenario, COUNT(*) AS alerts,\n",
+        "  ROUND(SUM(CASE WHEN status='closed_no_sar' THEN 1 ELSE 0 END) / NULLIF(SUM(CASE WHEN status IN ('closed_no_sar','sar_filed') THEN 1 ELSE 0 END),0), 4) AS false_positive_rate,\n",
+        "  ROUND(SUM(CASE WHEN status='closed_no_sar' THEN analyst_hours END), 0) AS hours_on_false_positives\n",
+        "FROM alerts GROUP BY scenario\n"
+      ]
+    },
+    {
+      "name": "ds_sla",
+      "displayName": "SAR filing SLA by month",
+      "queryLines": [
+        "SELECT date_trunc('month', detection_ts) AS month, COUNT(*) AS sars_filed,\n  ROUND(AVG(days_to_file), 1) AS avg_days_to_file,\n  SUM(CASE WHEN sla_breached THEN 1 ELSE 0 END) AS filed_late,\n  ROUND(AVG(CASE WHEN sla_breached THEN 1 ELSE 0 END), 4) AS late_rate\nFROM sar_cases WHERE detection_ts < '2026-08-01' GROUP BY 1\n"
+      ]
+    },
+    {
+      "name": "ds_ml_vs_rules",
+      "displayName": "Open queue: rules rank vs ML risk",
+      "queryLines": [
+        "SELECT alert_id, customer_name, scenario, rules_rank, ml_rank, rule_score, ml_risk_score,\n",
+        "  CASE WHEN cluster_size >= 3 THEN concat('Linked network (', cluster_size, ' parties)') ELSE 'No network' END AS network\n",
+        "FROM gold_alert_queue\n"
+      ]
+    },
+    {
+      "name": "ds_networks",
+      "displayName": "Entity networks with open alerts",
+      "queryLines": [
+        "SELECT cluster_id, cluster_size AS parties, open_alerts, sub_ctr_deposits_60d AS sub_ctr_deposits,\n  cash_branches_60d AS branches, cash_in_60d AS cash_in_60d_usd, high_risk_wires_60d AS high_risk_wires_usd,\n  array_join(slice(member_names, 1, 4), ', ') AS members\nFROM gold_network_clusters WHERE open_alerts > 0 ORDER BY open_alerts DESC, parties DESC\n\n"
+      ]
+    },
+    {
+      "name": "ds_decisions",
+      "displayName": "Copilot decisions (write-back)",
+      "queryLines": [
+        "SELECT decided_ts, alert_id, decision, decided_by, amount_involved, bsa_filing_ref, days_to_decision,\n",
+        "  substr(rationale, 1, 160) AS rationale FROM case_decisions\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "overview",
+      "displayName": "Compliance overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Northwind Federal - Financial Crimes Compliance\n",
+                "\n",
+                "Alert volume is up ~40% in a year while **~9 in 10 dispositioned alerts are false positives** and SAR filings are drifting past the **30-day FinCEN deadline**. The ML alert-risk model re-ranks the open queue: the 35 alerts of one 9-party structuring network sat in the bottom of the rules queue - the model puts them on top. Counter sparklines show the latest complete month (alerts to Aug 2026, SAR filings to Jul 2026); September is still being worked."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_open",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "open_alerts",
+                      "expression": "`open_alerts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_alerts",
+                  "displayName": "Open alerts in queue",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open alerts in queue"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_crit",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "ml_critical_alerts",
+                      "expression": "`ml_critical_alerts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ml_critical_alerts",
+                  "displayName": "ML critical (score >= 70)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ML critical (score >= 70)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_fp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly",
+                  "fields": [
+                    {
+                      "name": "avg(false_positive_rate)",
+                      "expression": "AVG(`false_positive_rate`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(false_positive_rate)",
+                  "displayName": "False-positive rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "False-positive rate"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_sla",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "avg(late_rate)",
+                      "expression": "AVG(`late_rate`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(late_rate)",
+                  "displayName": "Share of SARs filed late",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Share of SARs filed late"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_days",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "avg(avg_days_to_file)",
+                      "expression": "AVG(`avg_days_to_file`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(avg_days_to_file)",
+                  "displayName": "Days to file (avg)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Days to file (avg)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_sars",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "sars_filed",
+                      "expression": "`sars_filed`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sars_filed",
+                  "displayName": "SARs filed (12 months)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SARs filed (12 months)"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "vol",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly_status",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "outcome",
+                      "expression": "`outcome`"
+                    },
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "sum(alerts)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "outcome",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Closed - false positive",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "SAR filed",
+                        "color": "#C0392B"
+                      },
+                      {
+                        "value": "Open / in review",
+                        "color": "#094074"
+                      }
+                    ]
+                  },
+                  "displayName": "Outcome"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alert volume by month - mostly closed as false positives"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 7,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "fp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "false_positive_rate",
+                      "expression": "`false_positive_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "false_positive_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "False-positive rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "False-positive rate (dispositioned alerts)"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 6,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "sla",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "avg_days_to_file",
+                      "expression": "`avg_days_to_file`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "avg_days_to_file",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg days to file"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "horizontal-line",
+                  "encodings": {
+                    "y": {
+                      "dataValue": 30
+                    },
+                    "label": {
+                      "value": "30-day FinCEN deadline"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Days from detection to SAR filing - creeping toward the 30-day deadline"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "late",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sla",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "late_rate",
+                      "expression": "`late_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "late_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Share filed late",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Share of SARs filed after day 30"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "scen",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_scenario",
+                  "fields": [
+                    {
+                      "name": "scenario",
+                      "expression": "`scenario`"
+                    },
+                    {
+                      "name": "hours_on_false_positives",
+                      "expression": "`hours_on_false_positives`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "hours_on_false_positives",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Analyst hours on false positives"
+                },
+                "y": {
+                  "fieldName": "scenario",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "TMS scenario"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Where investigator hours are burned on false positives"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "queue",
+      "displayName": "ML queue & networks",
+      "layout": [
+        {
+          "widget": {
+            "name": "t2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## ML re-ranking of the open queue\n",
+                "Each dot is an open alert. **x** = position in the legacy rules queue (1 = worked first), **y** = ML risk score. The red cluster top-right is the Bayline network: ranked ~260th of 330 by rules, top 35 by the model."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "scatter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_ml_vs_rules",
+                  "fields": [
+                    {
+                      "name": "rules_rank",
+                      "expression": "`rules_rank`"
+                    },
+                    {
+                      "name": "ml_risk_score",
+                      "expression": "`ml_risk_score`"
+                    },
+                    {
+                      "name": "network",
+                      "expression": "`network`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "rules_rank",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Rules-engine rank (1 = first worked)"
+                },
+                "y": {
+                  "fieldName": "ml_risk_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "ML risk score"
+                },
+                "color": {
+                  "fieldName": "network",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "No network",
+                        "color": "#C9D1DA"
+                      },
+                      {
+                        "value": "Linked network (4 parties)",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "Linked network (5 parties)",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "Linked network (6 parties)",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "Linked network (9 parties)",
+                        "color": "#E0301E"
+                      }
+                    ]
+                  },
+                  "displayName": "Network"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rules rank vs ML risk - the hidden network"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 9
+          }
+        },
+        {
+          "widget": {
+            "name": "nets",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_networks",
+                  "fields": [
+                    {
+                      "name": "cluster_id",
+                      "expression": "`cluster_id`"
+                    },
+                    {
+                      "name": "open_alerts",
+                      "expression": "`open_alerts`"
+                    },
+                    {
+                      "name": "sub_ctr_deposits",
+                      "expression": "`sub_ctr_deposits`"
+                    },
+                    {
+                      "name": "high_risk_wires_usd",
+                      "expression": "`high_risk_wires_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cluster_id",
+                    "displayName": "Network"
+                  },
+                  {
+                    "fieldName": "open_alerts",
+                    "displayName": "Open alerts"
+                  },
+                  {
+                    "fieldName": "sub_ctr_deposits",
+                    "displayName": "Sub-$10K cash"
+                  },
+                  {
+                    "fieldName": "high_risk_wires_usd",
+                    "displayName": "High-risk wires",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Entity networks with open alerts"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "dec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "decided_ts",
+                      "expression": "`decided_ts`"
+                    },
+                    {
+                      "name": "alert_id",
+                      "expression": "`alert_id`"
+                    },
+                    {
+                      "name": "decision",
+                      "expression": "`decision`"
+                    },
+                    {
+                      "name": "decided_by",
+                      "expression": "`decided_by`"
+                    },
+                    {
+                      "name": "amount_involved",
+                      "expression": "`amount_involved`"
+                    },
+                    {
+                      "name": "bsa_filing_ref",
+                      "expression": "`bsa_filing_ref`"
+                    },
+                    {
+                      "name": "days_to_decision",
+                      "expression": "`days_to_decision`"
+                    },
+                    {
+                      "name": "rationale",
+                      "expression": "`rationale`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "decided_ts",
+                    "displayName": "Decided"
+                  },
+                  {
+                    "fieldName": "alert_id",
+                    "displayName": "Alert"
+                  },
+                  {
+                    "fieldName": "decision",
+                    "displayName": "Decision"
+                  },
+                  {
+                    "fieldName": "decided_by",
+                    "displayName": "Investigator"
+                  },
+                  {
+                    "fieldName": "amount_involved",
+                    "displayName": "Amount ($)"
+                  },
+                  {
+                    "fieldName": "bsa_filing_ref",
+                    "displayName": "BSA filing ref"
+                  },
+                  {
+                    "fieldName": "days_to_decision",
+                    "displayName": "Days to decision"
+                  },
+                  {
+                    "fieldName": "rationale",
+                    "displayName": "Rationale"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Analyst decisions from the app: fills as cases are decided"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

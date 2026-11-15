@@ -2,19 +2,18 @@
  * Shared gallery tile for a template.
  *
  * The visual target is the (former) internal demo-catalog tile: a hero
- * screenshot, an industry badge, name, a description blurb, hover lift, and
- * optional quick-link chips (Dashboard / Ask Genie / Open App / Data) for the
- * live-resource overlay used on the internal gallery.
+ * screenshot, an industry badge, name, a description blurb, hover lift, and a
+ * "Live" pill when the demo is deployed in this workspace (the detail sheet then
+ * shows the "Try it live" buttons).
  *
  * The whole tile opens the detail sheet. It's a div[role=button] (NOT a
- * <button>) so it can nest real <a> quick-links — those open the resource in a
- * new tab and stopPropagation so the click doesn't bubble to the open handler.
+ * <button>) so it can nest the real <button> "Use template" action.
  */
 
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, Database, Layers, GraduationCap, Code2, LayoutTemplate } from "lucide-react";
+import { ArrowRight, Sparkles, Layers, GraduationCap, Code2, LayoutTemplate } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import {
   AIBIBrandIcon,
@@ -72,7 +71,6 @@ function CapabilityLogos({ capabilities }: { capabilities: string[] | null | und
 import {
   templateScreenshotUrl,
   type TemplateListItem,
-  type DemoResourceLinks,
 } from "@/lib/custom-api";
 
 /** Deterministically map an industry to one of the theme's chart color tokens,
@@ -86,50 +84,16 @@ function industryTint(industry?: string | null): string {
   return CHART_VARS[h % CHART_VARS.length];
 }
 
-/** Small quick-link chip that opens in a new tab without triggering the tile's
- *  open handler. `accent` gives the primary "Open App" chip a filled look. */
-function QuickLink({
-  href,
-  icon: Icon,
-  label,
-  accent,
-}: {
-  href: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  accent?: boolean;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium no-underline transition-colors",
-        accent
-          ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
-          : "border-border/60 bg-background/70 text-foreground/80 hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </a>
-  );
-}
-
 export const TemplateGalleryTile = memo(function TemplateGalleryTile({
   template,
   onOpen,
   onUse,
-  links,
 }: {
   template: TemplateListItem;
   onOpen: (t: TemplateListItem) => void;
   /** Fork the template straight from the tile (the primary action). Only wired
    *  on the public gallery; omit it to keep the plain open-details behavior. */
   onUse?: (t: TemplateListItem) => void;
-  links?: DemoResourceLinks;
 }) {
   const open = () => onOpen(template);
   const official = template.official === true;
@@ -225,6 +189,18 @@ export const TemplateGalleryTile = memo(function TemplateGalleryTile({
             <typeTag.icon className="h-3 w-3" /> {typeTag.label}
           </span>
         )}
+        {/* Deployed in this workspace → the detail sheet has "Try it live" buttons. */}
+        {template.has_live_demo && (
+          <span
+            title="Deployed live in this workspace — open to try it"
+            className={cn(
+              "absolute left-3 inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow",
+              typeTag ? "top-10" : "top-3",
+            )}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-white" /> Live
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col p-4">
@@ -245,24 +221,6 @@ export const TemplateGalleryTile = memo(function TemplateGalleryTile({
         )}
 
         <CapabilityLogos capabilities={template.capabilities} />
-
-        {/* Live-resource quick links (internal gallery only). */}
-        {(links?.app || links?.dashboard || links?.genie || links?.data) && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {links?.app && (
-              <QuickLink href={links.app} icon={DatabricksAppsBrandIcon} label="Open App" accent />
-            )}
-            {links?.dashboard && (
-              <QuickLink href={links.dashboard} icon={AIBIBrandIcon} label="Dashboard" />
-            )}
-            {links?.genie && (
-              <QuickLink href={links.genie} icon={GenieBrandIcon} label="Ask Genie" />
-            )}
-            {links?.data && (
-              <QuickLink href={links.data} icon={Database} label="Data" />
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

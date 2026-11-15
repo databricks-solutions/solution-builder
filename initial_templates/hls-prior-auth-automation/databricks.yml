@@ -1,0 +1,226 @@
+# Databricks Asset Bundle — MedVault Health Plan · Prior Authorization Copilot — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable). Nothing is
+# created by hand: the bundle owns the Lakebase database, the AI/BI dashboard, the agent-traces MLflow
+# experiment, the Databricks App and the setup job; the setup job builds the data, the AI review and the
+# Genie agent (details: dab_instructions.md).
+#
+#   databricks bundle deploy  → Lakebase database + dashboard + experiment + app (resource) + setup job
+#   databricks bundle run pa_setup
+#       generate_data (schema + synthetic PA history/queue + policy docs → policy_docs volume)
+#       → ai_criteria_review (ai_query criteria review of the open queue, build_ai_review.sql)
+#       → semantic_layer (metric view + um_decisions write-back table, build_metric_view.sql)
+#       → deploy_genie (Genie agent over the tables + the policy_docs volume; waits for the documents index)
+#       → grant_app (UC + Genie permissions for the app SP)
+#       → export_resources (demo_resources table the app reads at boot + exit JSON)
+#   databricks bundle run prior_auth_copilot   → deploys the app source and starts it
+# Dashboard datasets are schema-less and rebound via dataset_catalog / dataset_schema.
+bundle:
+  name: hls-prior-auth-automation
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the demo
+    default: healthcare_lifesciences
+  schema:
+    description: Schema for the demo tables, volume and metric view
+    default: prior_auth_automation
+  warehouse_id:
+    description: SQL warehouse (dashboard, Genie, ai_query, app) — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard, Genie space and agent-traces experiment
+    default: /Workspace/Users/${workspace.current_user.userName}/hls-prior-auth-automation
+  app_name:
+    description: Databricks App name (unique per workspace, <= 30 chars)
+    default: prior-auth-copilot
+  lakebase_project_slug:
+    description: Existing Lakebase (autoscaling) project the app database lives in
+  lakebase_branch_id:
+    default: production
+  lakebase_database:
+    description: Postgres database name created by the bundle for the app
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the database. Non-personal: a GROUP role for the
+      workspace `admins` group, created once per Lakebase project (see dab_instructions.md).
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "src/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+    - "app/package.json"        # the repo-root .gitignore ignores package*.json — the Apps
+    - "app/package-lock.json"   # container needs both to npm install
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/test-results/**"
+    - "app/tests/**"
+    - "*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  # The bundle creates the app's Lakebase database in an EXISTING Lakebase project (defaults: project `<project>`,
+  # owner role `admins`; override with --var lakebase_project_slug / lakebase_owner_role).
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var lakebase_project_slug=… --var lakebase_owner_role=…]
+  default:
+    default: true
+
+resources:
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  postgres_databases:
+    prior_auth_db:
+      parent: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+      database_id: db-${var.app_name}
+      postgres_database: ${var.lakebase_database}
+      role: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/roles/${var.lakebase_owner_role}
+
+  dashboards:
+    pa_ops_dashboard:
+      display_name: "MedVault - Prior Authorization Operations (CMS-0057-F)"
+      file_path: ./dashboard/dashboard.lvdash.json
+      parent_path: ${var.workspace_folder}
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  jobs:
+    pa_setup:
+      name: "[HLS] MedVault Prior Auth Copilot - setup"
+      description: "Synthetic PA history + open queue + policy docs → ai_query criteria review → metric view + write-back table → Genie agent (tables + docs) → app grants → demo_resources"
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: gen
+        - task_key: ai_criteria_review
+          depends_on: [{ task_key: generate_data }]
+          notebook_task:
+            notebook_path: ./src/deploy/run_sql_on_warehouse.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              warehouse_id: ${var.warehouse_id}
+              sql_file: src/deploy/build_ai_review.sql
+          environment_key: sdk
+        - task_key: semantic_layer
+          depends_on: [{ task_key: generate_data }]
+          notebook_task:
+            notebook_path: ./src/deploy/run_sql_on_warehouse.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              warehouse_id: ${var.warehouse_id}
+              sql_file: src/deploy/build_metric_view.sql
+          environment_key: sdk
+        - task_key: deploy_genie
+          depends_on: [{ task_key: ai_criteria_review }, { task_key: semantic_layer }, { task_key: generate_data }]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
+          environment_key: sdk
+        - task_key: grant_app
+          depends_on: [{ task_key: deploy_genie }]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_uc.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              app_name: ${var.app_name}
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk
+        - task_key: export_resources
+          depends_on: [{ task_key: grant_app }]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              app_name: ${var.app_name}
+              dashboard_id: ${resources.dashboards.pa_ops_dashboard.id}
+              warehouse_id: ${var.warehouse_id}
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+              agent_mlflow_experiment_path: ${resources.experiments.agent_traces.name}
+          environment_key: sdk
+      environments:
+        - environment_key: gen
+          spec:
+            client: "4"
+            dependencies: ["pandas", "databricks-sdk>=0.114.0"]
+        - environment_key: sdk
+          spec:
+            client: "4"
+            dependencies: ["databricks-sdk>=0.114.0"]
+
+  apps:
+    prior_auth_copilot:
+      name: ${var.app_name}
+      description: "MedVault PA Copilot - UM nurse workbench: AI-cited policy criteria, auto-approval lane, decision write-back"
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.pa_ops_dashboard.id}
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_slug}
+          # GENIE_SPACE_ID is NOT set here: the setup job creates the Genie agent and writes its id
+          # to <catalog>.<schema>.demo_resources, which the app reads at boot (server/lib/resources.ts).
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: ${resources.postgres_databases.prior_auth_db.name}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT

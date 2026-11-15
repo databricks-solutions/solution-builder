@@ -1,0 +1,10 @@
+{
+  "id": "telco-network-ops-copilot",
+  "name": "Telecom — NOC Copilot: Alarm Correlation, Anomaly Detection & Agentic Triage",
+  "customer": "Halcyon Wireless",
+  "industry": "Media & Entertainment",
+  "narrative": "Dana Whitfield runs the morning shift at the Halcyon Wireless NOC, a fictional Mountain-West carrier with 500 cell sites. At 05:55, 457 alarms from 64 sites land in eight minutes: S1 down, X2 down, sync loss, cells unavailable, a hospital and a 911 center off air. Worked site by site, that is 64 tickets and 64 wrong truck rolls. A Lakeflow pipeline streams RAN KPIs, alarms and optical counters into Unity Catalog, and topology correlation turns the storm into one incident: every down site hangs off aggregation router AGG-DEN-04.\n\nThe aha is one click. The NOC Copilot's triage agent walks the topology and finds two failures, not one: an 811 boring crew cut the primary fiber at 05:55, and the backup optic had been losing light for 12 days behind warnings nobody ticketed. The NOC runbook (searched by the Genie agent) says to restore the fastest path first, so Dana opens a single parent ticket, suppresses 457 child alarms and dispatches a transport tech to clean the optic (about 1 hour) while the splice crew heads to the cut. In Boulder, a KPI anomaly model registered in Unity Catalog flags a sector whose dropped-call rate crept from 0.6% to 2.6% over three weeks without a single alarm, and the agent sends a tower crew. Tickets and dispatches are written back to Lakebase.",
+  "dbdemos_tracker": {
+    "app_id": "telco-network-ops-copilot"
+  }
+}

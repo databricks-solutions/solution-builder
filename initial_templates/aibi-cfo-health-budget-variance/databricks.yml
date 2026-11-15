@@ -23,6 +23,12 @@ variables:
     default: aibi_cfo_health_budget_variance
   warehouse_id:
     description: SQL warehouse the dashboard, Genie space, AI_FORECAST + comp-masking use.
+  genie_space_title:
+    description: Genie space title. The setup reuses (updates) a space only if the title matches AND its tables are in this catalog.schema.
+    default: AI-BI - Healthcare CFO Budget Variance
+  workspace_folder:
+    description: Workspace folder that holds the dashboard + Genie space.
+    default: /Workspace/Users/${workspace.current_user.userName}/aibi-cfo-health-budget-variance
 
 resources:
   schemas:
@@ -33,10 +39,12 @@ resources:
 
   dashboards:
     healthcare_cfo_dashboard:
-      # NOTE: Lakeview rejects '/' in dashboard display names — use "AIBI", not "AI/BI".
-      display_name: "[AIBI] Healthcare CFO - Budget Variance"
+      # NOTE: Lakeview rejects '/' in dashboard display names — use "AI-BI", not "AI/BI".
+      display_name: "AI-BI - Healthcare CFO: Budget Variance"
       file_path: ./dashboard/dashboard.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      embed_credentials: true
       # Rebind the dashboard's datasets to the deployed catalog/schema.
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.demo_schema.name}
@@ -74,6 +82,8 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.demo_schema.name}
               warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
+              space_title: ${var.genie_space_title}
           environment_key: sdk_latest
         - task_key: comp_masking
           depends_on:
@@ -100,6 +110,8 @@ resources:
               - databricks-sdk>=0.114.0
 
 targets:
+  # Portable targets (NO pinned host): deploy to whatever workspace your profile points at —
+  # this is what Solution Builder forks / "Download DAB" use. Pass --var warehouse_id (+ catalog/schema).
   dev:
     mode: development
     default: true

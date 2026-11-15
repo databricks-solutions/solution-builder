@@ -4,13 +4,13 @@
  * reposition; the panel stays where the user drops it for the rest of the
  * session (no persistence — fresh load resets to bottom-left).
  *
- * Template intent: a long agent turn (reasoning + tool hops + MAS calls)
+ * Template intent: a long agent turn (reasoning + tool hops + Genie Agent calls)
  * can take 30–120s. Without visual feedback the user thinks the app froze.
  * This panel streams three kinds of live events in the order they arrive:
  *
- *   - `tool_call`   → `🔧 tool_name` with args (incl. `mas:sub_agent`
- *                     when the outer agent delegates to the MAS and we
- *                     bubble up sub-agent activity via `onToolProgress`)
+ *   - `tool_call`   → `🔧 tool_name` with args (incl. `genie:sql` or
+ *                     `genie:documents` when the ask_data tool runs SQL or
+ *                     searches documents, bubbled up via `onToolProgress`)
  *   - `tool_output` → nested under the matching tool_call (by call_id);
  *                     pipe-delimited tables get rendered as real tables
  *   - `reasoning_stream` / `intermediate_message` → the model's reasoning
@@ -322,7 +322,7 @@ function ThinkingEventRow({ event }: { event: MergedEvent }) {
         {event.output === undefined && (
           // In-flight: matched tool_output hasn't arrived yet. The
           // dispatcher fires tool_call immediately, then the long-running
-          // tool (MAS stream, Genie poll, DB query) eventually fires
+          // tool (Genie Agent stream, DB query) eventually fires
           // tool_output — so this spinner ticks while the call runs.
           <span
             aria-label="running"
@@ -348,8 +348,8 @@ function ThinkingEventRow({ event }: { event: MergedEvent }) {
 }
 
 /**
- * Render reasoning / intermediate-message text as markdown so KA citations
- * from the MAS render cleanly. We:
+ * Render reasoning / intermediate-message text as markdown so Genie citations
+ * from the Genie Agent render cleanly. We:
  *   - Split off footnote-body blocks (`[^x-1]: …`) into a collapsible
  *     "Sources" disclosure so the main text stays readable.
  *   - Strip raw `<table>` blobs inside footnotes (noise — they repeat info
@@ -410,7 +410,7 @@ function MDBlock({ text }: { text: string }) {
 }
 
 function cleanupNoise(text: string): string {
-  // Drop raw <table>…</table> blocks the KA agent inlines — they duplicate
+  // Drop raw <table>…</table> blocks the agent inlines — they duplicate
   // info already present as markdown elsewhere and render as HTML soup.
   return text.replace(/<table\b[\s\S]*?<\/table>/gi, '').replace(/\n{3,}/g, '\n\n');
 }
@@ -454,7 +454,7 @@ function prettyArgs(raw: string): string {
 
 /**
  * Tool outputs are often pipe-delimited tables from genie_query. When we
- * detect the MAS shape (leading `||` on every row), we normalize it into
+ * detect the Genie table shape (leading `||` on every row), we normalize it into
  * GFM-compatible markdown and render it with react-markdown. Otherwise we
  * fall back to monospace truncation.
  */
@@ -475,7 +475,7 @@ function ToolOutputBody({ text }: { text: string }) {
 }
 
 function tryNormalizeTable(s: string): string | null {
-  // MAS genie tables look like:
+  // Genie tables look like:
   //   ||col_a|col_b|col_c|
   //   |-|-|-|-|
   //   |0|foo|bar|baz|

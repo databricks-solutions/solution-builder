@@ -57,6 +57,12 @@ class AppConfig(BaseSettings):
         default="", validation_alias="DEFAULT_TARGET_WORKSPACE_HOST"
     )
 
+    # The trusted MCP server's service principal (application id). The only caller whose
+    # `X-MCP-Caller-Email` is honored on /api/mcp/* once deployed: it names the
+    # user, and the request runs as that user (routes/mcp.py). Empty = the MCP
+    # routes refuse every deployed call. Locally the header is accepted as is.
+    mcp_caller_sp_id: str = Field(default="", validation_alias="MCP_CALLER_SP_ID")
+
     # Per-region catalog-name overrides for cross-workspace deploy, as a JSON
     # object {"<region>": "<catalog>"}. Every onboarded region defaults to the
     # `solution_builder` catalog; an entry here renames it for a region where
@@ -89,6 +95,15 @@ class AppConfig(BaseSettings):
         path — when False, nothing changes vs. the same-workspace OBO model."""
         return bool(self.deployer_sp_client_id and self.deployer_sp_client_secret)
 
+    # Escape hatch: skip the boot-time resume of interrupted conversations (SP
+    # mode). Set to "1"/"true" to bring the app up WITHOUT re-kicking any
+    # interrupted turn — use it when a specific conversation crash-loops the app
+    # and you need a clean restart to intervene. Default off = resume normally.
+    # See services/resume_agent + AUTH.md "Boot-time resume".
+    disable_conversation_resume: bool = Field(
+        default=False, validation_alias="DISABLE_CONVERSATION_RESUME"
+    )
+
     # Endpoint name passed as Anthropic `model` field by Claude Code
     # (Agent SDK). For FMAPI default endpoints this is the
     # workspace-shipped Anthropic-shape model name (e.g.
@@ -99,6 +114,13 @@ class AppConfig(BaseSettings):
     anthropic_llm_endpoint: str = Field(
         default="databricks-claude-sonnet-4-8",
         validation_alias="ANTHROPIC_LLM_ENDPOINT",
+    )
+    # Model the cost chip prices `anthropic_llm_endpoint` as when the endpoint
+    # name says nothing about the model (a custom AI Gateway endpoint: the
+    # transcripts record the endpoint name, not the Claude model behind it).
+    anthropic_llm_price_as: str = Field(
+        default="claude-opus-4-7",
+        validation_alias="ANTHROPIC_LLM_PRICE_AS",
     )
 
     # URL path segment appended to the workspace host to form

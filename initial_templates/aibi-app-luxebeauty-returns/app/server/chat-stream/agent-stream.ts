@@ -35,7 +35,7 @@ type Msg = { role: string; content: string };
  *   3. SDK-level tool events (`tool_called`, `tool_output`)
  *      → SSE `response.output_item.done` (function_call / function_call_output)
  *      Plus our own `ctx.onToolProgress` for sub-agent activity bubbled up
- *      from inside `ask_data` (MAS sub-agents, Genie reasoning traces).
+ *      from inside `ask_data` (Genie Agent SQL + document-search steps).
  *
  * The persisted `thinking` trail mirrors the SSE events so reload shows
  * "▸ Reasoning · N tools" with the same content the user saw live.
@@ -53,9 +53,8 @@ export async function streamAgentTurn(args: {
   req: Request;
   res: Response;
   userEmail: string;
-  /** MAS endpoint name. Replace with `genieSpaceId` if your demo uses
-   * Genie — see refundops.ts AgentContext for the matching change. */
-  masEndpointName: string;
+  /** Genie Agent space id the `ask_data` tool queries (see tools/genie.ts). */
+  genieSpaceId: string;
   databricksHost: string;
   model: string;
   messages: Msg[];
@@ -116,23 +115,23 @@ export async function streamAgentTurn(args: {
       db: args.db,
       userEmail: args.userEmail,
       req: args.req,
-      masEndpointName: args.masEndpointName,
+      genieSpaceId: args.genieSpaceId,
       databricksHost: args.databricksHost,
       model: args.model,
       modelError,
-      // Forward sub-agent activity from the MAS tool (ask_data) live into
+      // Forward Genie Agent activity from the ask_data tool live into
       // the outer Thinking panel. Each event is both persisted into
       // `thinking` (so it's in the saved reasoning trail) and streamed to
       // the browser as an SSE event the client already knows how to render.
       onToolProgress: (ev) => {
-        if (ev.kind === 'mas_tool_call') {
-          // Use the MAS-provided call_id on BOTH the persisted thinking
+        if (ev.kind === 'genie_tool_call') {
+          // Use the Genie call_id on BOTH the persisted thinking
           // entry and the SSE event so the client can pair the later
           // tool_output with this call (otherwise the UI shows "unknown").
           thinking.push({
             kind: 'tool_call',
             callId: ev.callId,
-            name: `mas:${ev.subAgent}`,
+            name: `genie:${ev.subAgent}`,
             args: JSON.stringify({ query: ev.query }),
           });
           sseWrite(res, {
@@ -140,11 +139,11 @@ export async function streamAgentTurn(args: {
             item: {
               type: 'function_call',
               call_id: ev.callId,
-              name: `mas:${ev.subAgent}`,
+              name: `genie:${ev.subAgent}`,
               arguments: JSON.stringify({ query: ev.query }),
             },
           });
-        } else if (ev.kind === 'mas_tool_output') {
+        } else if (ev.kind === 'genie_tool_output') {
           thinking.push({
             kind: 'tool_output',
             callId: ev.callId,
@@ -158,7 +157,7 @@ export async function streamAgentTurn(args: {
               output: ev.snippet,
             },
           });
-        } else if (ev.kind === 'mas_narration') {
+        } else if (ev.kind === 'genie_narration') {
           thinking.push({ kind: 'intermediate_message', text: ev.text });
           sseWrite(res, {
             type: 'response.reasoning_summary_text.done',

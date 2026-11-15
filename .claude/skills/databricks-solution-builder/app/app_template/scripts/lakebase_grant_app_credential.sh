@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./scripts/lakebase_grant_app_credential.sh \
-#     --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>]
+#     --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>] [--reassign-stale]
 #
 # Example:
 #   ./scripts/lakebase_grant_app_credential.sh \
@@ -17,6 +17,12 @@
 #
 # Pass the same `--project-id` / `--db-name` you passed to lakebase_setup_db.sh.
 #
+# --reassign-stale (opt-in, DEDICATED projects only): transfer objects owned by
+# every OTHER service-principal role on the branch to this app's SP and DROP
+# those roles — the fix for a redeploy-after-delete (new SP, schemas still owned
+# by the dead one). NEVER use it on a shared project (dbdemos-asset-generator):
+# there the other SP roles belong to OTHER demos' live apps.
+#
 # Without this script, the App's SP can connect to the database (CONNECT
 # from the bundle binding or the Apps UI binding) but can't write to
 # `public` — Drizzle migrations on first boot fail with `pg=42501`.
@@ -28,6 +34,7 @@ APP_NAME=""
 DB_NAME=""
 PROJECT_ID=""
 BRANCH_ID="production"
+REASSIGN_STALE=0   # opt-in — see --reassign-stale above
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -35,13 +42,14 @@ while [[ $# -gt 0 ]]; do
         --db-name)    DB_NAME="$2"; shift 2 ;;
         --project-id) PROJECT_ID="$2"; shift 2 ;;
         --branch-id)  BRANCH_ID="$2"; shift 2 ;;
+        --reassign-stale) REASSIGN_STALE=1; shift ;;
         -h|--help)
-            sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
             echo "Unknown arg: $1" >&2
-            echo "Usage: $0 --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>]" >&2
+            echo "Usage: $0 --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>] [--reassign-stale]" >&2
             exit 1
             ;;
     esac
@@ -49,7 +57,7 @@ done
 
 if [[ -z "$APP_NAME" || -z "$DB_NAME" || -z "$PROJECT_ID" ]]; then
     echo "Error: --app-name, --project-id, and --db-name are all required" >&2
-    echo "Usage: $0 --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>]" >&2
+    echo "Usage: $0 --app-name <name> --project-id <id> --db-name <name> [--branch-id <id>] [--reassign-stale]" >&2
     exit 1
 fi
 
@@ -120,8 +128,13 @@ echo "[grant] SP role: $SP_ROLE"
 # fix it ("must be owner of schema appkit"). The managed-API fix is one command:
 # `delete-role --reassign-owned-to` transfers everything the old SP owns to the
 # current SP and drops the dead role (the CLI equivalent of the UI's "reassign
-# owned objects"). Do this for every OTHER service-principal role on the branch
-# so the current SP ends up owning its schemas. No-op when there's no stale SP.
+# owned objects").
+#
+# SAFETY: roles are BRANCH-wide, and "every other SP role" is NOT the same as
+# "a stale role of THIS app" — on a shared Lakebase project the other SP roles
+# are OTHER apps' live identities, and delete-role would strip them of their
+# schemas and drop them. So this only runs with --reassign-stale (a DEDICATED
+# project where this app is the only SP that should exist).
 STALE_ROLE_NAMES="$(
     databricks postgres list-roles "$BRANCH_PATH" ${PROFILE_FLAG[@]+"${PROFILE_FLAG[@]}"} -o json \
     | python3 -c "
@@ -134,7 +147,11 @@ for r in json.load(sys.stdin):
         print(r['name'])   # full resource path (roles/<name>, not the UUID)
 "
 )"
-if [[ -n "$STALE_ROLE_NAMES" ]]; then
+if [[ -n "$STALE_ROLE_NAMES" && "$REASSIGN_STALE" != "1" ]]; then
+    echo "[grant] $(grep -c . <<< "$STALE_ROLE_NAMES") other SP role(s) on this branch — left untouched (other apps' roles on a shared project)."
+    echo "[grant]   Dedicated project + app redeployed after a delete (boot: 'must be owner of schema')? Re-run with --reassign-stale."
+fi
+if [[ "$REASSIGN_STALE" == "1" && -n "$STALE_ROLE_NAMES" ]]; then
     NEW_ROLE_PATH="$BRANCH_PATH/roles/$SP_ROLE"
     while IFS= read -r old_path; do
         [[ -z "$old_path" ]] && continue

@@ -1,19 +1,21 @@
 # Databricks Asset Bundles (DAB) — authoring guide
 
-When asked to package a demo as a DAB, produce a single `databricks.yml` at the project root. [example_databricks.yml](example_databricks.yml) is a **complete, working, generic bundle distilled from a proven end-to-end deploy** — **read it first**, copy its shape, rename `demo` → your demo's short name, and drop optional blocks (App, Lakebase, KA/MAS, ML) the demo doesn't ship.
+When asked to package a demo as a DAB, produce a single `databricks.yml` at the project root. [example_databricks.yml](example_databricks.yml) is a **complete, working, generic bundle distilled from a proven end-to-end deploy** — **read it first**, copy its shape, rename `demo` → your demo's short name, and drop optional blocks (App, Lakebase, documents, ML) the demo doesn't ship.
+
+**The bundle describes THIS project — take shape from examples, take content from the project.** The example (and any other worked demo you've read) is a source of *structure* only. Every human-readable value — resource `name`s, `display_name`s, `description`s, `comment`s, and the titles/descriptions inside the referenced dashboard/Genie JSON, and the documents volume description — comes from **this project's own files** (`README.md`, `resources.json`, `specifications/`). Don't carry another demo's wording, catalog/schema names, or story into the bundle. Before finishing, re-read the bundle (and the JSON it points at) and confirm nothing references a domain, company, or dataset that isn't this project's — the placeholder word `demo` and any name from an example must be gone.
 
 > **Scope: author + verify, do NOT deploy by default.** Your job here is to produce a *correct* bundle — write `databricks.yml`, the scripts, and `dab_instructions.md`, and validate it (`databricks bundle validate` is fine; it's read-only). **Do NOT run `databricks bundle deploy` / `bundle run` / the lakebase + finalize scripts unless the user explicitly asks you to deploy.** Those mutate a workspace (create catalogs, run jobs, deploy an app, provision Lakebase) and may incur cost. The 5-command flow below is the runbook you hand to the user (and write into `dab_instructions.md`) — it is *documentation of how to deploy*, not a checklist for you to execute. When the demo was already built in a workspace during Stage 3, the DAB exists so the demo can be *re-created elsewhere from scratch* — leave the actual re-deploy to the user.
 
 ## The deploy is 5 commands (not just `bundle deploy`)
 
-A full demo with an App can't be deployed in one shot, because the Genie / KA / MAS endpoint IDs only exist **after** the setup job's SDK tasks run — the bundle can't know them at `deploy` time. So the flow is:
+A full demo with an App can't be deployed in one shot, because the Genie agent ID and the documents index only exist **after** the setup job's SDK tasks run — the bundle can't know them at `deploy` time. So the flow is:
 
 ```bash
 # 1. Lakebase DB (pre-deploy — the CLI can't declare a postgres database)
 ./app/scripts/lakebase_setup_db.sh --db-name dbgen_<demo>
 # 2. Create resource SHELLS (schema, volumes, pipeline, dashboard, app) + the setup job
 databricks bundle deploy --var catalog=… --var schema=… --var warehouse_id=…
-# 3. FILL them in: data → pipeline → metric view + ML → genie/ka/mas → grants → export IDs
+# 3. FILL them in: data → pipeline → metric view + ML → PDF upload → genie (+ documents index) → grants → export IDs
 databricks bundle run demo_setup --var …
 # 4. Grant the app SP on the Lakebase (Postgres) schemas
 ./app/scripts/lakebase_grant_app_credential.sh --app-name … --project-id … --db-name …
@@ -26,7 +28,7 @@ Steps 1+4+5 are shell scripts the App template ships under `app/scripts/`. The s
 ## Prerequisites for the deploying user
 
 - Databricks CLI **v0.283.0+** (dashboard `dataset_catalog`/`dataset_schema` rewriting requires it).
-- SDK `databricks-sdk>=0.114.0` for any task that touches Genie / KA / MAS APIs — wire via `environment_key: sdk_latest`.
+- SDK `databricks-sdk>=0.114.0` for any task that touches Genie or volume-index APIs — wire via `environment_key: sdk_latest`.
 
 ## ⚠️ The footguns that cost the most time (read before editing a deployed app)
 
@@ -54,20 +56,18 @@ Steps 1+4+5 are shell scripts the App template ships under `app/scripts/`. The s
 
 | Component | Reference script | Wired as | Notes |
 |-----------|------------------|----------|-------|
-| Genie Spaces | [`scripts/deploy_genie.py`](scripts/deploy_genie.py) | job notebook_task (`sdk_latest`) | Loads the space JSON, substitutes catalog/schema. |
-| Knowledge Assistants | [`scripts/deploy_ka.py`](scripts/deploy_ka.py) | job notebook_task (`sdk_latest`) | Loads KA JSON. |
-| Multi-Agent Supervisors | [`scripts/deploy_mas.py`](scripts/deploy_mas.py) | job notebook_task (`sdk_latest`) | Reads genie/ka IDs from task-values. |
+| Genie Spaces | [`scripts/deploy_genie.py`](scripts/deploy_genie.py) | job notebook_task (`sdk_latest`) | Loads the space JSON, substitutes catalog/schema, attaches the documents volume (when the project has one), and waits for its index before the first document question. |
 | App SP UC grants | [`scripts/grant_app_uc.py`](scripts/grant_app_uc.py) | job notebook_task (`sdk_latest`) | USE_CATALOG/SCHEMA, SELECT, READ_VOLUME, EXECUTE-on-model. |
 | Export resolved IDs | [`scripts/export_resources.py`](scripts/export_resources.py) | job notebook_task (final) | `dbutils.notebook.exit(json)` — the channel `finalize_app.sh` reads. |
-| PDF upload to volume | [`scripts/upload_pdfs.py`](scripts/upload_pdfs.py) | job notebook_task | Copies PRE-rendered PDFs (render locally; in-job render OOMs the small client). |
+| PDF upload to volume | [`scripts/upload_pdfs.py`](scripts/upload_pdfs.py) | job notebook_task | Copies PRE-rendered PDFs into the dedicated managed documents volume (render locally; in-job render OOMs the small client). |
 | Finalize app env + deploy | [`scripts/finalize_app.sh`](scripts/finalize_app.sh) | shell (step 5) | Harvest export JSON → app.yaml env → `apps deploy`. |
 | Lakebase DB + grants | [`scripts/lakebase_grant_app_credential.sh`](scripts/lakebase_grant_app_credential.sh) | shell (step 4) | `CREATE ON DATABASE` + drop/recreate/grant app+appkit+drizzle schemas. |
 
 Each notebook script is idempotent (get-then-create-or-update) and parameterized via `dbutils.widgets`. **Copy them, edit only business content (names, config-file paths). Do NOT rewrite the SDK call shapes from memory — they encode hard-won fixes:**
 
 - `genie.list_spaces()` returns a `GenieListSpacesResponse` (NOT a generator) — paginate `resp.spaces` + `next_page_token`.
-- `KnowledgeSource(files=FilesSpec(...))` — the field is `files`, NOT `files_spec`. `update_knowledge_assistant(update_mask=FieldMask(paths=[...]))` — a `FieldMask` proto, NOT a comma string.
-- **Wait-for-ready ONLY on first create**, never on update — KA re-index + MAS re-provision are async and would block the job ~10–15 min on every re-run. (This alone cut a re-deploy from ~35 min to ~5 min.)
+- **Volume index**: read it via `GET /api/2.0/volume-indexes/<volume_id>` (undocumented, works with CLI/SDK auth). It returns NOT_FOUND until a Genie agent references the volume. Poll until `state` is `SUCCEEDED` and `file_state_counts.success_files` covers every file in the volume (a `SUCCEEDED` index with too few files is stale and won't refresh: use a fresh volume); `PENDING` and `RUNNING` keep waiting; any other state is a failure, so surface its `error`.
+- **Wait for the documents index ONLY when the volume was just attached or new PDFs were uploaded**, never on an unchanged re-run. Indexing takes minutes per upload, so a re-run that changes nothing must not block on it.
 - Genie validates every table identifier on update — if it runs before the metric view exists it 403s; the job's `depends_on` + the task's own retry handle the race.
 
 ---
@@ -79,7 +79,7 @@ One file at project root, all resources under one top-level `resources:` block.
 - **Variables** for catalog, schema, warehouse_id — never hardcode. No workspace host — rely on CLI profile.
 - **`sync.include`** for static files (PDFs) AND the app's gitignored build outputs (`app/dist/**`, `app/client/dist/**`).
 - **Paths** are relative to `databricks.yml` — `./src/...`, `./dashboard/...`.
-- **Per-task `environments:`** — `sdk_default` for gen/pipeline/grants, a `ml` env (xgboost/sklearn/mlflow) for training, and `sdk_latest` (`databricks-sdk>=0.114.0`) for the Genie/KA/MAS/export tasks.
+- **Per-task `environments:`** — `sdk_default` for gen/pipeline/grants, a `ml` env (xgboost/sklearn/mlflow) for training, and `sdk_latest` (`databricks-sdk>=0.114.0`) for the Genie, index, and export tasks.
 - **Resolve catalog/schema through the schema resource** (`${resources.schemas.demo_schema.name}`), NOT `${var.schema}`, in pipeline `target` + every task's `base_parameters` — so dev-mode's `dev_<user>_` prefix is applied consistently (else the gen writes to `luxe_demo` while the pipeline reads `dev_me_luxe_demo`).
 - **`artifacts.default.build: ./app/scripts/build-app.sh`** if shipping an App (build runs before sync).
 - **`lifecycle.prevent_destroy: true`** on any stateful resource (Lakebase project, the App).
@@ -92,7 +92,7 @@ One file at project root, all resources under one top-level `resources:` block.
 Tasks without `depends_on` run in parallel. Use `depends_on` only where a real dependency exists (downstream needs upstream's output).
 
 ### Passing IDs between tasks (task values)
-When task B needs an ID created by task A (e.g. MAS needs the Genie space id):
+When task B needs an ID created by task A (e.g. the export needs the Genie space id):
 
 ```python
 # Producer (Python notebook only — task values are Python-only)
@@ -101,7 +101,7 @@ dbutils.jobs.taskValues.set(key="genie_space_id", value=space_id)
 
 ```yaml
 # Consumer
-- task_key: deploy_mas
+- task_key: export_resources
   depends_on:
     - task_key: deploy_genie
   notebook_task:
@@ -126,9 +126,9 @@ For AppKit / Node apps shipping a built `dist/`, three things must happen on eve
 
 1. **Local build** — produces `app/dist/server.js` + `app/client/dist/`. Wire via `artifacts.default.build: ./app/scripts/build-app.sh`.
 2. **Sync override** — both `dist/` dirs are gitignored. Whitelist via `sync.include: ["app/dist/**", "app/client/dist/**"]`.
-3. **Lockfile registry rewrite** — local installs on VPN bake `npm-proxy.dev.databricks.com` into `package-lock.json`; the App container can't reach that proxy. `build-app.sh` rewrites those URLs to `registry.npmjs.org` (idempotent — no-op off-VPN).
+3. **Public lockfile registry** — the App container can only reach the public npm registry, so `package-lock.json` must reference `registry.npmjs.org`. If your npm config pointed at a private mirror when you ran `npm install`, re-run it with `--registry=https://registry.npmjs.org/` before deploying.
 
-The app ships `app/scripts/build-app.sh` covering all three. Reuse it.
+The app ships `app/scripts/build-app.sh` covering the first two. Reuse it, and keep item 3 true when you change dependencies.
 
 ### App container lifecycle
 
@@ -174,9 +174,9 @@ The app reads its config (`config/app.json`) via `${VAR}` / `${VAR:default}` pla
 | **Local dev** (`./start.sh`) | `.env`, sourced by `start.sh` |
 | **Deployed** (DAB) | `app.yaml` env, written by `finalize_app.sh` |
 
-The DAB can't put these in the apps `config.env` block — it's **silently dropped during terraform rendering** (carries the names, loses the values). And it can't bake them at `deploy` time — the Genie/KA/MAS IDs don't exist yet. So:
+The DAB can't put these in the apps `config.env` block — it's **silently dropped during terraform rendering** (carries the names, loses the values). And it can't bake them at `deploy` time — the Genie agent and documents index don't exist yet. So:
 
-1. The setup job's final task `export_resources.py` exits a JSON manifest of every resolved ID (catalog, schema, dashboard_id, pipeline_id, warehouse_id, genie_space_id, ka_endpoint_name, mas_endpoint_name + derived model/volume/mlflow paths).
+1. The setup job's final task `export_resources.py` exits a JSON manifest of every resolved ID (catalog, schema, dashboard_id, pipeline_id, warehouse_id, genie_space_id, documents_volume + derived model/volume/mlflow paths).
 2. `finalize_app.sh` reads that JSON back, renders `app.yaml` from `app.yaml.template` (keeps the header + command + scopes + `valueFrom:` bindings, appends the plain-value env), uploads it, and `databricks apps deploy`s.
 
 Result: a bare `bundle deploy` never ships a half-configured app, and the app env is assembled in exactly one place. **Design config to DEGRADE on empty env** (inert deep-link tile / skipped feature), not crash — so local/preview without every var still boots. (e.g. the app's zod schema must NOT `.min(1)` catalog/schema.)
@@ -196,7 +196,7 @@ Two gaps in the bundle CLI (v0.299.1) force a two-script wrap:
 
 **The recommended pattern: do NOT declare any `postgres_*` resources in `databricks.yml`.** Use the two scripts the App template ships:
 
-- `app/scripts/lakebase_setup_db.sh` — creates project + branch + endpoint + database via CLI. Defaults to the shared `dbdemos-asset-generator` project (each demo gets its own DB inside; auto-bumps to `-2`, `-3`, ... if full). Run **before** `bundle deploy`.
+- `app/scripts/lakebase_setup_db.sh` — creates project + branch + endpoint + database via CLI. Without `--project-id` it distributes demos across a shared project pool (`dbdemos-asset-generator`, `-2` … `-9`), picking the first project with fewer than `SHARED_PROJECT_MAX_DBS` databases (default 50) so no single branch exceeds Lakebase's roles-per-branch limit (each DB adds ~2 zeroETL roles). Run **before** `bundle deploy`.
 - `app/scripts/lakebase_grant_app_credential.sh` — run **after** `bundle deploy`. GRANTs `CREATE ON DATABASE` to the App SP, then **drops + recreates the `app`, `appkit`, and `drizzle` schemas** and GRANTs the SP `ALL` + default privileges on each.
 
 Why drop+recreate all three schemas, not just grant on `public`: the app creates its own schemas — `app` (Drizzle tables = the Delta→Lakebase mirror), `appkit` (AppKit's cache), `drizzle` (migration tracking). If any was created by an *earlier* deploy under a different role (e.g. a human running psql), the SP gets `permission denied for schema <x>` and can't migrate into it — and you usually **can't** `ALTER SCHEMA … OWNER TO <sp>` (Postgres requires you to be a member of the SP role, and you can't `SET ROLE` to it). Dropping + recreating sidesteps the ownership trap; the `app.*` mirror rebuilds from Delta on the next boot and `appkit`/`drizzle` are regenerable bookkeeping.
@@ -208,8 +208,8 @@ Same scripts work for the interactive `databricks apps deploy` path too — sing
 ```yaml
 - name: postgres
   postgres:
-    branch: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}
-    database: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+    branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+    database: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
     permission: CAN_CONNECT_AND_CREATE
 ```
 
@@ -230,9 +230,9 @@ project/
 │   ├── pipeline/               # SDP SQL (schema-relative — resolved via pipeline target)
 │   ├── metric_view/            # mv_*.py — CREATE … WITH METRICS YAML inline (no PySpark API)
 │   ├── ml/                     # train + score notebook
-│   ├── genie/ knowledge_assistant/ supervisor_agent/   # the demo's *.json configs
+│   ├── genie/                  # the demo's genie_space.json config
 │   ├── documents/              # html/ source + html_to_pdf.py; pdf/ (pre-rendered, uploaded)
-│   └── deploy/                 # deploy_genie/ka/mas.py, grant_app_uc.py, export_resources.py, upload_pdfs.py
+│   └── deploy/                 # deploy_genie.py, grant_app_uc.py, export_resources.py, upload_pdfs.py
 └── app/                        # (Optional) Databricks App source
     ├── app.yaml                # command + scopes + bindings; you write this. finalize_app.sh
     │                           #   snapshots it → app.yaml.template on first run, then re-renders
@@ -271,7 +271,7 @@ Short, command-driven. Restate the 5-command flow from the top of this doc with 
 ./app/scripts/lakebase_setup_db.sh --db-name dbgen_<demo>
 # 2. Resource shells + setup job
 databricks bundle deploy --var catalog=<cat> --var schema=<schema> --var warehouse_id=<id>
-# 3. Run the setup job (data → pipeline → MV/ML → genie/ka/mas → export IDs)
+# 3. Run the setup job (data → pipeline → MV/ML → PDF upload → genie + documents index → export IDs)
 databricks bundle run <demo>_setup --var catalog=<cat> --var schema=<schema> --var warehouse_id=<id>
 # 4. Grant the app SP on the Lakebase schemas
 ./app/scripts/lakebase_grant_app_credential.sh --app-name <app> --project-id <proj> --db-name dbgen_<demo>
@@ -285,7 +285,7 @@ provisioning wait on update).
 
 ## Teardown
 `databricks bundle destroy --auto-approve`
-(Does not drop the Lakebase project/DB, UC tables/volumes, or the Genie/KA/MAS.)
+(Does not drop the Lakebase project/DB, UC tables/volumes, or the Genie agent.)
 ````
 
 **When the demo has no App (workflow-only):** drop the `apps:` block + steps 1/4/5; deploy is just `bundle deploy` then `bundle run <demo>_setup`.
@@ -301,9 +301,9 @@ provisioning wait on update).
 | Pipeline fails on non-default catalog/schema | Hardcoded paths in SDP SQL bronze. Use Python bronze or document the constraint. |
 | App deploy "Field 'name' expects projects/.../databases/..." | `postgres` binding's `database:` needs the full slugged path. Use `${var.lakebase_database_id}`. |
 | App migrations fail with `pg=42501` | Binding grants CONNECT only. Run `app/scripts/lakebase_grant_app_credential.sh` post-deploy. |
-| `postgres_projects` deploy fails with "workspace projects limit exceeded" | Workspace at 1000-project Lakebase quota. Use the shared `dbdemos-asset-generator` project via `lakebase_setup_db.sh` (auto-bumps to `-2`, `-3`, ...). |
+| `postgres_projects` deploy fails with "workspace projects limit exceeded" | Workspace at 1000-project Lakebase quota. Use the shared project pool via `lakebase_setup_db.sh` (distributes across `dbdemos-asset-generator`, `-2` … `-9`, capped at `SHARED_PROJECT_MAX_DBS` databases each). |
 | `bundle destroy` wiped Lakebase or the App | Missing `lifecycle.prevent_destroy: true`. Add to any stateful resource. |
-| App container `npm install` hangs ~8 min then fails with `Exit handler never called!` | Lockfile has `npm-proxy.dev.databricks.com` URLs (VPN-baked). `scripts/build-app.sh` rewrites them — make sure the artifact hook is wired. |
+| App container `npm install` hangs ~8 min then fails with `Exit handler never called!` | Lockfile has a private npm-mirror URL (baked in when `npm install` ran against a private registry). Re-run `npm install --registry=https://registry.npmjs.org/` to regenerate the lockfile URLs. |
 | App container `npm run build` fails with `tsdown: not found` | `omit=dev` strips build tools. Make `package.json`'s `build` a no-op echo; real build runs as `build:source` locally. |
 | App boots crashes with `Warehouse ID not found` / `PGHOST missing` | Binding declared but `app.yaml` is missing the matching `valueFrom: <binding-name>` entry. |
 | App boot fails with `Error installing packages` and no stderr | Container install logs are too quiet. Add `loglevel=verbose` to `.npmrc` to see per-package fetch progress. |
@@ -317,4 +317,4 @@ provisioning wait on update).
 | Analytics chart: `TABLE_OR_VIEW_NOT_FOUND` / `INSUFFICIENT_PERMISSIONS: USE CATALOG` | Query hardcodes/omits catalog/schema, or the SP lacks UC grants. Write queries schema-relative + run via the charts route (passes catalog/schema as session context); ensure `grant_app_uc` ran. |
 | `bundle run <app>` recreates the app deployment with EMPTY env every time | Expected — a bare app deploy ships no plain-value env. Always finish with `finalize_app.sh` (it writes app.yaml env then deploys). Don't deploy the app via the bundle alone. |
 
-For component-specific pitfalls (Genie API requirements, KA document formats), see the reference scripts in [`scripts/`](scripts/).
+For component-specific pitfalls (Genie API requirements, PDF document formats), see the reference scripts in [`scripts/`](scripts/).

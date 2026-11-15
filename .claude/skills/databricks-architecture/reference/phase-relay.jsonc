@@ -1,0 +1,109 @@
+// REFERENCE — a MULTI-PHASE RELAY: one artifact handed across trust boundaries
+// (here: author → hand off through an external platform → execute + decide on
+// Databricks → verify + serve back on the external platform). Read this when the
+// ask is a PIPELINE OF PHASES, not a single-platform flow: "promote models through
+// our existing ML platform with Databricks in the middle", "migration phases",
+// "dev → staging → prod with a gate between".
+//
+// WHAT IT TEACHES (the pattern, distilled from a real customer diagram that went
+// through five review rounds):
+//
+//   1. CHEVRON PHASE BANNERS name the sequence. One `type:"shape", shape:"chevron"`
+//      per phase, numbered, carrying the platform attribution ("· Databricks"). Each
+//      banner is the first child of its phase box and carries the same `track`, so the four
+//      banners sit on one line. The chevron IS the phase label — the phase boxes are
+//      left UNTITLED so the two never duplicate. A reader follows the banner 1→2→3→4; the
+//      edges only show data flow.
+//   2. LEVEL TOPS. The four phase boxes are the columns of one top-level row, and each
+//      phase starts with its banner. Keep the banners on the same track, so every banner and
+//      box top sits on one line. A phase with a different first child breaks the row.
+//   3. HAND-OFFS STAY SHORT: the receiving tile shares a `track` with the sender, or the
+//      next one. Inside a phase, steps stack vertically — that is the idiom, not a mistake;
+//      the banner carries the sequence, so the within-column chains don't need to be horizontal.
+//   4. THE DATA PLANE READS AS ITS OWN MINI-FLOW. Inside the Databricks phase the
+//      top row is one horizontal line: orchestrator → feature pipeline → training.
+//      The governance chain (registry → gate) drops below training, where the
+//      story says the decision happens.
+//   5. ARROWS. Static exports draw an arrowhead on every `flow:true` edge
+//      automatically; the explicit `arrow:"end"` here also gives the NON-flow
+//      hand-off edges a direction on the live canvas.
+//   6. PLAIN LANGUAGE ON TILES. "Classic ML training", "evaluation gate",
+//      "feature pipeline" — the demo's internal job/schema/SP names live in the
+//      LEGEND, not on the tiles. Subtitle budget: ~20–25 chars on a 220px source.
+//   7. A TILE MUST EARN ITS PLACE. There is no "raw data" satellite feeding the
+//      medallion from outside the frame: the medallion's bronze layer IS the
+//      landing point. (And if an asset's placement is itself the claim — "this
+//      data never transits the control plane" — the absence of an edge carries
+//      it; say so in `ai_reasoning`.)
+//
+// PITFALLS:
+//   • A banner is the first child of its phase box, a chevron `shape` with the phase's
+//     `track`. Do not place it with `at`: a hand-placed banner drifts when the box moves.
+//   • Chevron text must clear the point + notch (≈ 2×34px of inset): ~28 chars
+//     max on a 336px banner at fontSize 18. Abbreviate platforms the audience
+//     knows ("AML", "AWS") when it's tight.
+//   • A tall composite (medallion-table renders ~126px) is taller than the other tiles
+//     beside it. `align: "start"` keeps the row's tops on one line.
+//   • ONE level of nesting is usually enough: a "Unity Catalog" box nested in
+//     the Databricks phase box reads as noise. The UC registry + gate TILES
+//     carry the governance presence.
+// =============================================================================
+[
+  {
+    "name": "Phase relay",
+    "story": "One candidate, left to right: author it, hand it off through the existing platform, execute and decide on Databricks, then verify and serve a copy back. The gate is the only place the champion alias can move. NOT SHOWN: the inner dev loop and the identity chain — those are separate tabs.",
+    "aspect": "16:9",
+    "frame": {"title":"Model promotion across platforms","subtitle":"Author → hand off → execute + decide on Databricks → verify + serve"},
+    "direction": "horizontal",
+    "theme": "slide",
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "author-box", "type": "box", "layout": "column", "gap": 70, "align": "center", "pad": 40, "children": [
+        {"id": "ph-author", "type": "shape", "shape": "chevron", "text": "1 · Author", "size": [200,64], "fontSize": 18, "track": "line-ph-author"},
+        {"id": "git", "type": "source", "label": "Git", "icon": "file:vendor/github", "desc": "Source of truth", "showDesc": true, "track": "line-git"},
+        {"id": "cli", "type": "source", "label": "release CLI", "icon": "file:vendor/python", "desc": "starts a tracked run", "showDesc": true, "track": "line-cli"}
+      ] },
+      {"id": "handoff-box", "type": "box", "layout": "column", "gap": 22, "align": "center", "pad": 40, "children": [
+        {"id": "ph-handoff", "type": "shape", "shape": "chevron", "text": "2 · Hand off · External", "size": [200,64], "fontSize": 18, "track": "line-ph-author"},
+        {"id": "ext-pipeline", "type": "source", "label": "External pipeline", "icon": "file:cloud/azure/ml/machine-learning", "desc": "parent run", "showDesc": true, "track": "line-git"},
+        {"id": "orchestrator", "type": "source", "label": "orchestrator", "icon": "file:cloud/azure/ml/machine-learning", "desc": "same code, both clouds", "showDesc": true, "track": "line-cli"},
+        {"id": "secrets", "type": "source", "label": "Secret store", "icon": "file:cloud/azure/security/key-vault", "desc": "Databricks token", "showDesc": true, "track": "line-secrets"}
+      ] },
+      {"id": "dbx-box", "type": "box", "layout": "column", "gap": 70, "align": "center", "pad": 40, "children": [
+        {"id": "ph-execute", "type": "shape", "shape": "chevron", "text": "3 · Execute + decide · Databricks", "size": [200,64], "fontSize": 18, "track": "line-ph-author"},
+        {"id": "row-job", "type": "group", "layout": "row", "gap": 78, "align": "start", "children": [
+          {"id": "job", "type": "lakeflow-jobs", "label": "Lakeflow Job", "desc": "runs the pipeline", "showDesc": true, "track": "line-git"},
+          {"id": "features", "type": "medallion-table", "label": "feature pipeline", "params": {"feature_store": true}, "ai_reasoning": "The feature-store composite is tall: it sits beside the job and the training column, not under them."},
+          {"id": "col-training", "type": "group", "layout": "column", "gap": 24, "align": "center", "children": [
+            {"id": "training", "type": "model-training", "label": "Classic ML training", "desc": "Prophet vs seasonal-naive", "showDesc": true, "track": "line-git"},
+            {"id": "registry", "type": "uc-model-registry", "label": "UC registry", "desc": "two model versions", "showDesc": true, "track": "line-cli"}
+          ] }
+        ] },
+        {"id": "gate", "type": "mlops", "label": "evaluation gate", "desc": "moves @champion if better", "showDesc": true, "track": "line-secrets"}
+      ] },
+      {"id": "serve-box", "type": "box", "layout": "column", "gap": 22, "align": "center", "pad": 40, "children": [
+        {"id": "ph-serve", "type": "shape", "shape": "chevron", "text": "4 · Verify + serve · External", "size": [200,64], "fontSize": 18, "ai_reasoning": "Each phase box starts with its chevron banner; the banners share a track so they read as one row of phases.", "track": "line-ph-author"},
+        {"id": "rebuild", "type": "source", "label": "Rebuild", "icon": "file:cloud/azure/ml/machine-learning", "desc": "rebuild + canary test", "showDesc": true, "track": "line-git"},
+        {"id": "ext-registry", "type": "source", "label": "External registry", "icon": "file:cloud/azure/ml/machine-learning", "desc": "UC champion copy", "showDesc": true, "track": "line-cli"},
+        {"id": "endpoint", "type": "source", "label": "Online endpoint", "icon": "file:cloud/azure/ml/machine-learning", "track": "line-secrets"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "git", "to": "cli", "label": "commit", "arrow": "end"},
+      {"id": "e2", "from": "cli", "to": "ext-pipeline", "label": "submit", "arrow": "end"},
+      {"id": "e3", "from": "ext-pipeline", "to": "orchestrator", "label": "step runs", "arrow": "end"},
+      {"id": "e4", "from": "secrets", "to": "orchestrator", "label": "token", "arrow": "end"},
+      {"id": "e5", "from": "orchestrator", "to": "job", "label": "trigger", "arrow": "end", "flow": true},
+      {"id": "e6", "from": "job", "to": "features", "label": "runs", "arrow": "end"},
+      {"id": "e7", "from": "features@out-fs", "to": "training", "label": "features", "arrow": "end", "flow": true},
+      {"id": "e8", "from": "training", "to": "registry", "arrow": "end", "flow": true},
+      {"id": "e9", "from": "registry", "to": "gate", "arrow": "end"},
+      {"id": "e10", "from": "job", "to": "orchestrator", "label": "evidence", "arrow": "end", "dashed": true, "ai_reasoning": "The one backward edge, deliberately dashed: observability flows back to the watching parent. A return edge is fine when it is ONE, labelled, and visually distinct."},
+      {"id": "e11", "from": "registry", "to": "rebuild", "label": "pulls @champion", "arrow": "end"},
+      {"id": "e12", "from": "rebuild", "to": "ext-registry", "label": "byte-identical", "arrow": "end"},
+      {"id": "e13", "from": "ext-registry", "to": "endpoint", "label": "serve", "arrow": "end"}
+    ]
+  }
+]

@@ -10,7 +10,7 @@
  * resizes the tile. (Logo annotations render via RotatableCard directly, NOT
  * through NodeCard; their icon+caption footprint comes from `logoFootprint`.)
  *
- * Composites (lakeflow / governance / agent-bricks / …) and the text/box/image
+ * Composites (lakeflow / governance / databricks-agent / …) and the text/box/image
  * annotation variants are NOT built on this — they have their own layouts.
  *
  * The icon is supplied by the caller as a render function so NodeCard stays
@@ -18,7 +18,8 @@
  * the icon *slot* sizing. Sizing/box/caption/edit all live here so every caller
  * behaves identically.
  */
-import { useState, type ReactNode } from "react";
+import { useState, useRef, useLayoutEffect, type ReactNode } from "react";
+import type { ArchitectureTheme } from "@/lib/platform-architecture";
 import {
   RotatableCard,
   cardStyle,
@@ -33,6 +34,7 @@ export type CaptionPosition = "right" | "left" | "top" | "bottom";
 export interface NodeCardProps {
   /** Node id (instance id) — for the mutation callbacks. */
   nodeId: string;
+  theme: ArchitectureTheme;
   selected: boolean;
   editMode: boolean;
   isDropTarget: boolean;
@@ -62,6 +64,8 @@ export interface NodeCardProps {
   /** Optional extras — product tiles only. */
   subtitle?: string;
   badge?: { text: string; icon?: ReactNode };
+  /** Catalog-deprecated component: edit-mode "Deprecated" marker (see RotatableCard). */
+  deprecated?: boolean;
   liveLink?: boolean;
   /** Extra content under the header row (e.g. the SDP medallion). */
   extraContent?: ReactNode;
@@ -74,6 +78,15 @@ export interface NodeCardProps {
    *  logos. */
   description?: string;
   showDescription?: boolean;
+  /** Wrap the description to multiple lines instead of truncating on one line.
+   *  The box auto-grows to fit — the card MEASURES its real content height and
+   *  reports it via onAutoHeight so the box tracks it exactly (no estimate). */
+  wrapDescription?: boolean;
+  /** Report the measured content height (px) for a wrap-desc auto-height tile. */
+  onAutoHeight?: (h: number) => void;
+  /** True when this tile is a wrap-desc tile with NO explicit user height, so the
+   *  measured content height should drive the box. */
+  autoHeight?: boolean;
   onCommitDescription?: (value: string) => void;
 
   /** Layout. `caption` positions the icon vs the title. The box is always FIXED
@@ -132,13 +145,44 @@ export function NodeCard(p: NodeCardProps) {
       setEditingDesc(null);
     }
   };
+
+  // AUTO-HEIGHT (wrap-desc): measure the card's real rendered CONTENT height and
+  // report it up, so the box tracks the wrapped text exactly instead of relying on
+  // a char-count estimate. `contentRef` is the padded content row; its scrollHeight
+  // is the intrinsic content height even when the shell is forced taller. We report
+  // only when it MEANINGFULLY changes (>1px) to avoid a measure→resize→measure loop,
+  // and only for an auto-height tile (wrap on, no explicit user height).
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const lastReportedH = useRef<number>(0);
+  useLayoutEffect(() => {
+    if (!p.autoHeight || !p.onAutoHeight) return;
+    const el = contentRef.current;
+    if (!el) return;
+    const measure = () => {
+      // The content row is `h-fit` (sized to its content, not stretched), so its
+      // offsetHeight IS the intrinsic content height (includes its own py padding).
+      // +2 for the shell's 1px top/bottom border. Report only a real change (>1px)
+      // so a measure→resize→measure settle doesn't loop.
+      const h = Math.ceil(el.offsetHeight) + 2;
+      if (Math.abs(h - lastReportedH.current) > 1) {
+        lastReportedH.current = h;
+        p.onAutoHeight!(h);
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [p.autoHeight, p.onAutoHeight, p.description, p.title, p.wrapDescription, p.theme]);
   const showDesc = !!p.showDescription && !!p.onCommitDescription;
 
   const cap: CaptionPosition = p.caption ?? "right";
   const horizontal = cap === "right" || cap === "left";
   const iconFirst = cap === "right" || cap === "bottom";
   const scale = p.scale;
-  const fontSize = p.fontSize ?? 13;
+  // 15px remains readable after the whole diagram is scaled into a PNG.
+  // Explicit per-node sizes still win.
+  const fontSize = p.fontSize ?? 15;
   const bold = !!p.bold;
 
   // Box style. "tile" → the product cardStyle (border + band tint + bg-card);
@@ -148,6 +192,7 @@ export function NodeCard(p: NodeCardProps) {
   if (p.styleVariant === "tile") {
     const card = cardStyle(
       {
+        theme: p.theme,
         borderWidth: p.borderWidth, borderStyle: p.borderStyle, borderColor: p.borderColor,
         borderRadius: p.borderRadius, shadow: p.shadow, fillColor: p.fillColor,
         fontColor: p.fontColor, opacity: p.opacity,
@@ -195,7 +240,7 @@ export function NodeCard(p: NodeCardProps) {
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       placeholder={p.titlePlaceholder}
-      className={`min-w-0 w-full bg-transparent text-[13px] font-semibold outline-none ${p.fontColor ? "" : "text-foreground"}`}
+      className={`min-w-0 w-full bg-transparent text-[15px] font-semibold outline-none ${p.fontColor ? "" : "text-foreground"}`}
       style={p.fontColor ? { color: p.fontColor, fontSize, ...(bold ? { fontWeight: 700 } : {}) } : { fontSize, ...(bold ? { fontWeight: 700 } : {}) }}
     />
   ) : p.title ? (
@@ -205,8 +250,14 @@ export function NodeCard(p: NodeCardProps) {
         // show the full label, single line, allowed to extend past the frame.
         p.styleVariant === "logo"
           ? "whitespace-nowrap font-medium"
-          : "truncate font-semibold"
-      } text-[13px] ${p.fontColor ? "" : "text-foreground"}`}
+          // Slide titles wrap to a second line before they ellipsize: a default
+          // label ("Knowledge Assistant", "PDF documents") is longer than one line
+          // at the ~20px slide size, and an author cannot avoid that. Box sizes
+          // stay fixed; a title that still needs a third line ellipsizes.
+          : p.theme === "slide"
+            ? "line-clamp-2 break-words font-semibold leading-tight"
+            : "truncate font-semibold"
+      } text-[15px] ${p.fontColor ? "" : "text-foreground"}`}
       style={{ fontSize, ...(bold ? { fontWeight: 700 } : {}), ...(p.fontColor ? { color: p.fontColor } : {}) }}
       title="Double-click to edit"
       onDoubleClick={(e) => { e.stopPropagation(); setEditing(p.title); }}
@@ -219,7 +270,7 @@ export function NodeCard(p: NodeCardProps) {
     // Logos (hideEmptyTitle) render NOTHING here — the mark fills the tile and
     // double-clicking the icon adds a label (see the icon wrapper below).
     <span
-      className="min-w-0 truncate text-[13px] italic text-muted-foreground/50"
+      className="min-w-0 truncate text-[15px] italic text-muted-foreground/50"
       style={{ fontSize }}
       title="Double-click to add a label"
       onDoubleClick={(e) => { e.stopPropagation(); setEditing(""); }}
@@ -244,13 +295,15 @@ export function NodeCard(p: NodeCardProps) {
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       placeholder="Description"
-      className={`mt-0.5 block w-full min-w-0 bg-transparent text-[9.5px] font-normal leading-tight text-muted-foreground outline-none ${horizontal ? "text-left" : "text-center"}`}
+      className={`mt-0.5 block w-full min-w-0 bg-transparent font-normal leading-tight text-muted-foreground outline-none ${p.theme === "slide" ? "text-[15px]" : "text-[11px]"} ${horizontal ? "text-left" : "text-center"}`}
     />
   ) : (
     // When the toggle is ON but empty, still render a faint, double-clickable
     // placeholder so the user has something to click to add the text.
+    // `wrapDescription` swaps the single-line truncate for a wrapping block
+    // (`whitespace-normal break-words`); the box auto-grows to fit (nodeFootprint).
     <span
-      className={`mt-0.5 block truncate text-[9.5px] font-normal leading-tight ${p.description ? "text-muted-foreground" : "italic text-muted-foreground/50"}`}
+      className={`mt-0.5 block font-normal leading-tight ${p.wrapDescription ? "whitespace-normal break-words" : "truncate"} ${p.theme === "slide" ? "text-[15px]" : "text-[11px]"} ${p.description ? "text-muted-foreground" : "italic text-muted-foreground/50"}`}
       title="Double-click to edit description"
       onDoubleClick={(e) => { e.stopPropagation(); setEditingDesc(p.description ?? ""); }}
     >
@@ -265,11 +318,11 @@ export function NodeCard(p: NodeCardProps) {
   const leftCaption = cap === "left";
   const labelCol = (
     <span className={`flex min-w-0 flex-col ${horizontal ? `flex-1 ${leftCaption ? "items-end text-right" : ""}` : "items-center text-center"}`}>
-      <span className={`flex min-w-0 items-center gap-1.5 leading-tight ${horizontal ? (leftCaption ? "justify-end" : "") : "justify-center"}`}>
+      <span className={`flex min-w-0 flex-wrap items-center gap-1.5 leading-tight ${horizontal ? (leftCaption ? "justify-end" : "") : "justify-center"}`}>
         {titleEl}
         {p.badge && editing === null && (
           <span
-            className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white"
+            className={`inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 font-bold uppercase tracking-wide text-white ${p.theme === "slide" ? "text-[10px]" : "text-[8px]"}`}
             style={{ background: "#EF5B3F", lineHeight: 1 }}
             title={`${p.title} — ${p.badge.text}`}
           >
@@ -285,7 +338,7 @@ export function NodeCard(p: NodeCardProps) {
         )}
       </span>
       {p.subtitle && (
-        <span className="mt-0.5 block truncate text-[9.5px] font-normal leading-tight text-muted-foreground">{p.subtitle}</span>
+        <span className={`mt-0.5 block truncate font-normal leading-tight text-muted-foreground ${p.theme === "slide" ? "text-[13px]" : "text-[11px]"}`}>{p.subtitle}</span>
       )}
       {descEl}
     </span>
@@ -308,6 +361,7 @@ export function NodeCard(p: NodeCardProps) {
       stack={p.stack}
       stackRadius={p.borderRadius ?? 12}
       stackBorderColor={(boxStyle.borderColor as string | undefined)}
+      deprecated={p.deprecated}
       onResize={(w, h, center) => p.onResize(p.nodeId, w, h, undefined, center)}
       {...(p.onScale ? { onScale: (w: number) => p.onScale!(p.nodeId, w) } : {})}
       onContext={(e) => { e.preventDefault(); p.onContext(p.nodeId, e.clientX, e.clientY); }}
@@ -332,7 +386,8 @@ export function NodeCard(p: NodeCardProps) {
         style={boxStyle}
       >
         <div
-          className={`flex min-h-0 w-full flex-1 ${horizontal ? "flex-row items-center gap-2.5" : "flex-col items-center justify-center gap-1.5"} ${p.styleVariant === "logo" ? "px-1.5 py-1.5" : "px-3 py-2.5"}`}
+          ref={contentRef}
+          className={`flex min-h-0 w-full ${p.autoHeight ? "h-fit" : "flex-1"} ${horizontal ? `flex-row ${p.wrapDescription ? "items-start" : "items-center"} ${p.theme === "slide" ? "gap-1.5" : "gap-2.5"}` : "flex-col items-center justify-center gap-1.5"} ${p.styleVariant === "logo" ? "px-1.5 py-1.5" : p.theme === "slide" ? "px-2 py-2.5" : "px-3 py-2.5"}`}
           style={{ transform: "scale(var(--cs, 1))", transformOrigin: horizontal ? "left center" : "center" }}
         >
           {iconFirst ? <>{iconEl}{labelCol}</> : <>{labelCol}{iconEl}</>}

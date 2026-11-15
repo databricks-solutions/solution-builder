@@ -1,7 +1,7 @@
 /**
- * One uploaded-file chip displayed under the home-page textarea.
+ * One uploaded-file chip displayed above the home-page textarea.
  *
- * Renders: a format-aware icon, the filename, the byte size, a small
+ * Renders: a format-aware icon (a thumbnail for an image), the filename, the byte size, a small
  * "truncated" badge when the original was bigger than the per-file cap,
  * and a × remove button. Keeping this isolated so the home page route
  * file doesn't bloat with chip-render logic.
@@ -32,14 +32,24 @@ function formatBytes(n: number): string {
 
 export function FileUploadChip({ file, onRemove }: Props) {
   const Icon = pickIcon(file.filename);
+  const thumb =
+    file.content_type.startsWith("image/") && file.original_b64
+      ? `data:${file.content_type};base64,${file.original_b64}`
+      : null;
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-2 rounded-md border border-border bg-background/70",
-        "px-2.5 py-1.5 text-xs max-w-full",
+        // Fixed height so image chips (thumbnail) and file chips (icon) line up.
+        "inline-flex h-8 items-center gap-2 rounded-md border border-border bg-background/70",
+        "text-xs max-w-full",
+        thumb ? "pl-1 pr-2.5" : "px-2.5",
       )}
     >
-      <Icon className="size-3.5 text-muted-foreground shrink-0" />
+      {thumb ? (
+        <img src={thumb} alt="" className="size-6 shrink-0 rounded-sm border border-border/60 object-cover" />
+      ) : (
+        <Icon className="size-3.5 text-muted-foreground shrink-0" />
+      )}
       <span className="truncate font-medium" title={file.filename}>
         {file.filename}
       </span>

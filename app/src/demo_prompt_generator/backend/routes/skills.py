@@ -171,6 +171,8 @@ def get_project_system_prompt(
         workspace_url=get_workspace_url(),
         skills=skills,
         project_dir=str(project_dir),
+        project_id=project_id,
+        mode=project.mode,
     )
 
     return SystemPromptResponse(prompt=prompt)
@@ -352,9 +354,14 @@ def debug_claude_binary(
         )
 
     from ..services.agent import _build_claude_env
+    from ..core.auth import build_subprocess_env
     env = _build_claude_env(project_dir, mode=mode, local_profile=databricks_profile)
-    # Merge with os.environ like the SDK does.
-    full_env = {**os.environ, **env, "CLAUDE_CODE_ENTRYPOINT": "sdk-py"}
+    # Merge with os.environ like the SDK does — via build_subprocess_env so the
+    # UNSET_ENV removal sentinel is honored (defense-in-depth: _build_claude_env
+    # already drops it today for the agent, but never hand-roll {**os.environ,
+    # **env} on an auth env — the single invariant is "merge through the helper").
+    full_env = build_subprocess_env(os.environ, env)
+    full_env["CLAUDE_CODE_ENTRYPOINT"] = "sdk-py"
 
     # Mirror the SDK's exact base command (subprocess_cli._build_command).
     # We pipe a single user message via stdin in stream-json format and let

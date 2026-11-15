@@ -39,6 +39,40 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# ── Stage timing ─────────────────────────────────────────────────────────────
+# `stage "label"` prints a timestamped ▸ marker AND closes the previous stage
+# with its elapsed time, so a slow step (e.g. a big rsync or the uv resolve)
+# is immediately visible in the deploy log. `stage_end` closes the
+# last one. Uses epoch seconds (portable macOS + Linux).
+_BUILD_T0=$(date +%s)
+_STAGE_T=$_BUILD_T0
+_STAGE_LABEL=""
+_elapsed() { local s=$1 n; n=$(date +%s); printf '%dm%02ds' $(( (n-s)/60 )) $(( (n-s)%60 )); }
+stage() {
+    [[ -n "$_STAGE_LABEL" ]] && echo -e "  ${GREEN}✓ ${_STAGE_LABEL} ($(_elapsed "$_STAGE_T"))${NC}"
+    _STAGE_LABEL="$1"; _STAGE_T=$(date +%s)
+    echo -e "${BLUE}▸ ${_STAGE_LABEL}${NC}"
+}
+stage_end() {
+    [[ -n "$_STAGE_LABEL" ]] && echo -e "  ${GREEN}✓ ${_STAGE_LABEL} ($(_elapsed "$_STAGE_T"))${NC}"
+    _STAGE_LABEL=""
+    echo -e "${GREEN}✓ build.sh total: $(_elapsed "$_BUILD_T0")${NC}"
+}
+# On failure, name the stage we died in (the real EXIT trap that also cleans the
+# staged dirs is installed later — it calls this). Kept as a function so we don't
+# register a second `trap ... EXIT` (that would REPLACE the cleanup trap below).
+_report_stage_failure() {
+    local rc=$1
+    if [[ $rc -ne 0 && -n "$_STAGE_LABEL" ]]; then
+        echo -e "  ✗ FAILED during: ${_STAGE_LABEL} (after $(_elapsed "$_STAGE_T"))" >&2
+    fi
+    # MUST return 0: this runs inside the EXIT trap on the SUCCESS path too. A
+    # bare trailing `[[ … ]] && …` returns the test's status (1 when false), and
+    # under `set -e` + the trap that turned a successful build into `exit 1`
+    # (the DAB CLI then reported "build failed"). Never let this leak non-zero.
+    return 0
+}
+
 cd "$APP_DIR"
 
 # Parse args. --target is passed by the bundle artifact build (databricks.yml)
@@ -54,21 +88,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Any bundle deploy (--target set) rewrites the lock's internal-proxy URLs to
-# public PyPI: the proxy mirrors PyPI with identical /packages/<hash>/ paths so
-# hashes stay valid, and some Apps containers can't reach
-# pypi-proxy.dev.databricks.com. Local dev builds (no --target) skip it —
-# on the Databricks network the proxy is the faster path. Overridable via the
-# REWRITE_LOCK_TO_PUBLIC_PYPI env var.
-if [[ -n "$TARGET" && -z "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" ]]; then
-    REWRITE_LOCK_TO_PUBLIC_PYPI=1
-fi
-
 # --- 1. Build frontend ---
+stage "[1/4] frontend (bun install + vite build)"
 if [[ -z "$SKIP_FRONTEND" ]]; then
     if [[ ! -d node_modules ]]; then
         echo -e "${BLUE}[1/4] Installing frontend dependencies (bun install)...${NC}"
-        bun install
+        # In CI (GitHub Actions sets CI=true) install FROZEN so a preview/deploy build
+        # can't silently drift from bun.lock; local dev stays flexible. ${CI:+...} adds
+        # the flag only when CI is set.
+        bun install ${CI:+--frozen-lockfile}
     fi
     echo -e "${BLUE}[1/4] Building frontend...${NC}"
     bun run --cwd "$APP_DIR" vite build --config vite.config.ts
@@ -100,12 +128,13 @@ done
 # package). Shipping these as loose workspace files crashed the App's source
 # download with a list-files timeout; bundling into the wheel = one big file.
 PKG_DIR="src/demo_prompt_generator"
+stage "[2/4] stage runtime data into the wheel (.claude/skills, agent skills)"
 echo -e "${BLUE}[2/4] Staging runtime data inside $PKG_DIR/...${NC}"
 # Always clean up after build so dev iteration doesn't accumulate (and so
 # `git status` stays clean even if the build fails partway through).
 # `bin/` is excluded from cleanup so a cached CLI binary survives across
 # back-to-back builds (the version-check below skips re-download when fresh).
-trap 'rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/databricks_agent_skill"' EXIT
+trap 'rc=$?; _report_stage_failure "$rc"; rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/databricks_agent_skill"; exit $rc' EXIT
 rm -rf "$PKG_DIR/.claude" "$PKG_DIR/initial_templates" "$PKG_DIR/databricks_agent_skill"
 
 # NOTE: We do NOT ship the Databricks CLI inside the wheel — the App's
@@ -128,26 +157,6 @@ if [[ -d "../.claude/skills/databricks-solution-builder" ]]; then
         "../.claude/skills/databricks-solution-builder/" \
         "$PKG_DIR/.claude/skills/databricks-solution-builder/"
 
-    # Rewrite the template app's npm lockfile internal-proxy URLs -> public
-    # registry IN THE WHEEL COPY (never the source — local dev keeps the proxy).
-    # The committed app_template/package-lock.json carries
-    # npm-proxy.*.databricks.com `resolved` URLs (a dev's `npm install` on VPN
-    # writes them); the generated demo's Apps container can't reach that proxy
-    # and npm HONORS the lockfile's `resolved` host regardless of any registry=
-    # setting, so it must be scrubbed here. Same gate + intent as the uv.lock
-    # rewrite below (on any bundle deploy; local builds keep the faster proxy).
-    if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
-        _tmpl_lock="$PKG_DIR/.claude/skills/databricks-solution-builder/app/app_template/package-lock.json"
-        if [[ -f "$_tmpl_lock" ]]; then
-            echo "  Rewriting app_template package-lock.json internal proxy URLs -> public npm registry"
-            perl -i -pe 's{https://npm-proxy[.-][a-z0-9.-]*databricks\.com/}{https://registry.npmjs.org/}g' "$_tmpl_lock"
-            if grep -q "npm-proxy" "$_tmpl_lock"; then
-                echo "ERROR: app_template package-lock.json still references npm-proxy after rewrite" >&2
-                grep -n "npm-proxy" "$_tmpl_lock" | head >&2
-                exit 1
-            fi
-        fi
-    fi
 fi
 
 # .claude/skills/databricks-architecture/ — the architecture-diagram skill the
@@ -167,26 +176,42 @@ fi
 
 # initial_templates/ — pre-authored seed templates.
 # NOT shipped inside the wheel (they were ~5 MB, pushing the wheel over the Apps
-# 10 MB per-file source-export cap). Instead we clean-stage them here and, in the
-# assemble step below, zip EACH template folder into .build/initial_templates_zips/
-# <slug>.zip. Those small per-template zips ship alongside the wheel (synced via
-# databricks.yml) and start.sh unzips them into a runtime dir on boot; the seeder
-# reads that dir (INITIAL_TEMPLATES_DIR). Per-template zips (not one big file)
-# stay well under the cap and keep the upload to ~a dozen files (no loose-file
-# list-timeout). STRIP build/dep/state junk first (a deploy-test can leave
-# .databricks/, node_modules/, dist/, .venv/, or a local .env in a template).
-# Mirrors seed_templates._should_include_in_template.
-TEMPLATES_STAGE=""
+# 10 MB per-file source-export cap). Instead, the assemble step below zips EACH
+# template folder into .build/initial_templates_zips/<slug>.zip. Those small
+# per-template zips ship alongside the wheel (synced via databricks.yml); the
+# workspace AUTO-EXPANDS each .zip on upload, so the container gets already-
+# unzipped folders the seeder walks (rglob manifest.json). Per-template zips (not
+# one big file) stay under the cap and keep the upload to ~a dozen files.
+#
+# We zip DIRECTLY from ../initial_templates with `zip -x` excludes (see
+# _zip_template below) — no pre-copy. A template `npm ci`/`npm install` leaves an
+# ~855 MB node_modules (≈690K tiny files); with 8 workshop apps that's ~6.8 GB.
+# The old approach `cp -r`'d the whole tree to a temp dir THEN deleted the junk,
+# so it copied all 6.8 GB first and stalled the deploy for minutes on "Building
+# default…". Zipping straight from source + skipping junk during the walk avoids
+# the copy entirely. Exclude set mirrors seed_templates._should_include_in_template.
+#
+# _TEMPLATE_JUNK_DIRS is excluded at BOTH the template root (`<rel>/<junk>/*`) AND
+# nested (`<rel>/*/<junk>/*`) — a single `<rel>/*/<junk>/*` pattern MISSES a junk
+# dir sitting directly under the template root (e.g. `<tpl>/.databricks/`), which
+# leaked .databricks/node_modules into the archives. _zip_template expands both
+# depths per dir (see below). File globs are excluded as-is (match at any depth).
+TEMPLATES_SRC=""
+# Kept in lockstep with template_service.JUNK_DIRS (the seeder's exclude-list) so
+# a build/CI host that ran the templates' vitest/playwright suites doesn't zip
+# test-results/ + playwright-report/ (multi-MB traces/PNGs) or raw_data/ into the
+# archives only for the seeder to discard them — which would re-bloat exactly what
+# this shipping change shrinks. If JUNK_DIRS changes, change this too.
+_TEMPLATE_JUNK_DIRS=(
+    .claude node_modules .venv venv __pycache__ .databricks
+    dist build .git .pytest_cache .mypy_cache .ruff_cache
+    test-results playwright-report raw_data .turbo .next
+)
+# File globs excluded at any depth. Bare (un-prefixed) names would be dead —
+# stored zip paths are always "<rel>/…", so only the "*/…" forms can ever match.
+_TEMPLATE_JUNK_FILES=('*.pyc' '*/.env' '*/.env.*' '*/.preview.*' '*/.DS_Store')
 if [[ -d "../initial_templates" ]]; then
-    TEMPLATES_STAGE="$(mktemp -d)/initial_templates"
-    cp -r "../initial_templates" "$TEMPLATES_STAGE"
-    for junk in .databricks node_modules dist __pycache__ .venv .turbo .next; do
-        find "$TEMPLATES_STAGE" -type d -name "$junk" -prune -print0 2>/dev/null \
-            | xargs -0 rm -rf 2>/dev/null || true
-    done
-    find "$TEMPLATES_STAGE" -type f \
-        \( -name ".env" -o -name ".env.*" -o -name "*.pyc" -o -name ".preview.*" \
-           -o -name ".DS_Store" \) -delete 2>/dev/null || true
+    TEMPLATES_SRC="$(cd ../initial_templates && pwd)"
 fi
 
 # databricks_agent_skill/ — clone the Databricks Agent Skills repo (same branch dev.sh uses)
@@ -239,6 +264,7 @@ if [[ ! -d "$PKG_DIR/databricks_agent_skill" ]]; then
 fi
 
 # --- Build Python wheel ---
+stage "[2/4] build Python wheel (uv build)"
 echo -e "${BLUE}[2/4] Building Python wheel...${NC}"
 rm -f dist/*.whl
 uv build --wheel --out-dir dist/
@@ -271,6 +297,7 @@ WHEEL="$NEW_WHL"
 echo "  Wheel: $(basename "$WHEEL")"
 
 # --- 3. Generate pyproject.toml + uv.lock for the deployed app ---
+stage "[3/4] resolve deploy deps (uv lock — often the slow one)"
 echo -e "${BLUE}[3/4] Generating pyproject.toml + uv.lock for deploy...${NC}"
 WHEEL_BASENAME=$(basename "$WHEEL")
 # We ship a MINIMAL pyproject in .build/ that declares only the local wheel
@@ -300,34 +327,14 @@ EOF
 # Lock against this minimal pyproject. The wheel must be present in the same
 # dir for uv's file:// reference to resolve.
 #
-# Pin the CLOUD (prod) proxy explicitly for this resolve, regardless of the
-# developer's global uv config. The legacy .dev proxy is DEPRECATED (registry
-# proxies moved to cloud.databricks.com; .dev now 403s on /packages/*.metadata).
-# The .cloud proxy mirrors public PyPI's /simple/ + /packages/<hash>/ paths 1:1
-# (verified), so the URL rewrite below keeps hashes valid.
+# Resolve against public PyPI regardless of the developer's global uv config.
 cp "$WHEEL" "dist/uv-stage/"
-(cd dist/uv-stage && UV_INDEX_URL="https://pypi-proxy.cloud.databricks.com/simple/" \
+(cd dist/uv-stage && UV_INDEX_URL="https://pypi.org/simple/" \
     uv lock --quiet --no-config)
 
-# Rewrite the internal PyPI proxy out of the lock when deploying to a workspace
-# whose Apps containers can't reach pypi-proxy.cloud.databricks.com. The proxy
-# mirrors public PyPI with identical /simple/ and /packages/<hash>/ paths, so a
-# pure URL swap to pypi.org / files.pythonhosted.org keeps hashes valid — no
-# re-resolution needed (which matters: the build host often can't reach public PyPI).
-# Gated on REWRITE_LOCK_TO_PUBLIC_PYPI=1 so internal-only deploys are unaffected.
-if [[ "${REWRITE_LOCK_TO_PUBLIC_PYPI:-}" == "1" ]]; then
-    echo "  Rewriting uv.lock internal proxy URLs -> public PyPI"
-    perl -i -pe 's{https://pypi-proxy\.cloud\.databricks\.com/simple/}{https://pypi.org/simple/}g; s{https://pypi-proxy\.cloud\.databricks\.com/packages/}{https://files.pythonhosted.org/packages/}g' dist/uv-stage/uv.lock
-    # Defensive: fail loudly rather than ship a lock that still points at an
-    # internal proxy the app container can't reach.
-    if grep -qE "pypi-proxy\.(dev|cloud)\.databricks\.com" dist/uv-stage/uv.lock; then
-        echo "ERROR: uv.lock still references an internal proxy after rewrite" >&2
-        grep -nE "pypi-proxy\.(dev|cloud)\.databricks\.com" dist/uv-stage/uv.lock | head >&2
-        exit 1
-    fi
-fi
 
 # --- 4. Assemble $BUILD_DIR ---
+stage "[4/4] assemble .build (wheel + zip templates + app.yml + start.sh)"
 echo -e "${BLUE}[4/4] Assembling $BUILD_DIR ...${NC}"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -336,47 +343,67 @@ cp "$WHEEL" "$BUILD_DIR/"
 cp dist/uv-stage/pyproject.toml "$BUILD_DIR/"
 cp dist/uv-stage/uv.lock "$BUILD_DIR/"
 
-# Zip each seed template folder into .build/initial_templates_zips/<slug>.zip.
-# These ship alongside the wheel (databricks.yml sync); the workspace auto-expands
-# each .zip on upload, so the deployed container gets already-unzipped folders that
-# the seeder walks (rglob manifest.json). Keeps the wheel ~5 MB smaller (under the
-# Apps 10 MB source-export cap).
+# Archive each seed template folder into .build/initial_templates_zips/<slug>.tmpl.
+# These ship alongside the wheel (databricks.yml sync); start.sh UNZIPS them into
+# the runtime templates dir on boot and the seeder walks that (rglob manifest.json).
+# Keeps them out of the wheel (~5 MB, over the Apps 10 MB source-export cap).
 #
-# ONE ZIP PER *LEAF* TEMPLATE, not per top-level folder. A top-level dir that is a
-# CONTAINER of templates (has sub-folders with their own manifest.json but none of
-# its own — e.g. `training_template/<7 workshop demos>`) is zipped per sub-folder,
-# so each stays small. Zipping such a container as one blob produced a 6.4 MB file
-# that reproducibly 504'd the workspace-files import gateway (per-file streaming
-# limit); the individual demos are ~1-2 MB each and upload cleanly. Seed discovery
-# recurses, so N small zips == the same N templates as one big zip.
-if [[ -n "${TEMPLATES_STAGE:-}" && -d "$TEMPLATES_STAGE" ]]; then
+# ⚠️ The `.tmpl` extension is deliberate (they ARE zip archives). The Databricks
+# workspace file-import AUTO-EXPANDS anything named `*.zip` on upload → the
+# deployed container would then hold each template as THOUSANDS of loose expanded
+# files, and the Apps "Downloading source code" deploy phase copies those
+# file-by-file (~9 min for 16 templates). A non-`.zip` extension uploads as ONE
+# opaque file per template (~16 files total) → the source copy is near-instant;
+# start.sh unzips them locally in the container (milliseconds). `.tmpl` also dodges
+# template_service._should_include_in_template's JUNK_EXTS (which drops `.zip`).
+# DO NOT rename these back to `.zip`.
+#
+# ONE ARCHIVE PER *LEAF* TEMPLATE, not per top-level folder. A top-level dir that
+# is a CONTAINER of templates (sub-folders with their own manifest.json but none
+# of its own — e.g. `training_template/<7 workshop demos>`) is archived per
+# sub-folder, so each stays small. Seed discovery recurses, so N small archives ==
+# the same N templates as one big one.
+if [[ -n "${TEMPLATES_SRC:-}" && -d "$TEMPLATES_SRC" ]]; then
     ZIP_DIR="$BUILD_DIR/initial_templates_zips"
     mkdir -p "$ZIP_DIR"
     _zipped=0
-    # Emit one zip for the folder $2 (relative to stage root $1), preserving its
-    # path inside the zip so it expands back to <runtime>/<rel>/... .
+    # Archive the folder $1 (relative to $TEMPLATES_SRC) DIRECTLY from source. We
+    # `cd` INTO initial_templates and zip "$_rel" so the STORED paths are
+    # "<rel>/…" (NOT "initial_templates/<rel>/…") — start.sh unzips each archive
+    # under initial_templates_zips/, and the seeder expects
+    # initial_templates_zips/<rel>/… (an extra initial_templates/ level would
+    # mis-nest them). `zip -x <patterns>` skips node_modules/.venv/etc. during the
+    # walk — so we never touch that bulk (no pre-copy). Patterns are relative to
+    # the `cd` root, hence the "<rel>/…" prefix on each exclude.
     _zip_template() {
-        local _stage="$1" _rel="$2"
-        local _name="${_rel//\//__}"   # nested rel path → flat, collision-free zip name
-        (cd "$_stage" && zip -q -r "$ZIP_DIR/$_name.zip" "$_rel")
+        local _rel="$1"
+        local _name="${_rel//\//__}"   # nested rel path → flat, collision-free name
+        # Build the -x list: each junk DIR at both the template root AND nested,
+        # plus the file globs. (A lone `<rel>/*/<junk>/*` misses a junk dir sitting
+        # directly under the template root — that's what leaked .databricks.)
+        local _ex=() _j
+        for _j in "${_TEMPLATE_JUNK_DIRS[@]}"; do
+            _ex+=("$_rel/$_j/*" "$_rel/*/$_j/*")
+        done
+        _ex+=("${_TEMPLATE_JUNK_FILES[@]}")
+        (cd "$TEMPLATES_SRC" && zip -q -r "$ZIP_DIR/$_name.tmpl" "$_rel" -x "${_ex[@]}")
         _zipped=$((_zipped + 1))
     }
-    for _tpl in "$TEMPLATES_STAGE"/*/; do
+    for _tpl in "$TEMPLATES_SRC"/*/; do
         [[ -d "$_tpl" ]] || continue
         _slug="$(basename "$_tpl")"
         if [[ -f "$_tpl/manifest.json" ]]; then
-            # Leaf template (its own manifest) → one zip, as before.
-            _zip_template "$TEMPLATES_STAGE" "$_slug"
+            # Leaf template (its own manifest) → one zip.
+            _zip_template "$_slug"
         else
             # Container of templates → one zip per sub-folder that has a manifest.
             for _sub in "$_tpl"*/; do
                 [[ -d "$_sub" && -f "$_sub/manifest.json" ]] || continue
-                _zip_template "$TEMPLATES_STAGE" "$_slug/$(basename "$_sub")"
+                _zip_template "$_slug/$(basename "$_sub")"
             done
         fi
     done
     echo "  Packaged $_zipped template zip(s) into $ZIP_DIR/"
-    rm -rf "$(dirname "$TEMPLATES_STAGE")"
 fi
 # Belt-and-braces: ensure no stale requirements.txt sneaks into the upload.
 # Apps prefers requirements.txt when present and would silently fall back to
@@ -460,8 +487,12 @@ if [[ -n "$TARGET" ]]; then
         ')
     if [[ -n "$ENV_YAML" ]]; then
         printf "env:\n%s\n" "$ENV_YAML" >> "$BUILD_DIR/app.yml"
-        # Show what was injected (helps debug missing vars).
-        echo "$ENV_YAML" | sed 's/^/    /'
+        # Show WHICH vars were injected (keys only — NEVER the values). The
+        # app_env block carries secrets (SP client secret, tokens); echoing
+        # `value:` here leaked them to the deploy console/logs. Keys alone still
+        # let you spot a missing var; the values live in .build/app.yml.
+        printf '%s' "$SUMMARY_JSON" | jq -r '
+            (.variables.app_env.value // {}) | keys[] | "    - \(.)"'
     else
         echo "ERROR: variables.app_env resolved EMPTY for target '$TARGET' — refusing to ship an app.yml with no env block." >&2
         exit 1
@@ -489,8 +520,18 @@ if [[ -n "$TARGET" ]]; then
     fi
 fi
 
+stage_end
 echo -e "${GREEN}Build complete!${NC}"
 echo -e "  ${BLUE}$BUILD_DIR${NC}"
 ls -lh "$BUILD_DIR/"
-echo ""
-echo -e "Next: ${BLUE}databricks bundle deploy${NC}"
+
+# The "Next: deploy" hint is only meaningful for a MANUAL standalone build.
+# When --target is set we were invoked INSIDE `bundle deploy` (it's already
+# deploying), so printing "run deploy next" is confusing — skip it.
+if [[ -z "$TARGET" ]]; then
+    echo ""
+    # NOTE: this only built .build/ locally — nothing was deployed.
+    echo -e "Next (nothing deployed yet — this only built .build/):"
+    echo -e "  ${BLUE}databricks bundle deploy -t <target>${NC}"
+    echo -e "  ${BLUE}databricks bundle run demo-prompt-generator-app -t <target>${NC}"
+fi

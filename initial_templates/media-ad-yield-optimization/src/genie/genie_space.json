@@ -1,0 +1,237 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "11208fa16ba65ff499ba0d537f6c8ffc",
+        "question": [
+          "What is programmatic eCPM vs rate card by product over the last 28 days?"
+        ]
+      },
+      {
+        "id": "35e41f85339607baaf8e917cd0bd9c80",
+        "question": [
+          "Where are we leaving money on the table in programmatic?"
+        ]
+      },
+      {
+        "id": "617db3fd2b5aee15a331432035c0cbe3",
+        "question": [
+          "Which campaigns are at risk of make-goods and how much liability do they carry?"
+        ]
+      },
+      {
+        "id": "6c9ea7e1d1fced063508404307a9d09d",
+        "question": [
+          "Where do we have spare avails for Auto Intenders A25-54 over the next 30 days?"
+        ]
+      },
+      {
+        "id": "9d48dc7d39bfdaedee25b2778982421b",
+        "question": [
+          "How much have make-goods cost us over the last 12 months by advertiser category?"
+        ]
+      },
+      {
+        "id": "ee2b665536a68b538b414432bec8078b",
+        "question": [
+          "What was sell-through and eCPM by platform last month?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "Under the make-good policy and IO-2026-0417, where may make-good ADUs run, and what notice do we owe the agency?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "media_advertising.ad_yield_optimization.ad_products",
+        "description": [
+          "The 19 sellable inventory products (platform x content x daypart x tier) with rate card CPM and the floor group the rate card assigns. Platforms: Streaming (Crest+), FAST, Linear (ACN broadcast, not sold programmatically)."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.advertisers",
+        "description": [
+          "Advertisers with category and agency."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.audience_segments",
+        "description": [
+          "Audience segments sold as guarantees (e.g. AUTO-INT = Auto Intenders A25-54)."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.campaigns",
+        "description": [
+          "Insertion orders: booked in-target impressions, booked revenue, flight, deal type, status (Live / Booked / Completed)."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.delivery_daily",
+        "description": [
+          "Delivered in-target impressions and revenue per line per day (through yesterday)."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.floor_price_rules",
+        "description": [
+          "Ad-server floor-price rules history per programmatic product (inventory group, floor, validity, who changed it). effective_to NULL = in force."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_avails_forecast",
+        "description": [
+          "Avails forecast per product per future day: ai_forecast() clamped to +/-10% of the trailing 4-week same-weekday average (baseline_avails); ai_forecast_raw is the unclamped value. Use avails_forecast."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_campaign_pacing",
+        "description": [
+          "Live and booked campaigns with pacing (delivered / expected to date), projected delivery at flight end, projected shortfall, make_good_liability, at_risk flag and the line / product driving the risk."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_inventory_daily",
+        "description": [
+          "One row per product per day: avails, sold impressions (guaranteed + PMP + open auction), unsold, revenue, sell_through, ecpm, programmatic_ecpm, open-auction clearing and bids, floor and inventory group in force. The main table for yield questions."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_line_pacing",
+        "description": [
+          "Pacing per line item of live/booked campaigns, incl. avails_change_since_start of the line's product."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_make_goods",
+        "description": [
+          "Make-goods issued on completed campaigns (value, resolution, advertiser)."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_monthly_yield",
+        "description": [
+          "Month x platform x tier: avails, sold, revenue, sell-through, eCPM."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_spare_avails",
+        "description": [
+          "Future days per product: ai_forecast avails, committed guaranteed run-rate, spare_avails, and the programmatic eCPM those spare impressions earn today."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.gold_yield_opportunities",
+        "description": [
+          "Programmatic products, last 28 days: eCPM vs rate card vs open-auction clearing, inventory group in force vs the rate card's (group_mismatch), revenue_gap_28d / annualized / since the rule change, recommended floor. is_leak flags mis-priced inventory."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.line_items",
+        "description": [
+          "IO line items: product, booked impressions, CPM."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.product_audience_mix",
+        "description": [
+          "Share of each product's impressions reaching each segment. In-target avails = avails x audience_share."
+        ]
+      },
+      {
+        "identifier": "media_advertising.ad_yield_optimization.programmatic_deals",
+        "description": [
+          "PMP deals: which inventory group they buy and at what price. PMP-RON-STREAM buys RON-DEFAULT at a fixed $10.50."
+        ]
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "e00fba6fedfb8a49e13346f7099a23fc",
+        "content": [
+          "Aurora Crest Media (fictional) sells ad inventory from its ACN broadcast network (Linear), the Crest+ ad-supported streaming service and FAST channels. Inventory products are platform x content x daypart x tier (Premium / Standard / RON) with a 2026-27 rate card CPM.\n",
+          "DEFINITIONS: sell-through = sold impressions / avails. eCPM = 1000 * revenue / sold impressions. Programmatic eCPM = 1000 * (pmp_revenue + open_auction_revenue) / (pmp_impressions + open_auction_impressions). Sold = guaranteed + PMP + open auction. Money is USD. Always format money with $ and thousands separators and CPMs with 2 decimals.\n",
+          "TIME: 'last 28 days' = inventory_date >= date_sub(current_date(), 28). Data runs through yesterday. 'This month' = current calendar month.\n",
+          "PACING: use gold_campaign_pacing for any question about campaigns at risk, under-delivery, pacing or make-good liability (at_risk = live and projected < 95% of guarantee; make_good_liability = projected shortfall x booked CPM). Order at-risk campaigns by make_good_liability DESC.\n",
+          "YIELD LEAKS: use gold_yield_opportunities for questions about eCPM vs rate card, floor prices, money left on the table or mis-priced inventory. A product with group_mismatch = true is priced in the wrong floor group (current_inventory_group vs rate_card_inventory_group); revenue_gap_28d is the revenue left on the table in the last 28 days.\n",
+          "SPARE AVAILS: use gold_spare_avails joined with product_audience_mix for 'where can we deliver X impressions of segment Y': in-target spare = spare_avails * audience_share, summed over the date window.\n",
+          "Segment names: join audience_segments (e.g. 'Auto Intenders A25-54' = AUTO-INT).\n",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "0bb2559e4a26d0152744068efba3c78f",
+        "question": [
+          "How has Crest+ Live Sports programmatic eCPM moved week by week?"
+        ],
+        "sql": [
+          "SELECT week_start, ROUND(1000 * SUM(programmatic_revenue) / SUM(programmatic_impressions), 2) AS programmatic_ecpm, ROUND(1000 * SUM(open_auction_revenue) / NULLIF(SUM(open_auction_impressions), 0), 2) AS open_clearing_cpm, SUM(pmp_impressions) AS pmp_impressions, MAX(inventory_group) AS inventory_group FROM media_advertising.ad_yield_optimization.gold_inventory_daily WHERE product_id = 'STR-SPORTS-LIVE' AND inventory_date >= date_sub(current_date(), 140) GROUP BY week_start ORDER BY week_start"
+        ]
+      },
+      {
+        "id": "33e9bc722017bc2db4c0b28f0b8ad724",
+        "question": [
+          "Where do we have spare avails for Auto Intenders A25-54 over the next 30 days?"
+        ],
+        "sql": [
+          "SELECT s.product_name, s.tier, CAST(SUM(s.spare_avails * m.audience_share) AS BIGINT) AS in_target_spare_avails, MAX(m.audience_share) AS audience_share, MAX(s.programmatic_ecpm_28d) AS displaced_programmatic_ecpm FROM media_advertising.ad_yield_optimization.gold_spare_avails s JOIN media_advertising.ad_yield_optimization.product_audience_mix m ON m.product_id = s.product_id AND m.segment_id = 'AUTO-INT' WHERE s.forecast_date BETWEEN current_date() AND date_add(current_date(), 29) GROUP BY s.product_name, s.tier ORDER BY in_target_spare_avails DESC"
+        ]
+      },
+      {
+        "id": "3da702cb3e9cf2a69170077f58f0ede5",
+        "question": [
+          "What is programmatic eCPM vs rate card by product over the last 28 days?"
+        ],
+        "sql": [
+          "SELECT product_name, tier, rate_card_cpm, programmatic_ecpm_28d, ROUND(100 * programmatic_ecpm_28d / rate_card_cpm, 1) AS pct_of_rate_card, ROUND(100 * sell_through_28d, 1) AS sell_through_pct FROM media_advertising.ad_yield_optimization.gold_yield_opportunities ORDER BY pct_of_rate_card"
+        ]
+      },
+      {
+        "id": "509f4468a17898593fce72df4c16e041",
+        "question": [
+          "What was sell-through and eCPM by platform last month?"
+        ],
+        "sql": [
+          "SELECT platform, ROUND(100 * SUM(sold_impressions) / SUM(avails), 1) AS sell_through_pct, ROUND(1000 * SUM(revenue) / SUM(sold_impressions), 2) AS ecpm, ROUND(SUM(revenue), 0) AS revenue FROM media_advertising.ad_yield_optimization.gold_inventory_daily WHERE month_start = date_trunc('MONTH', add_months(current_date(), -1)) GROUP BY platform ORDER BY revenue DESC"
+        ]
+      },
+      {
+        "id": "892bc8761c18a62d3d369ccd6edc3f16",
+        "question": [
+          "How much have make-goods cost us over the last 12 months by advertiser category?"
+        ],
+        "sql": [
+          "SELECT advertiser_category, COUNT(*) AS make_goods, ROUND(SUM(make_good_value), 0) AS make_good_value FROM media_advertising.ad_yield_optimization.gold_make_goods WHERE issued_date >= add_months(current_date(), -12) GROUP BY advertiser_category ORDER BY make_good_value DESC"
+        ]
+      },
+      {
+        "id": "f961eb02efe77b631155e74258936a5c",
+        "question": [
+          "Where are we leaving money on the table in programmatic?"
+        ],
+        "sql": [
+          "SELECT product_name, tier, rate_card_cpm, current_inventory_group, rate_card_inventory_group, programmatic_ecpm_28d, open_clearing_cpm_28d, pmp_ecpm_28d, ROUND(revenue_gap_28d, 0) AS revenue_gap_28d, ROUND(revenue_gap_since_rule, 0) AS revenue_gap_since_rule, current_rule_id, current_rule_since FROM media_advertising.ad_yield_optimization.gold_yield_opportunities ORDER BY revenue_gap_28d DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "fe80b4ae0a46038d163b2a595759b58a",
+        "question": [
+          "Which campaigns are at risk of make-goods and how much liability do they carry?"
+        ],
+        "sql": [
+          "SELECT campaign_name, advertiser_name, io_number, target_segment, ROUND(100 * pacing, 1) AS pacing_pct, ROUND(100 * projected_delivery_pct, 1) AS projected_delivery_pct, projected_shortfall, ROUND(make_good_liability, 0) AS make_good_liability, risk_product_name, days_remaining FROM media_advertising.ad_yield_optimization.gold_campaign_pacing WHERE at_risk ORDER BY make_good_liability DESC"
+        ]
+      }
+    ]
+  }
+}

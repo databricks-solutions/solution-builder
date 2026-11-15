@@ -1,0 +1,43 @@
+[
+  {
+    "name": "Long-span edges",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "story": "Eval case: labelled edges that SKIP whole lanes, so the router drops each label on top of an intermediate tile and runs the line straight through it. This is the shape that actually breaks — a diagram whose edges only hop to the next lane is clean by construction and measures nothing. Do not 'fix' this diagram by shortening its edges.",
+    "columns": ["sources", "pipeline", "serving", "consumers"],
+    "rowGrid": true,
+    "nodes": [
+      { "id": "src-pos", "type": "source", "col": "sources", "row": 0, "label": "POS events", "icon": "text" },
+      { "id": "src-crm", "type": "source", "col": "sources", "row": 1, "label": "CRM", "icon": "text" },
+      { "id": "src-web", "type": "source", "col": "sources", "row": 2, "label": "Web clicks", "icon": "text" },
+      { "id": "src-erp", "type": "source", "col": "sources", "row": 3, "label": "ERP", "icon": "text" },
+      { "id": "src-contracts", "type": "source", "col": "sources", "row": 4, "label": "Contracts", "icon": "text" },
+      { "id": "medallion-table", "type": "medallion-table", "col": "pipeline", "row": 2 },
+      { "id": "sql-lakehouse", "type": "sql-lakehouse", "col": "serving", "row": 1 },
+      { "id": "model-serving", "type": "model-serving", "col": "serving", "row": 3 },
+      { "id": "genie", "type": "genie", "col": "consumers", "row": 0 },
+      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "consumers", "row": 1 },
+      { "id": "databricks-apps", "type": "databricks-apps", "col": "consumers", "row": 2 },
+      { "id": "lakebase", "type": "lakebase", "col": "consumers", "row": 3 }
+    ],
+    "edges": [
+      { "id": "e01", "from": "src-pos@r", "to": "medallion-table@l", "label": "Stream sales events", "flow": true },
+      { "id": "e02", "from": "src-crm@r", "to": "medallion-table@l", "label": "Nightly CDC", "flow": true },
+      { "id": "e03", "from": "src-web@r", "to": "medallion-table@l", "label": "Clickstream", "flow": true },
+      { "id": "e04", "from": "src-erp@r", "to": "medallion-table@l", "label": "Batch extract", "flow": true },
+      { "id": "e05", "from": "src-contracts@r", "to": "medallion-table@l", "label": "Upload to volume", "flow": true },
+      { "id": "e06", "from": "medallion-table@out-gold", "to": "sql-lakehouse@l", "label": "Serve curated marts" },
+      { "id": "e07", "from": "medallion-table@out-gold", "to": "model-serving@l", "label": "Score features" },
+      { "id": "e08", "from": "sql-lakehouse@r", "to": "genie@l", "label": "Natural-language query" },
+      { "id": "e09", "from": "sql-lakehouse@r", "to": "ai-bi-dashboard@l", "label": "Refresh metrics" },
+      { "id": "e10", "from": "model-serving@r", "to": "databricks-apps@l", "label": "Inference API" },
+      { "id": "e11", "from": "databricks-apps@r", "to": "lakebase@l", "label": "Write user feedback" },
+      { "id": "e12", "from": "lakebase@l", "to": "databricks-apps@r", "label": "Read session state" },
+      { "id": "e13", "from": "src-pos@r", "to": "genie@l", "label": "Direct event lookup" },
+      { "id": "e14", "from": "src-crm@r", "to": "ai-bi-dashboard@l", "label": "Reference dimension" },
+      { "id": "e15", "from": "src-erp@r", "to": "lakebase@l", "label": "Sync operational keys" },
+      { "id": "e16", "from": "src-web@r", "to": "databricks-apps@l", "label": "Session replay" }
+    ]
+  }
+]

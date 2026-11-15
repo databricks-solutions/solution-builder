@@ -1,0 +1,10 @@
+{
+  "id": "hls-clinical-trial-site-selection",
+  "name": "Trial Site Copilot — Clinical Trial Protocol Design & Site Selection",
+  "customer": "Halcyra Therapeutics",
+  "industry": "Healthcare & Life Sciences",
+  "narrative": "Dr. Elena Marsh is the global study manager of CASCADE-CKD, Halcyra Therapeutics' Phase III velmeraptan trial in type 2 diabetes with chronic kidney disease. Seventeen months in, it has randomized 397 of the 715 patients it planned by now, screen failure runs at 57% against the 35% the feasibility assumed, and 11 activated sites have randomized nobody. The sites say the patients are hard; the EDC says the reason is OTHER.\n\nThe aha: AI Functions read the coordinators' free-text notes and find that exclusion E4, no SGLT2 inhibitor within 12 weeks, causes 39% of screen failures. The EDC coding shows only 17%. The protocol was written when about 15% of patients took an SGLT2 inhibitor; today 47% do, and 79% of those failures were on a stable dose. The protocol assistant confirms that E4 is an efficacy-design criterion the SAP can absorb, while E7 (potassium) is a safety criterion and has to stay. A UC-registered site model ranks 43 rescue sites. The projection moves last-patient-in from Jul 2029 to Apr 2028, and Elena approves the plan in the app, where it is written back to Lakebase.",
+  "dbdemos_tracker": {
+    "app_id": "hls-clinical-trial-site-selection"
+  }
+}

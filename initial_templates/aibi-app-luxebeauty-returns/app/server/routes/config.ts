@@ -17,8 +17,6 @@ type Deps = {
     pipelineId?: string;
     warehouseId?: string;
     genieSpaceId?: string;
-    masEndpointName?: string;
-    kaEndpointName?: string;
     lakebaseProjectId?: string;
     appUrl?: string;
     mlModelName?: string;
@@ -60,8 +58,8 @@ function buildResources(
   const schema = cfg.data?.schema ?? '';
   const catalogPath = catalog && schema ? `/explore/data/${catalog}/${schema}` : '';
   const modelPath = cfg.mlModelName ? `/explore/data/models/${cfg.mlModelName.replace(/\./g, '/')}` : '';
-  // pdfVolumePath looks like `/Volumes/<catalog>/<schema>/<volume>` —
-  // the workspace UI maps it to `/explore/data/volumes/<catalog>/<schema>/<volume>`.
+  // pdfVolumePath (the "Documents" volume, indexed by Genie) looks like
+  // `/Volumes/<catalog>/<schema>/<volume>` — the workspace UI maps it to `/explore/data/volumes/<catalog>/<schema>/<volume>`.
   const volumeUiPath = cfg.pdfVolumePath
     ? cfg.pdfVolumePath.replace(/^\/Volumes\//, '/explore/data/volumes/')
     : '';
@@ -91,14 +89,6 @@ function buildResources(
       id: cfg.lakebaseProjectId ?? '',
       url: composeUrl(host, '/lakebase/projects/', cfg.lakebaseProjectId),
     },
-    mas: {
-      id: cfg.masEndpointName ?? '',
-      url: composeUrl(host, '/ml/endpoints/', cfg.masEndpointName),
-    },
-    ka: {
-      id: cfg.kaEndpointName ?? '',
-      url: composeUrl(host, '/ml/endpoints/', cfg.kaEndpointName),
-    },
     // AI Gateway is a workspace-wide page (no id) — same URL for every
     // demo in this workspace.
     gateway: {
@@ -110,18 +100,9 @@ function buildResources(
       id: '',
       url: host ? `${host}/one` : '',
     },
-    // Agent Bricks — workspace-wide landing page. Used as the default for
-    // the Agent Bricks tile on /platform when the demo doesn't deploy a
-    // specific MAS endpoint (the common case for most demos). If the demo
-    // DOES deploy a MAS, the PlatformDiagram author can swap the tile to
-    // `R.mas.url` for a direct deep-link.
-    agentBricks: {
-      id: '',
-      url: host ? `${host}/ml/agents` : '',
-    },
     catalog: { id: `${catalog}.${schema}`, url: host && catalogPath ? `${host}${catalogPath}` : '' },
     model: { id: cfg.mlModelName ?? '', url: host && modelPath ? `${host}${modelPath}` : '' },
-    volume: { id: cfg.pdfVolumePath ?? '', url: host && volumeUiPath ? `${host}${volumeUiPath}` : '' },
+    documents: { id: cfg.pdfVolumePath ?? '', url: host && volumeUiPath ? `${host}${volumeUiPath}` : '' },
     // App URL is on a different host (*.databricksapps.com), so we don't
     // compose — it's stored verbatim.
     app: { id: cfg.appUrl ?? '', url: cfg.appUrl ?? '' },
@@ -130,7 +111,7 @@ function buildResources(
 
 export function registerConfigRoutes(app: Application, deps: Deps): void {
   // GET /api/config — branding, dashboard id, MLflow links, script chain.
-  // The data-backend endpoint (MAS / Genie) lives server-side ONLY; the
+  // The Genie Agent space id lives server-side ONLY; the
   // client never needs to know the name. Don't expose secrets/connection
   // strings on this endpoint.
   app.get('/api/config', (_req, res) => {

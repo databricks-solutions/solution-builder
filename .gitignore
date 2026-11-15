@@ -38,6 +38,13 @@ bun.lockb
 !app/test/app_template_test/app/package.json
 !app/test/app_template_test/app/package-lock.json
 
+# Same again for the seed templates in initial_templates/: each template app is
+# forked/deployed as-is, so its package.json + lockfile are template CONTENT.
+# Without these, a fork (or `bundle deploy`) ships an app with no dependency
+# manifest and the Apps container crashes at boot.
+!initial_templates/*/app/package.json
+!initial_templates/*/app/package-lock.json
+
 # Playwright artifacts
 playwright-report/
 test-results/
@@ -53,22 +60,11 @@ __pycache__/
 # Local scratch space (screenshots, throwaway scripts, etc.)
 .scratch/
 
-# Generator app's vendored internal pages — symlinked/copied from ../dbrain/docs/
-# (pitch, vision, shift-left). Internal only: served by the app if present,
-# packaged into the build if present, never committed to this public repo.
+# Optional extra pages (pitch, vision, shift-left): served and packaged if present,
+# never committed.
 app/src/demo_prompt_generator/ui/public/the_vision/
 app/src/demo_prompt_generator/ui/public/pitch
 app/src/demo_prompt_generator/ui/public/shift-left
-
-# Internal FE ops tool — not part of the public repo (kept locally)
-add_team_to_workspace.py
-
-# Internal vibe-marketplace sync helper — kept local, not for the public repo
-scripts/publish-skill-to-vibe.sh
-
-# Internal vibe working notes / overlap audit — local scratch, not for the public repo
-.vibe-work-notes.md
-.vibe-overlap-diffs.md
 
 # Build/state junk inside seed template folders (regenerates on deploy — never commit)
 initial_templates/**/.databricks/

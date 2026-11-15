@@ -1,0 +1,9 @@
+<h2>6/ Run the demo — verify the punchline</h2>
+<p>In the new Genie space, ask — in order:</p>
+<ol>
+  <li><em>"What's our return rate this month, and how does it compare to baseline?"</em></li>
+  <li><strong>"Why do I have so many returns? Trace it to the products and the lot."</strong></li>
+  <li><em>"Which production lot is driving the spike, and what does the QC note say?"</em></li>
+</ol>
+<p><span class="check">✅ Confirm:</span> by question 3, Genie hops to <code>silver_production_lots</code> and <strong>quotes the incident note inline</strong> — <em>homogenizer pressure fluctuation at <code>Lyon-France</code>, lot released despite the QC flag.</em> If it won't make the hop, tell the Assistant to add/adjust the curated query for that question. That's the core demo. 🎯</p>
+<blockquote class="note"><p>💡 Genie should name the affected <code>lot_id</code> itself — it's derived from the run date, so it differs every time you regenerate the data. Don't check it against a remembered value.</p></blockquote>

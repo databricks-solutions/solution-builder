@@ -7,7 +7,9 @@
 # The dashboard is a DAB `dashboards` resource; its datasets are rebound to the
 # target catalog/schema via dataset_catalog / dataset_schema (needs CLI >= 0.283.0).
 #
-# Deploy is documented in dab_instructions.md — do NOT run it as part of authoring.
+#   databricks bundle deploy
+#   databricks bundle run supply_chain_setup
+# `dev` / `prod` stay portable (any workspace, pass --var catalog/schema/warehouse_id).
 bundle:
   name: aibi-supply-chain
 
@@ -20,6 +22,9 @@ variables:
     default: aibi_supply_chain
   warehouse_id:
     description: SQL warehouse the dashboard + Genie space use.
+  workspace_folder:
+    description: Workspace folder holding the dashboard + Genie space.
+    default: /Workspace/Users/${workspace.current_user.userName}/aibi-supply-chain
 
 resources:
   schemas:
@@ -30,9 +35,11 @@ resources:
 
   dashboards:
     supply_chain_dashboard:
-      display_name: "[AI/BI] AIBI - Supply Chain Optimization"
+      display_name: "Supply Chain Optimization - E-Bike Battery Cell Crunch"   # no '/' (Lakeview rejects it)
       file_path: ./dashboard/dashboard.lvdash.json
       warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      embed_credentials: true
       # Rebind the dashboard's datasets to the deployed catalog/schema.
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.demo_schema.name}
@@ -59,6 +66,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.demo_schema.name}
               warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
           environment_key: sdk_latest
       environments:
         - environment_key: sdk_default

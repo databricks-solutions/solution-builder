@@ -4,7 +4,7 @@ Tables and columns referenced here are defined in 01-lakeflow.md (Section C).
 Your goal is to create a Genie space and an AI/BI Dashboard for this story, respecting these specifications.
 
 > **Talking-track-only products mentioned in the README** — do **not** build resources for these:
-> - **Databricks One** is a workspace-level surface, not a buildable artifact. Once the dashboard, Genie space, and KA exist, they show up there for users with the right entitlement. Nothing to provision.
+> - **Databricks One** is a workspace-level surface, not a buildable artifact. Once the dashboard and the Genie agent exist, they show up there for users with the right entitlement. Nothing to provision.
 > - **Genie Code** is the AI authoring assist *inside* the Genie/SQL editor — referenced in the README narrative, not a separate resource.
 > - **Unity Catalog** is the global governance layer — already in place at the workspace level, just ensure the catalog/schema/grants in `01-lakeflow.md` are applied.
 
@@ -12,7 +12,7 @@ Your goal is to create a Genie space and an AI/BI Dashboard for this story, resp
 
 ## A. Genie Space
 
-**Skill to use**: `databricks-genie` — read `SKILLS/databricks-genie/SKILL.md` before implementing.
+**Skill to use**: `databricks-genie-agents` — read `SKILLS/databricks-genie-agents/SKILL.md` before implementing.
 
 Create `LuxeBeauty Operations Analytics` Genie Space.
 
@@ -53,6 +53,10 @@ PREMIUM-COHORT FOLLOW-UP (after root cause is established):
 
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
+
+### Documents (PDF volume)
+
+Attach the PDF volume to the Genie agent as `data_sources.volumes`: `/Volumes/<catalog>/<schema>/manufacturing_reports`. The volume is dedicated to documents and holds only PDFs. The job waits for the volume index to reach `SUCCEEDED`. The agent must be in Agent mode to read the documents. Answer why / policy / incident questions from the documents; answer numbers from the tables.
 
 ### Sample Questions — 7-step story arc
 

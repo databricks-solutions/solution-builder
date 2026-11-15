@@ -45,7 +45,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_sales_pipeline
 """
 
@@ -90,6 +90,8 @@ CATALOG = _cli.catalog or os.environ.get("CATALOG", "dbdemos_templates")
 SCHEMA = _cli.schema or os.environ.get("SCHEMA", "aibi_sales_pipeline")
 
 FQ = f"`{CATALOG}`.`{SCHEMA}`"          # fully-qualified, back-ticked
+
+SEED = 20260504                        # fixed RNG seed -> identical data on every (re)run
 
 # Temporal anchors (load-bearing — every consumer depends on them).
 START = dt.date(2024, 12, 1)            # data start
@@ -178,7 +180,7 @@ SEG = SEGMENTS
 @F.pandas_udf(acc_struct)
 def gen_acc(ids: pd.Series) -> pd.DataFrame:
     import numpy as np
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(SEED + (int(ids.iloc[0]) if len(ids) else 0))  # seeded per batch: stable across upgrade runs
     geo = GEO
     # region weights: EMEA & AMER bigger
     reg_w = {"EMEA": 0.34, "AMER": 0.34, "APAC": 0.20, "LATAM": 0.12}
@@ -204,7 +206,10 @@ accounts_df = (spark.range(1, NACC + 1).select(gen_acc(F.col("id")).alias("a")).
     # cast keys to bigint to match the reps dimension & downstream FKs
     .withColumn("account_id", F.col("account_id").cast("bigint"))
     .withColumn("owner_id", F.col("owner_id").cast("bigint")))
-accounts_df = accounts_df.cache()
+# Materialize ONCE (150 rows): the UDF is random, so every re-evaluation would re-roll regions and the
+# saved crm_accounts would disagree with the ACC_BY_REG map the orders use. .cache() is not supported on
+# serverless job compute (PERSIST TABLE NOT_SUPPORTED_WITH_SERVERLESS) -> round-trip through the driver.
+accounts_df = spark.createDataFrame(accounts_df.collect(), schema=accounts_df.schema)
 _acc_rows = accounts_df.select("account_id", "region").collect()
 
 # --- ERP ORDERS (the fact) — daily small-ticket orders ---------------------
@@ -226,7 +231,7 @@ LO = LAUNCH_OFF
 @F.pandas_udf(ord_struct)
 def gen_ord(ids: pd.Series) -> pd.DataFrame:
     import numpy as np, json
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(SEED + (int(ids.iloc[0]) if len(ids) else 0))  # seeded per batch: stable across upgrade runs
     acc_by_reg = json.loads(ACC_JSON)
     regions = list(acc_by_reg.keys())
     # base daily order volume mix by region (EMEA/AMER bigger)
@@ -282,7 +287,7 @@ opp_struct = StructType([
 @F.pandas_udf(opp_struct)
 def gen_opp(ids: pd.Series) -> pd.DataFrame:
     import numpy as np, json
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(SEED + (int(ids.iloc[0]) if len(ids) else 0))  # seeded per batch: stable across upgrade runs
     acc_by_reg = json.loads(ACC_JSON)
     all_acc = [a for v in acc_by_reg.values() for a in v]
     lines = ["Skincare", "Makeup", "Fragrance", "Haircare"]

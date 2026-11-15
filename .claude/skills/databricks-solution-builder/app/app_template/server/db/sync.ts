@@ -22,7 +22,7 @@ import { customers, customerPremium, orders, returns } from './schema.js';
  * Databricks SQL API helper (`execSql`) + chunked INSERT helpers.
  */
 
-type DataConfig = {
+export type DataConfig = {
   catalog: string;
   schema: string;
   tables: {

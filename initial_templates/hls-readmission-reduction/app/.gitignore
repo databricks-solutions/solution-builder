@@ -1,0 +1,37 @@
+node_modules/
+.venv/
+# Build outputs — produced locally by scripts/build-app.sh during
+# `databricks bundle deploy`. Both are whitelisted via sync.include in
+# databricks.yml so they ship to the App container despite being
+# gitignored.
+dist/
+client/dist/
+.env
+.env.local
+.env.*
+!.env.example
+!.env.template
+.DS_Store
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Per-project Databricks auth file written by the Demo Prompt Generator
+# at runtime (deployed mode). Contains a user PAT — never commit or
+# ship with a template snapshot. See backend/AUTH.md in the generator.
+.databrickscfg
+
+# AppKit 0.41 typegen output (generated; regenerated on dev machine with warehouse access)
+shared/appkit-types/
+
+# Drizzle migrations are a BUILD ARTIFACT — generated from server/db/schema.ts
+# by `npm run db:generate` (scripts/db-generate.js, wired into prebuild/predev
+# + build-app.sh). Never commit them INTO THE TEMPLATE: a shipped LuxeBeauty
+# .sql would drift from a fork's schema.ts (stale tables → boot crash). The
+# regenerated baseline has a deterministic identity (0000_init, pinned `when`),
+# so losing this folder is safe for an unchanged schema; keep it between deploys
+# of the same DB once you evolve the schema (incremental migrations live here).
+drizzle/
+
+# Runtime PID file written by start.sh (preview process group) — never commit.
+.preview.pgid

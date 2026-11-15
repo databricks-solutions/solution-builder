@@ -1,0 +1,23 @@
+{
+    "short_description": "Veridian Mobile's postpaid churn jumped from 0.94% to 1.73% a month — three drivers (a 5G core migration, a promo roll-off, a competitor's $25/line offer) answered with one blanket discount. A Retention Desk app ranks every account with a UC-registered XGBoost churn model + SHAP drivers, reads care calls with AI Functions, and a next-best-offer agent picks the driver-matched offer inside a hard margin guardrail, drafts the outreach and writes accept/decline back to Lakebase + Delta. CMO dashboard + Genie on the same tables.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "ml-training-serving",
+            "unity-catalog",
+            "aibi-dashboards",
+            "genie",
+            "databricks-apps",
+            "lakebase",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "sdp",
+            "genie-one",
+            "ai-gateway"
+        ]
+    },
+    "created_resources": {}
+}

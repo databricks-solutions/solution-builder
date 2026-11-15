@@ -13,7 +13,7 @@
 Before starting:
 - Dashboard open to Fraud Command Center
 - Genie Space ready
-- KA ready
+- Documents indexed (Genie answers from them)
 - Date context: "Today is March 17, 2024"
 
 ---
@@ -62,15 +62,15 @@ Before starting:
 
 ## Act 3: Get the Full Picture (3 min)
 
-**[Open Knowledge Assistant]**
+**[Open Genie and ask about the documents]**
 
 > "The data shows us WHAT's happening. Jennifer needs to understand the bigger picture. Is this a known threat?"
 
 **[Type: "What do we know about TechDealz fraud?"]**
 
-**[Show KA response with intelligence alert]**
+**[Show Genie answer with intelligence alert]**
 
-> "The Knowledge Assistant searches their fraud intelligence database and finds a critical alert from two days ago.
+> "Genie searches their fraud intelligence database and finds a critical alert from two days ago.
 >
 > TechDealz Online suffered a merchant breach around March 8th. Their payment page was compromised. Card data - full track with CVV - was stolen and started appearing on dark web marketplace 'CardShop' on March 9th.
 >

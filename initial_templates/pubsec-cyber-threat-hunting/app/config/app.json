@@ -1,0 +1,50 @@
+{
+  // Cascadia SOC — Threat Hunting Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/copilot.ts): the Genie agent — SOC / CISO analytics
+  // + the IR-playbook documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:pubsec-cyber-threat-hunting}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Per-lead investigation agent (chat completions + tools) in services/investigate.ts.
+  "investigationModel": "${INVESTIGATION_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (CISO view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.ueba_user_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/ir_playbook",
+
+  // Delta source for the boot-time Lakebase mirror of the open UEBA lead queue (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": { "leads": "investigation_leads" }
+  },
+
+  "branding": {
+    "appName": "Threat Hunting Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Where are we slow?", "prompt": "Which incident categories take us longest to detect, and how does that compare to malware and phishing?" },
+    { "label": "Is there a spray?", "prompt": "Are we seeing a password spray? How many accounts were hit with failed passwords from hosting networks in the last 30 days, and what's the most failures any account got in a day?", "triggerAfter": ["days", "hours"] },
+    { "label": "Noisy rules", "prompt": "Which detection rules have the lowest true-positive rate?", "triggerAfter": ["accounts", "spray"] },
+    { "label": "FTI notification", "prompt": "If a compromised account read taxpayer audit files, what severity is it and who do we have to notify, how fast?", "triggerAfter": ["rule", "%"] }
+  ]
+}

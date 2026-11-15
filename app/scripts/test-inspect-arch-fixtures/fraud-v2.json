@@ -1,0 +1,214 @@
+[
+ {
+  "name": "Real-time fraud",
+  "story": "Card authorizations stream in via Kafka, customer/account data from Oracle. A model scores each authorization in real time; analysts monitor fraud rates in a dashboard and Genie; investigators work flagged cases in an app with an agent. Batch retraining and networking out of scope.",
+  "aspect": "16:9",
+  "theme": "slide",
+  "direction": "horizontal",
+  "frame": {
+   "title": "Real-time card fraud on Databricks",
+   "subtitle": "Score at authorization, investigate in one app"
+  },
+  "options": {
+   "trademarkLogos": true
+  },
+  "columns": [
+   "sources",
+   "data",
+   "lake",
+   "ml",
+   "serve",
+   "entry"
+  ],
+  "nodes": [
+   {
+    "id": "src-kafka",
+    "type": "source",
+    "col": "sources",
+    "row": 1,
+    "label": "Card auths",
+    "icon": "file:vendor/kafka"
+   },
+   {
+    "id": "src-oracle",
+    "type": "source",
+    "col": "sources",
+    "row": 2,
+    "label": "Core banking",
+    "icon": "file:vendor/oracle"
+   },
+   {
+    "id": "src-cases",
+    "type": "source",
+    "col": "sources",
+    "row": 3,
+    "label": "Chargebacks",
+    "icon": "pdfLogo"
+   },
+   {
+    "id": "lakeflow",
+    "type": "lakeflow-genie-block",
+    "col": "data",
+    "row": 1
+   },
+   {
+    "id": "lakehouse",
+    "type": "sql-lakehouse",
+    "col": "lake",
+    "row": 1
+   },
+   {
+    "id": "training",
+    "type": "model-training",
+    "col": "ml",
+    "row": 1
+   },
+   {
+    "id": "registry",
+    "type": "uc-model-registry",
+    "col": "ml",
+    "row": 2
+   },
+   {
+    "id": "serving",
+    "type": "model-serving",
+    "col": "ml",
+    "row": 3,
+    "label": "Fraud scoring"
+   },
+   {
+    "id": "dashboard",
+    "type": "ai-bi-dashboard",
+    "col": "serve",
+    "row": 1
+   },
+   {
+    "id": "genie",
+    "type": "genie",
+    "col": "serve",
+    "row": 2
+   },
+   {
+    "id": "app",
+    "type": "databricks-apps-work",
+    "col": "serve",
+    "row": 3,
+    "label": "Investigator app"
+   },
+   {
+    "id": "lakebase",
+    "type": "lakebase",
+    "col": "serve",
+    "row": 4
+   },
+   {
+    "id": "genie-one",
+    "type": "genie-one",
+    "col": "entry",
+    "rot": 90
+   },
+   {
+    "id": "db-platform",
+    "type": "db-platform",
+    "pin": {
+     "at": "top-left",
+     "to": "platform"
+    }
+   },
+   {
+    "id": "gov",
+    "type": "governance-block",
+    "pin": {
+     "at": "bottom",
+     "to": "platform"
+    }
+   },
+   {
+    "id": "platform",
+    "type": "box",
+    "wraps": [
+     "lakeflow",
+     "lakehouse",
+     "training",
+     "registry",
+     "serving",
+     "dashboard",
+     "genie",
+     "app",
+     "lakebase",
+     "genie-one"
+    ]
+   }
+  ],
+  "edges": [
+   {
+    "from": "src-kafka",
+    "to": "lakeflow@in-lakeflow-connect",
+    "flow": true
+   },
+   {
+    "from": "src-oracle",
+    "to": "lakeflow@in-lakeflow-connect",
+    "flow": true
+   },
+   {
+    "from": "src-cases",
+    "to": "lakeflow@in-direct",
+    "flow": true
+   },
+   {
+    "from": "lakeflow",
+    "to": "lakehouse",
+    "flow": true
+   },
+   {
+    "from": "lakeflow",
+    "to": "training",
+    "flow": true,
+    "label": "Labeled history"
+   },
+   {
+    "from": "training",
+    "to": "registry",
+    "label": "Register"
+   },
+   {
+    "from": "registry",
+    "to": "serving",
+    "label": "Champion"
+   },
+   {
+    "from": "lakehouse",
+    "to": "dashboard",
+    "flow": true
+   },
+   {
+    "from": "lakehouse",
+    "to": "genie",
+    "flow": true
+   },
+   {
+    "from": "app",
+    "to": "serving",
+    "label": "Score case"
+   },
+   {
+    "from": "app",
+    "to": "lakebase",
+    "label": "Case state"
+   },
+   {
+    "from": "genie-one",
+    "to": "dashboard"
+   },
+   {
+    "from": "genie-one",
+    "to": "genie"
+   },
+   {
+    "from": "genie-one",
+    "to": "app"
+   }
+  ]
+ }
+]

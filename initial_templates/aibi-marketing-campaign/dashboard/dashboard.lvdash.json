@@ -3,7 +3,16 @@
     {
       "name": "ds_metrics",
       "displayName": "Campaign metrics",
-      "asset_name": "metrics_campaign"
+      "queryLines": [
+        "-- Governed metric view queried at the grain the widgets/filters need, so every widget can SUM it.\n",
+        "-- (An asset_name metric-view dataset must be catalog-qualified, which dataset_catalog/dataset_schema can't rebind.)\n",
+        "-- Ratios (Conversion Rate, Revenue per Dollar) are recomputed in the widgets as SUM()/SUM(), matching the view's measures.\n",
+        "SELECT `Date`, `Channel`, `Platform`, `Audience`, `Country`,\n",
+        "  MEASURE(`Revenue`) AS `Revenue`, MEASURE(`Total Spend`) AS `Total Spend`,\n",
+        "  MEASURE(`Conversions`) AS `Conversions`, MEASURE(`Clicks`) AS `Clicks`\n",
+        "FROM metrics_campaign\n",
+        "GROUP BY ALL\n"
+      ]
     },
     {
       "name": "ds_forecast",
@@ -127,7 +136,7 @@
                   "fields": [
                     {
                       "name": "measure(Revenue)",
-                      "expression": "MEASURE(`Revenue`)"
+                      "expression": "SUM(`Revenue`)"
                     },
                     {
                       "name": "monthly(Date)",
@@ -187,7 +196,7 @@
                     },
                     {
                       "name": "measure(Conversions)",
-                      "expression": "MEASURE(`Conversions`)"
+                      "expression": "SUM(`Conversions`)"
                     }
                   ],
                   "disaggregated": false,
@@ -236,7 +245,7 @@
                   "fields": [
                     {
                       "name": "measure(Conversion Rate)",
-                      "expression": "MEASURE(`Conversion Rate`)"
+                      "expression": "SUM(`Conversions`) / SUM(`Clicks`)"
                     },
                     {
                       "name": "monthly(Date)",
@@ -290,7 +299,7 @@
                   "fields": [
                     {
                       "name": "measure(Total Spend)",
-                      "expression": "MEASURE(`Total Spend`)"
+                      "expression": "SUM(`Total Spend`)"
                     },
                     {
                       "name": "monthly(Date)",
@@ -434,7 +443,7 @@
                     },
                     {
                       "name": "measure(Revenue per Dollar)",
-                      "expression": "MEASURE(`Revenue per Dollar`)"
+                      "expression": "SUM(`Revenue`) / SUM(`Total Spend`)"
                     }
                   ],
                   "disaggregated": false

@@ -23,6 +23,7 @@ deployer SP's WorkspaceClient.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -42,6 +43,7 @@ STATUS_OUT_OF_ACCOUNT = "out_of_account"     # outside the SP's account / CWNP-o
 STATUS_NEEDS_ADMIN = "needs_admin"           # reachable but SP not admin → prompt to bless
 STATUS_REGION_UNSUPPORTED = "region_unsupported"  # region has no catalog yet
 STATUS_REGION_UNKNOWN = "region_unknown"     # couldn't determine the region
+STATUS_INVALID_HOST = "invalid_host"         # not a Databricks workspace URL (never contacted)
 
 
 @dataclass
@@ -90,6 +92,29 @@ def normalize_host(raw: str) -> str:
     return h
 
 
+# Databricks-owned workspace domains (AWS, Azure, GCP). The deployer SP's client
+# secret is POSTed to whatever host the SDK is given, so a target must be a real
+# workspace URL, never a host the user typed. The fullmatch excludes userinfo
+# (`@`), ports, paths, queries and IP literals by construction.
+_WORKSPACE_HOST_RE = re.compile(
+    r"https://(?:[a-z0-9-]+\.)+(?:cloud\.databricks\.com|azuredatabricks\.net|gcp\.databricks\.com)",
+    re.IGNORECASE,
+)
+
+
+def validate_target_host(raw: str) -> str:
+    """Return the normalized `https://<workspace>` URL iff `raw` is a Databricks
+    workspace URL; raise ValueError otherwise. Every deployer-SP client and every
+    deployer-SP credential file is built only from a host that passed this."""
+    host = normalize_host(raw)
+    if not _WORKSPACE_HOST_RE.fullmatch(host):
+        raise ValueError(
+            "Not a Databricks workspace URL. Use the workspace address, e.g. "
+            "https://<workspace>.cloud.databricks.com."
+        )
+    return host
+
+
 def _has_admin(scim_result: dict) -> bool:
     groups = scim_result.get("groups") or []
     names = {(g.get("display") or "").lower() for g in groups}
@@ -112,7 +137,19 @@ def probe_target(
     catalog_overrides -> optional {region: catalog} map (from config) applied
                        when resolving the region's catalog.
     """
-    host = normalize_host(raw_host)
+    try:
+        host = validate_target_host(raw_host)
+    except ValueError as e:
+        # Rejected before ANY client is built: the deployer secret never reaches this host.
+        return TargetVerdict(
+            host=normalize_host(raw_host),
+            reachable=False,
+            is_admin=False,
+            region=None,
+            catalog=None,
+            status=STATUS_INVALID_HOST,
+            message=str(e),
+        )
 
     # --- tier 1: reachability ---
     # An account-level SP gets an OIDC `invalid_client` for BOTH "workspace is
@@ -257,11 +294,13 @@ def make_sp_target_client(host: str, client_id: str, client_secret: str):
     The client is lazy: auth only fires on the first API call, and an
     out-of-account / not-yet-blessed target throws OIDC `invalid_client` there
     (the same signal `make_sp_scim_me` wraps as TargetUnreachable). `host` is
-    normalized to https://<host> so SDK/CLI host comparisons stay literal."""
+    normalized to https://<host> so SDK/CLI host comparisons stay literal.
+    The host is validated FIRST (validate_target_host): a non-Databricks host
+    raises ValueError and no client is constructed, so the secret never leaves."""
     from databricks.sdk import WorkspaceClient  # local import: keep module import-light
 
     return WorkspaceClient(
-        host=normalize_host(host),
+        host=validate_target_host(host),
         client_id=client_id,
         client_secret=client_secret,
         auth_type="oauth-m2m",

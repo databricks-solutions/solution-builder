@@ -17,7 +17,7 @@
 | **Headline** | The AI Growth Fund is **beating its benchmark** (the Nasdaq-100 / QQQ) by a wide margin |
 | **Investigation** | *Why* is it winning — and what's the catch? |
 | **Root cause** | Three portfolio **reorganizations** progressively bought AI and sold defensives, capped by a **major AI pivot on 2025-08-04**. Core-AI concentration stepped up **~30% → ~46% → ~77%**. |
-| **The catch** | The fund is now a large, undiversified bet on AI — **~77% core-AI, ~87% Technology** vs ~34% in the benchmark. Post-pivot Value at Risk and volatility rose. The bet has paid off *so far*; the caution is the structural concentration risk. |
+| **The catch** | The fund is now a large, undiversified bet on AI — **~77% core-AI, ~81% Technology** vs ~34% in the benchmark. Post-pivot Value at Risk and volatility rose. The bet has paid off *so far*; the caution is the structural concentration risk. |
 
 ---
 
@@ -43,7 +43,7 @@ Income) make the AI Growth Fund's concentration a defensible outlier.
 | Benchmark (QQQ) cumulative return | ~+58% |
 | Outperformance | ~+60 points |
 | Core-AI concentration, era 1 → 2 → 3 | ~30% → ~46% → ~77% |
-| Technology weight, fund vs benchmark | ~87% vs ~34% |
+| Technology weight, fund vs benchmark | ~81% vs ~34% |
 | Fund Sharpe, before → after pivot | ~1.2 → ~2.1 (benchmark ~1.76) |
 | Fund volatility, before → after pivot | ~23% → ~29% |
 | Major AI pivot date | 2025-08-04 |
@@ -69,7 +69,7 @@ Genie shows core-AI stepping up to ~77% at the August pivot.
 
 ### Act 3 — The catch: quantify the risk (1 min)
 Back on the dashboard → *Concentration risk*: the concentration step-line, the
-reorganizations table, the ~87% Technology overweight, the return distribution. Ask Genie
+reorganizations table, the ~81% Technology overweight, the return distribution. Ask Genie
 *"What is our Value at Risk, and did the pivot increase it?"* and *"Did Sharpe improve or
 worsen after the pivot?"* — post-pivot VaR and volatility are higher, but Sharpe is strong.
 

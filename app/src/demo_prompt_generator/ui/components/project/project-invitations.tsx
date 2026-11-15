@@ -15,7 +15,7 @@ import {
   type ProjectShareOut,
 } from "@/lib/custom-api";
 
-/** "alice.smith@databricks.com" → "alice.smith". Keeps the card compact. */
+/** "alice.smith@example.com" → "alice.smith". Keeps the card compact. */
 function formatEmailShort(email: string): string {
   return email.split("@")[0] ?? email;
 }

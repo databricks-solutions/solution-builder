@@ -1,0 +1,10 @@
+<h2>2/ Generate the raw data</h2>
+<p>The kit ships with a <strong><i data-icon="file"></i> generate_data.py</strong> file in <code>data_generation/</code>, next to this notebook. It <strong>simulates the raw data</strong> a real business would have (customers, orders, returns, production lots…) and lands it as <strong>parquet files in your Volume</strong>. That's the raw material we'll build the whole demo on.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Run <code>data_generation/generate_data.py</code> from this folder on serverless compute against my catalog and schema. Install <code>faker</code> and <code>numpy</code> first. Then tell me when the raw data has landed in my Volume.</p>
+</blockquote>
+<blockquote class="note"><p>💡 <strong>Catalog + schema.</strong> In a notebook the script reads the <code>catalog</code> and <code>schema</code> widgets; as a script it reads <code>DEMO_CATALOG</code> and <code>DEMO_SCHEMA</code>. It fails fast if neither is set.</p></blockquote>
+<blockquote class="note"><p>💡 <strong>Or from a laptop</strong> with Databricks Connect (Python 3.12): <code>DEMO_CATALOG=… DEMO_SCHEMA=… python3 data_generation/generate_data.py</code> (from the kit folder)</p></blockquote>
+<p><span class="check">✅ Confirm:</span> the log ends with <code>Data generation complete.</code> plus one line per dataset.</p>

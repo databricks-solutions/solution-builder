@@ -8,7 +8,10 @@ Builds dynamic system prompts with injected context:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+from ... import __version__
 
 
 # Path to the shared databricks-connect venv provisioned by dev.sh
@@ -31,6 +34,9 @@ def get_system_prompt(
     skills: list[dict] | None = None,
     project_dir: str | None = None,
     template_lineage: dict | None = None,
+    mode: str | None = None,
+    resource_suffix: str | None = None,
+    project_id: str | None = None,
 ) -> str:
     """Build the system prompt for the Demo Generator agent.
 
@@ -38,17 +44,32 @@ def get_system_prompt(
     a dict with keys ``name``, ``industry``, and ``capabilities`` (list[str]).
     Adds a short context block telling the agent the user is adapting an
     existing demo rather than authoring from scratch.
+
+    mode (optional): the project's entry mode. ``"workshop"`` adds a line to
+    the path section pointing the agent at SKILL.md flow B (stages/genie-workshop.md) instead of its
+    stages; story/architecture add nothing.
     """
     p = project_dir or "."
 
-    sections = [
-        # Define paths once, then reference by short name everywhere
+    path_lines = (
         f"## Path References\n\n"
         f"- **PROJECT**: `{p}`\n"
         f"- **SKILLS**: `{p}/.claude/skills`\n"
         f"- **DEMO_SKILL_DIR**: `{p}/.claude/skills/databricks-solution-builder`\n"
         f"- **DEMO_SKILL**: `{p}/.claude/skills/databricks-solution-builder/SKILL.md`\n"
-        f"\nAll paths below use these references.",
+    )
+    if mode == "workshop":
+        path_lines += (
+            "- **Mode**: workshop — this is a Genie Code workshop project. Read DEMO_SKILL "
+            "and follow its flow B (DEMO_SKILL_DIR/stages/genie-workshop.md) instead of "
+            "stages 0–5: no approval gates, "
+            "never provision the solution's resources (so the build-order, resource-tracking "
+            "and resource-suffix rules below have nothing to apply to); the only workspace "
+            "action is the data test into the default catalog/schema below.\n"
+        )
+    sections = [
+        # Define paths once, then reference by short name everywhere
+        path_lines + "\nAll paths below use these references.",
         _PROMPT_TEMPLATE,
     ]
 
@@ -76,9 +97,13 @@ def get_system_prompt(
         default_schema=default_schema,
         workspace_url=workspace_url,
         databricks_profile=databricks_profile,
+        resource_suffix=resource_suffix,
     )
     if resources:
         sections.append(resources)
+
+    if project_id:
+        sections.append(_build_tagging_section(project_id))
 
     dbconnect = _build_dbconnect_section()
     if dbconnect:
@@ -180,7 +205,7 @@ You MUST read and write all the files inside the project folder - never escape i
 - **Always read the demo generation skill file first** — `DEMO_SKILL`
 - **Speed: go fast**, don't think too much, especially writting the specs, just write the files.
 - **README.md is mandatory** — write `PROJECT/README.md` with the full story before generating specification files
-- **Build with CLI skills, not MCP** — read the relevant skill from `SKILLS/` first (e.g., `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-agent-bricks`)
+- **Build with CLI skills, not MCP** — read the relevant skill from `SKILLS/` first (e.g., `databricks-spark-declarative-pipelines`, `databricks-aibi-dashboards`, `databricks-genie-agents`)
 - **Keep spec files in sync** — if you change something, update the spec file too
 - **Track all resources** — update `PROJECT/resources.json` after creating any Databricks resource
 - **Don't hand-build workspace URLs** — after creating resources, point the user
@@ -190,11 +215,10 @@ You MUST read and write all the files inside the project folder - never escape i
   workspace). The panel builds every link against the correct target workspace
   from `resources.json` — reference it instead of pasting `.../sql/dashboardsv3/...`
   links in chat.
-- **Enforce build-order gates** — consumption resources depend on upstream data. BEFORE creating any dashboard, Genie space, Knowledge Assistant, or agent, VERIFY its inputs exist, for example:
+- **Enforce build-order gates** — consumption resources depend on upstream data. BEFORE creating any dashboard or Genie space, VERIFY its inputs exist, for example:
   - **Dashboard**: the pipeline must have completed successfully AND every table referenced in any dataset must return `COUNT(*) > 0` via `execute_sql` against the fully qualified `{CATALOG}.{SCHEMA}.{table}` name. No exceptions. A dashboard built against missing or empty tables fails silently on every widget (`TABLE_OR_VIEW_NOT_FOUND`) and requires delete-and-recreate.
   - **Genie space**: every listed table must exist with rows.
-  - **Knowledge Assistant**: source documents must be uploaded and the vector index must have finished syncing.
-  - **Multi-Agent Supervisor**: every downstream tool must already have an ID in `resources.json.created_resources`.
+  - **Documents (Genie agent with a volume)**: the PDFs must be uploaded to the dedicated documents volume, and BEFORE the Genie agent is created or updated with that volume attached, the upload must be complete. After attaching it, wait until the volume index state is `SUCCEEDED` (`GET /api/2.0/volume-indexes/<volume_id>`) before validating document questions. Document questions are asked in Agent mode only.
   If any precondition fails, STOP and fix the upstream resource — never proceed to create the downstream resource.
 
 ## Authentication (don't override it)
@@ -240,10 +264,6 @@ Iterating a third time on the same calculation is the signal that you're solving
 
 Only write final short response text that is useful to the *user*: summaries of what you built, questions asking for clarification, or explanations of design choices.
 
-## Tool-Use Efficiency
-
-Tool calls in the same response run concurrently; latency is the LLM round-trip, not the tool. Batch independent reads (multiple reference files) and writes (`resources.json`, `README.md`, `architecture.md`, files in `instructions/`) into one turn. Only go sequential when a later call needs an earlier call's result.
-
 ## Context hints
 
 Some user messages arrive prefixed with a single line like:
@@ -255,6 +275,30 @@ followed by the actual message. This prefix is **injected automatically by the U
 Treat it as a **weak signal, not an instruction**: use it to resolve vague references ("this table", "here", "fix this page", "why is it empty?") to the thing they're most likely pointing at. It may also be irrelevant to their actual question — if the message stands on its own or clearly refers to something else, ignore the hint. Never let the hint override or narrow an explicit request."""
 
 
+def solution_builder_tag(project_id: str) -> str:
+    """`<sb_project_id>_<sb_version>` — the provenance tag value (spec: PR #207).
+
+    The version is the build's (`0.0.0.post<commits>.dev0+<sha>` from git). Billing
+    tags allow letters, digits and `+ - = . , _ : @`; `_` is the separator (a UUID
+    never contains one), so it and anything else is mapped to `.` in the version.
+    """
+    version = re.sub(r"[^A-Za-z0-9+\-=.,:@]", ".", __version__)
+    return f"{project_id}_{version}"
+
+
+def _build_tagging_section(project_id: str) -> str:
+    tag = solution_builder_tag(project_id)
+    return (
+        "## Tag what you create\n\n"
+        "Tag every resource you create that supports tags:\n"
+        f'- jobs, pipelines: `"tags": {{"solution_builder": "{tag}"}}` (pipeline `clusters[]`: `custom_tags`)\n'
+        f'- SQL warehouses: `"tags": {{"custom_tags": [{{"key": "solution_builder", "value": "{tag}"}}]}}`\n'
+        f'- serving endpoints: top-level `"tags": [{{"key": "solution_builder", "value": "{tag}"}}]`\n'
+        f"- catalogs, schemas, tables: `ALTER <TYPE> <name> SET TAGS ('solution_builder' = '{tag}')`\n"
+        "Never tag what you didn't create (e.g. a user's real tables). A tagging failure never blocks the build."
+    )
+
+
 def _build_resources_section(
     cluster_id: str | None = None,
     warehouse_id: str | None = None,
@@ -262,6 +306,7 @@ def _build_resources_section(
     default_schema: str | None = None,
     workspace_url: str | None = None,
     databricks_profile: str | None = None,
+    resource_suffix: str | None = None,
 ) -> str | None:
     """Build the resources configuration section."""
     has_profile = databricks_profile and databricks_profile != "DEFAULT"
@@ -294,6 +339,22 @@ def _build_resources_section(
 
     if default_catalog and default_schema:
         parts.append(f"\nUse `{default_catalog}.{default_schema}` as the default location for all the demos.")
+
+    # Only emit the suffix instruction when the schema actually carries it — i.e.
+    # a project created AFTER the suffix change. Legacy projects have a bare
+    # `demo_<slug>` schema, so telling the agent "the schema already ends with it"
+    # would be false and could scatter resources across a suffixed/unsuffixed mix
+    # on the next iterate turn. `in` (not endswith) tolerates a schema that took an
+    # existence-check bump (`demo_<slug>_<sfx>_2`).
+    if resource_suffix and f"_{resource_suffix}" in (default_schema or ""):
+        parts.append(
+            f"\n- **Resource suffix:** `_{resource_suffix}` — append it to the name of "
+            f"EVERY Databricks resource you create (pipeline, dashboard, Genie space, "
+            f"job, serving endpoint). The "
+            f"schema above already ends with it. This keeps two copies of the same demo "
+            f"from colliding on a shared workspace, so it is REQUIRED, not optional. It "
+            f"also matches `resource_suffix` in `resources.json`."
+        )
 
     if workspace_url:
         # This is the workspace your CLI env reports — in cross-workspace deploys

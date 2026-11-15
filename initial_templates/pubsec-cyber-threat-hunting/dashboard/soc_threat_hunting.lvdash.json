@@ -1,0 +1,1183 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "SOC KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 3600), 1) FROM incidents) AS mttd_hours_all,\n",
+        "  (SELECT round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 86400), 1) FROM incidents WHERE category IN ('credential_compromise', 'data_mishandling')) AS mttd_days_identity,\n",
+        "  (SELECT round(avg((unix_timestamp(contained_ts) - unix_timestamp(detected_ts)) / 3600), 1) FROM incidents) AS mttr_hours_all,\n",
+        "  (SELECT count(*) FROM siem_alerts) AS alerts_90d,\n",
+        "  (SELECT round(100 * avg(IF(disposition = 'true_positive', 1, 0)), 1) FROM siem_alerts WHERE disposition <> 'open') AS tp_rate_pct,\n",
+        "  (SELECT count(*) FROM investigation_leads WHERE status = 'open') AS open_leads,\n",
+        "  (SELECT count(*) FROM attack_techniques WHERE detection_coverage = 'none') AS techniques_without_detection\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "ds_soc_weekly",
+      "displayName": "Weekly alerts and true positives",
+      "queryLines": [
+        "SELECT date_trunc('week', created_ts) AS week,\n  count(*) AS alerts,\n  round(100 * count_if(disposition = 'true_positive') / nullif(count_if(disposition <> 'open'), 0), 1) AS tp_rate_pct\nFROM siem_alerts\nWHERE created_ts < (SELECT date_trunc('week', max(created_ts)) FROM siem_alerts)\nGROUP BY date_trunc('week', created_ts)\nORDER BY week"
+      ]
+    },
+    {
+      "name": "incident_monthly",
+      "displayName": "Incidents monthly",
+      "queryLines": [
+        "SELECT date_trunc('month', detected_ts) AS month,\n",
+        "  CASE WHEN category IN ('credential_compromise', 'data_mishandling') THEN 'Identity & data' ELSE 'Malware, phishing, web, DoS' END AS incident_group,\n",
+        "  round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 3600), 1) AS mttd_hours,\n",
+        "  round(avg((unix_timestamp(contained_ts) - unix_timestamp(detected_ts)) / 3600), 1) AS mttr_hours,\n",
+        "  count(*) AS incidents\n",
+        "FROM incidents GROUP BY ALL ORDER BY month\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "by_category",
+      "displayName": "Incidents by category",
+      "queryLines": [
+        "SELECT replace(category, '_', ' ') AS category, CASE WHEN category='credential_compromise' THEN 'Slowest to detect' ELSE 'Other categories' END AS source, count(*) AS incidents,\n",
+        "   round(avg((unix_timestamp(detected_ts) - unix_timestamp(first_malicious_ts)) / 86400), 1) AS mttd_days,\n",
+        "   round(avg((unix_timestamp(contained_ts) - unix_timestamp(detected_ts)) / 3600), 1) AS mttr_hours,\n",
+        "   round(100 * avg(IF(detection_source = 'external_notification', 1, 0)), 0) AS pct_found_by_outsiders\n",
+        " FROM incidents GROUP BY ALL ORDER BY mttd_days DESC\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "alerts_weekly",
+      "displayName": "Alerts weekly",
+      "queryLines": [
+        "SELECT date_trunc('week', created_ts) AS week, 'All alerts' AS series, count(*) AS alerts FROM siem_alerts\nWHERE date_trunc('week', created_ts) > (SELECT date_trunc('week', min(created_ts)) FROM siem_alerts)\n  AND date_trunc('week', created_ts) < (SELECT date_trunc('week', max(created_ts)) FROM siem_alerts)\nGROUP BY ALL\nUNION ALL\nSELECT date_trunc('week', created_ts), 'True positives', count_if(disposition = 'true_positive') FROM siem_alerts\nWHERE date_trunc('week', created_ts) > (SELECT date_trunc('week', min(created_ts)) FROM siem_alerts)\n  AND date_trunc('week', created_ts) < (SELECT date_trunc('week', max(created_ts)) FROM siem_alerts)\nGROUP BY ALL\nORDER BY week"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "rule_efficacy",
+      "displayName": "Detection rule efficacy",
+      "queryLines": [
+        "SELECT rule_name, source, count(*) AS alerts, count_if(disposition = 'true_positive') AS true_positives,\n  CAST(round(100 * count_if(disposition = 'true_positive') / nullif(count_if(disposition <> 'open'), 0), 0) AS BIGINT) AS tp_rate_pct,\n  CAST(round(avg((unix_timestamp(closed_ts) - unix_timestamp(created_ts)) / 60), 0) AS BIGINT) AS avg_minutes_to_close\nFROM siem_alerts GROUP BY ALL ORDER BY alerts DESC"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "coverage",
+      "displayName": "ATT&CK coverage",
+      "queryLines": [
+        "SELECT tactic, initcap(detection_coverage) AS detection_coverage, count(*) AS techniques FROM attack_techniques GROUP BY ALL ORDER BY tactic\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "spray_daily",
+      "displayName": "Hosting-network password failures",
+      "queryLines": [
+        "SELECT date(event_ts) AS day, count(*) AS failed_signins, count(DISTINCT user_id) AS accounts_targeted,\n",
+        "  max(per_acct) AS max_failures_per_account\n",
+        "FROM (SELECT *, count(*) OVER (PARTITION BY user_id, date(event_ts)) AS per_acct FROM auth_logs\n",
+        "      WHERE failure_reason = 'invalid_password' AND asn_org LIKE '%Hosting%')\n",
+        "GROUP BY ALL ORDER BY day\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "failed_by_network",
+      "displayName": "Failed sign-ins by network",
+      "queryLines": [
+        "SELECT date(event_ts) AS day, CASE WHEN asn_org LIKE '%Hosting%' THEN 'Hosting / VPS networks' ELSE 'CDOR + home ISPs' END AS network,\n",
+        "  count(*) AS failed_signins FROM auth_logs WHERE failure_reason = 'invalid_password' GROUP BY ALL ORDER BY day\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "leads",
+      "displayName": "UEBA leads",
+      "queryLines": [
+        "SELECT lead_id, entity_type, display_name, department, CAST(ROUND(risk_score) AS BIGINT) AS risk_score, priority, array_join(top_factors, '; ') AS top_factors,\n  linked_alerts, alerts_closed_fp, first_flagged FROM investigation_leads ORDER BY risk_score DESC\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "risk_trend",
+      "displayName": "UEBA risk trend",
+      "queryLines": [
+        "SELECT d.score_date, i.display_name AS entity, d.risk_score FROM ueba_user_daily d JOIN identities i USING (user_id)\n",
+        "WHERE d.user_id IN (SELECT entity_id FROM investigation_leads WHERE entity_type = 'user' ORDER BY risk_score DESC LIMIT 3)\n",
+        "  AND d.score_date > (SELECT date_sub(max(score_date), 30) FROM ueba_user_daily)\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    },
+    {
+      "name": "dns_entropy",
+      "displayName": "High-entropy DNS",
+      "queryLines": [
+        "SELECT host_id, count(*) AS high_entropy_lookups, count(DISTINCT date(event_ts)) AS days,\n",
+        "  count_if(query_type = 'TXT') AS txt_lookups\n",
+        "FROM dns_logs WHERE label_entropy > 3.5 AND length(split(query, '[.]')[0]) >= 12 GROUP BY ALL ORDER BY high_entropy_lookups DESC LIMIT 10\n"
+      ],
+      "catalog": "cybersecurity",
+      "schema": "cyber_threat_hunting"
+    }
+  ],
+  "pages": [
+    {
+      "name": "p_soc",
+      "displayName": "SOC performance",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Cascadia SOC - Threat Hunting & Detection Performance\n",
+                "\n",
+                "**The gap** — CSOC protects the Dept. of Revenue (1,180 staff, Federal Tax Information). Malware and phishing are caught in hours, but **credential compromises take ~15 days to detect** and half are found outside the SOC. 7,593 alerts in 90 days, only **5% true positive**.\n",
+                "\n",
+                "**What to see** — identity & data incidents (red) stay slow while endpoint/email detection (grey) improves · credential compromise towers over every other category · 8 ATT&CK techniques in the playbook have **no detection** (red)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "mttd_hours_all",
+                      "expression": "`mttd_hours_all`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "mttd_hours_all",
+                  "displayName": "MTTD, all incidents (hours)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "MTTD, all incidents (hours)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "mttd_days_identity",
+                      "expression": "`mttd_days_identity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "mttd_days_identity",
+                  "displayName": "MTTD, identity & data (days)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "MTTD, identity & data (days)"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "mttr_hours_all",
+                      "expression": "`mttr_hours_all`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "mttr_hours_all",
+                  "displayName": "MTTR — detect to contain (hours)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "MTTR — detect to contain (hours)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_soc_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(alerts)",
+                      "expression": "SUM(`alerts`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(alerts)",
+                  "displayName": "Alerts",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alerts, latest full week"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_soc_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(tp_rate_pct)",
+                      "expression": "SUM(`tp_rate_pct`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(tp_rate_pct)",
+                  "displayName": "True-positive rate",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "True-positive rate, latest full week (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "techniques_without_detection",
+                      "expression": "`techniques_without_detection`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "techniques_without_detection",
+                  "displayName": "Playbook techniques with no detection"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Playbook techniques with no detection"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "incident_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "mttd_hours",
+                      "expression": "`mttd_hours`"
+                    },
+                    {
+                      "name": "incident_group",
+                      "expression": "`incident_group`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "mttd_hours",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "MTTD (hours)"
+                },
+                "color": {
+                  "fieldName": "incident_group",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Identity & data",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Malware, phishing, web, DoS",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Incident group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mean time to detect (hours), by month",
+                "showDescription": true,
+                "description": "Endpoint/email detections keep improving; identity & data incidents are getting slower to detect."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "by_category",
+                  "fields": [
+                    {
+                      "name": "category",
+                      "expression": "`category`"
+                    },
+                    {
+                      "name": "mttd_days",
+                      "expression": "`mttd_days`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "mttd_days",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "MTTD (days)"
+                },
+                "y": {
+                  "fieldName": "category",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  },
+                  "displayName": "Category"
+                },
+                "color": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Slowest to detect",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Other categories",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Source"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Mean time to detect by incident category (days)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "alerts_weekly",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "alerts",
+                      "expression": "`alerts`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "alerts",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Alerts"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alert volume vs true positives, weekly"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rule_efficacy",
+                  "fields": [
+                    {
+                      "name": "rule_name",
+                      "expression": "`rule_name`"
+                    },
+                    {
+                      "name": "tp_rate_pct",
+                      "expression": "`tp_rate_pct`"
+                    },
+                    {
+                      "name": "avg_minutes_to_close",
+                      "expression": "`avg_minutes_to_close`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "rule_name",
+                    "displayName": "Detection rule"
+                  },
+                  {
+                    "fieldName": "tp_rate_pct",
+                    "displayName": "TP rate (%)"
+                  },
+                  {
+                    "fieldName": "avg_minutes_to_close",
+                    "displayName": "Min. to close"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Detection rule efficacy (90 days)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "coverage",
+                  "fields": [
+                    {
+                      "name": "tactic",
+                      "expression": "`tactic`"
+                    },
+                    {
+                      "name": "techniques",
+                      "expression": "`techniques`"
+                    },
+                    {
+                      "name": "detection_coverage",
+                      "expression": "`detection_coverage`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "techniques",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Techniques"
+                },
+                "y": {
+                  "fieldName": "tactic",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Tactic"
+                },
+                "color": {
+                  "fieldName": "detection_coverage",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "none",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "partial",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "full",
+                        "color": "#13293D"
+                      }
+                    ]
+                  },
+                  "displayName": "Detection coverage"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ATT&CK coverage of playbook techniques, by tactic"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "p_hunt",
+      "displayName": "Threat hunting",
+      "layout": [
+        {
+          "widget": {
+            "name": "w13",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Threat Hunting — What the Rules Missed\n",
+                "\n",
+                "A password spray from hosting / VPS networks (red) has run for 3 weeks at **one guess per account per day** — below the brute-force rule's threshold, so the SIEM never fired. The UEBA model surfaces the accounts and hosts that deviated, with high-entropy DNS flagging the exfiltration host.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "spray_daily",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "accounts_targeted",
+                      "expression": "`accounts_targeted`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "accounts_targeted",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Accounts targeted"
+                },
+                "color": null
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Accounts hit by failed passwords from hosting / VPS networks, daily",
+                "showDescription": true,
+                "description": "Max failures per account per day = 1 — the '>5 in 10 min' rule can never fire."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "failed_by_network",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "failed_signins",
+                      "expression": "`failed_signins`"
+                    },
+                    {
+                      "name": "network",
+                      "expression": "`network`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "failed_signins",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Failed signins"
+                },
+                "color": {
+                  "fieldName": "network",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Hosting / VPS networks",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "CDOR + home ISPs",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Network"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Failed passwords by source network, daily"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "leads",
+                  "fields": [
+                    {
+                      "name": "lead_id",
+                      "expression": "`lead_id`"
+                    },
+                    {
+                      "name": "display_name",
+                      "expression": "`display_name`"
+                    },
+                    {
+                      "name": "department",
+                      "expression": "`department`"
+                    },
+                    {
+                      "name": "risk_score",
+                      "expression": "`risk_score`"
+                    },
+                    {
+                      "name": "priority",
+                      "expression": "`priority`"
+                    },
+                    {
+                      "name": "top_factors",
+                      "expression": "`top_factors`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "lead_id",
+                    "displayName": "Lead"
+                  },
+                  {
+                    "fieldName": "display_name",
+                    "displayName": "Entity"
+                  },
+                  {
+                    "fieldName": "department",
+                    "displayName": "Department"
+                  },
+                  {
+                    "fieldName": "risk_score",
+                    "displayName": "Risk score (0-100)"
+                  },
+                  {
+                    "fieldName": "priority",
+                    "displayName": "Priority"
+                  },
+                  {
+                    "fieldName": "top_factors",
+                    "displayName": "Top factors"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open UEBA leads (7-day peak risk)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "risk_trend",
+                  "fields": [
+                    {
+                      "name": "score_date",
+                      "expression": "`score_date`"
+                    },
+                    {
+                      "name": "risk_score",
+                      "expression": "`risk_score`"
+                    },
+                    {
+                      "name": "entity",
+                      "expression": "`entity`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "score_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Score date"
+                },
+                "y": {
+                  "fieldName": "risk_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Risk score"
+                },
+                "color": {
+                  "fieldName": "entity",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Entity"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "UEBA daily risk — top user leads, last 30 days"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dns_entropy",
+                  "fields": [
+                    {
+                      "name": "host_id",
+                      "expression": "`host_id`"
+                    },
+                    {
+                      "name": "high_entropy_lookups",
+                      "expression": "`high_entropy_lookups`"
+                    },
+                    {
+                      "name": "txt_lookups",
+                      "expression": "`txt_lookups`"
+                    },
+                    {
+                      "name": "days",
+                      "expression": "`days`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "host_id",
+                    "displayName": "Host"
+                  },
+                  {
+                    "fieldName": "high_entropy_lookups",
+                    "displayName": "High-entropy lookups",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "txt_lookups",
+                    "displayName": "TXT lookups",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "days",
+                    "displayName": "Days",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hosts with high-entropy DNS lookups (possible tunneling)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ]
+}

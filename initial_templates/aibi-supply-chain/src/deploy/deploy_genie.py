@@ -21,7 +21,12 @@ GOTCHAS (proven the hard way — do NOT "simplify" away):
 REQUIRES: databricks-sdk>=0.114.0.
 
 Parameters (base_parameters):
-- catalog, schema, warehouse_id
+- catalog, schema, warehouse_id, parent_path (workspace folder for a NEW space; optional)
+
+IDEMPOTENCY: an existing space is reused only if its title matches AND its
+tables point at THIS catalog.schema — forks of this template (e.g. Solution
+Builder projects in the same workspace) keep the same title, and must never be
+hijacked/overwritten by another deployment.
 
 Outputs (dbutils.jobs.taskValues):
 - genie_space_id
@@ -30,7 +35,7 @@ Outputs (dbutils.jobs.taskValues):
 # COMMAND ----------
 
 # EDIT PER DEMO: the space title (hyphen, no '/') used for idempotent lookup.
-SPACE_TITLE = "AI-BI - Supply Chain Optimization"
+SPACE_TITLE = "Supply Chain Optimization - E-Bike Battery Cell Crunch"
 SPACE_DESCRIPTION = (
     "Explore an e-bike manufacturer's supply chain. A new EMEA market launch drove "
     "a City E-Bike demand surge that is burning through the shared Battery Cell. Ask "
@@ -43,9 +48,11 @@ SPACE_DESCRIPTION = (
 dbutils.widgets.text("catalog", "", "Catalog")
 dbutils.widgets.text("schema", "", "Schema")
 dbutils.widgets.text("warehouse_id", "", "Warehouse ID")
+dbutils.widgets.text("parent_path", "", "Parent folder")
 catalog = dbutils.widgets.get("catalog")
 schema = dbutils.widgets.get("schema")
 warehouse_id = dbutils.widgets.get("warehouse_id")
+parent_path = dbutils.widgets.get("parent_path")
 assert catalog and schema and warehouse_id, "catalog + schema + warehouse_id are required"
 
 # COMMAND ----------
@@ -79,13 +86,20 @@ print(f"tables: {len(payload['data_sources']['tables'])}, "
 
 w = WorkspaceClient()
 
-# Idempotent lookup by exact title (paginate the response object).
+# Idempotent lookup: exact title (paginate the response object) AND the space's
+# tables reference this catalog.schema (never reuse another deployment's space).
+target_prefix = f"{catalog}.{schema}."
+def _is_ours(space_id):
+    sp = w.genie.get_space(space_id, include_serialized_space=True)
+    tables = json.loads(sp.serialized_space or "{}").get("data_sources", {}).get("tables", [])
+    return any(t.get("identifier", "").startswith(target_prefix) for t in tables)
+
 existing_id = None
 page_token = None
 while True:
     resp = w.genie.list_spaces(page_size=200, page_token=page_token)
     for sp in (resp.spaces or []):
-        if sp.title == SPACE_TITLE:
+        if sp.title == SPACE_TITLE and _is_ours(sp.space_id):
             existing_id = sp.space_id
             break
     if existing_id or not getattr(resp, "next_page_token", None):
@@ -96,14 +110,16 @@ while True:
 
 if existing_id:
     print(f"Updating existing space {existing_id}…")
-    w.genie.update_space(space_id=existing_id, warehouse_id=warehouse_id, serialized_space=serialized)
+    w.genie.update_space(space_id=existing_id, warehouse_id=warehouse_id, serialized_space=serialized,
+                         title=SPACE_TITLE, description=SPACE_DESCRIPTION)
     space_id = existing_id
 else:
     print("Creating new space…")
-    created = w.genie.create_space(
-        warehouse_id=warehouse_id, serialized_space=serialized,
-        title=SPACE_TITLE, description=SPACE_DESCRIPTION,
-    )
+    kwargs = dict(warehouse_id=warehouse_id, serialized_space=serialized,
+                  title=SPACE_TITLE, description=SPACE_DESCRIPTION)
+    if parent_path:
+        kwargs["parent_path"] = parent_path
+    created = w.genie.create_space(**kwargs)
     space_id = created.space_id
 
 print(f"Genie space ready: {space_id}")

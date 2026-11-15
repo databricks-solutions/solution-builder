@@ -1,0 +1,58 @@
+{
+  // Westbrook DHS — Eligibility Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/eligibility.ts): the Genie agent — program-director analytics
+  // over the tables + the policy-manual documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:pubsec-eligibility-determination}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Resident-notice writer (chat completions) used by the case workbench's AI check.
+  "noticeModel": "${NOTICE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (program director view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/policy_manual",
+
+  // Delta sources for the boot-time Lakebase mirror of the OPEN caseload (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}",
+    "tables": {
+      "applications": "applications",
+      "households":   "households",
+      "caseworkers":  "caseworkers",
+      "documents":    "application_documents",
+      "extractions":  "document_extractions",
+      "counties":     "counties",
+      "programRules": "program_rules",
+      "incomeLimits": "income_limits"
+    }
+  },
+
+  "branding": {
+    "appName": "Eligibility Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Where is the backlog?", "prompt": "Which county is furthest behind the 30-day SNAP standard, and how bad is it?" },
+    { "label": "Why Tamarack?", "prompt": "What changed in Tamarack County? Compare its monthly SNAP on-time rate to the rest of the state, and its open cases per caseworker today.", "triggerAfter": ["Tamarack"] },
+    { "label": "Is it an equity problem?", "prompt": "Is this an equity problem? Compare approval and procedural-denial rates by race/ethnicity, then Tamarack vs the rest of the state.", "triggerAfter": ["%"] },
+    { "label": "Expedited rule", "prompt": "What does the policy manual say about expedited SNAP service and its deadline?", "triggerAfter": ["county", "County"] }
+  ]
+}

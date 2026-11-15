@@ -1,0 +1,174 @@
+# Databricks Asset Bundle — Grid Ops Copilot (MREC heat-wave overload) — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable). Nothing is created by
+# hand and no id is hand-copied: the bundle owns the schema, the AI/BI dashboard, the agent-traces MLflow
+# experiment, the Databricks App and the setup job; the setup job builds the data and the Genie space.
+#
+#   databricks bundle deploy          → builds the app (artifacts), schema + dashboard + experiment + app + job
+#   databricks bundle run grid_ops_setup
+#       generate_data (synthetic SCADA/weather/DGA + temperature-aware forecast + gold tables)
+#       → deploy_genie (create/update the Genie space by exact title)
+#       → grant_and_export (UC + Genie grants for the app SP; demo_resources table the app reads at boot)
+#   databricks bundle run grid_ops_copilot_app   → deploys the app source and starts it
+#
+# See dab_instructions.md.
+bundle:
+  name: energy-grid-operations
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo tables.
+    default: energy_utilities
+  schema:
+    description: Schema for the demo tables.
+    default: grid_operations_copilot
+  warehouse_id:
+    description: SQL warehouse for the dashboard, Genie space and the app. — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard, Genie space and the agent-traces experiment.
+    default: /Workspace/Users/${workspace.current_user.userName}/energy-grid-operations
+  app_name:
+    description: Databricks App name (lowercase, <= 30 chars).
+    default: grid-ops-copilot
+  agent_model:
+    description: Foundation Model endpoint for the agent (must support the Responses API).
+    default: databricks-gpt-5-4
+  genie_space_id:
+    description: >-
+      Genie space id for the app. `auto` (default): the app reads it from <catalog>.<schema>.demo_resources,
+      written by the setup job (an app env var can't be empty, hence the sentinel).
+    default: auto
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/package.json"        # ignored by the repo-root .gitignore — must ship (npm install on the container)
+    - "app/package-lock.json"
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/tests/**"
+    - "app/src/**"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var app_name=…]
+  default:
+    default: true
+
+resources:
+  schemas:
+    demo_schema:
+      catalog_name: ${var.catalog}
+      name: ${var.schema}
+      comment: "Grid Ops Copilot demo (MREC heat-wave overload) — synthetic SCADA, weather, transformer health, load forecast, relief options, operator action log."
+
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  dashboards:
+    grid_ops_dashboard:
+      display_name: "Grid Ops Copilot - MREC heat-wave peak"
+      file_path: ./dashboard/dashboard.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  jobs:
+    grid_ops_setup:
+      name: "[Grid Ops Copilot] setup — data, forecast, gold, Genie"
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: data
+        - task_key: deploy_genie
+          depends_on: [{ task_key: generate_data }]
+          spark_python_task:
+            python_file: ./src/deploy/deploy_genie.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--warehouse_id", "${var.warehouse_id}",
+                         "--parent_path", "${var.workspace_folder}",
+                         "--config", "${workspace.file_path}/genie/genie_space.json"]
+          environment_key: sdk
+        - task_key: grant_and_export
+          depends_on: [{ task_key: deploy_genie }]
+          spark_python_task:
+            python_file: ./src/deploy/grant_and_export.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--app_name", "${var.app_name}",
+                         "--genie_space_id", "{{tasks.deploy_genie.values.genie_space_id}}",
+                         "--dashboard_id", "${resources.dashboards.grid_ops_dashboard.id}",
+                         "--warehouse_id", "${var.warehouse_id}",
+                         "--agent_mlflow_experiment_path", "${resources.experiments.agent_traces.name}"]
+          environment_key: sdk
+      environments:
+        - environment_key: data
+          spec: { client: "4", dependencies: ["numpy", "pandas"] }
+        - environment_key: sdk
+          spec: { client: "4", dependencies: ["databricks-sdk>=0.114.0"] }
+
+  apps:
+    grid_ops_copilot_app:
+      name: ${var.app_name}
+      description: "MREC Grid Ops Copilot — control-room console: load forecast, transformer health, costed relief options and an agent that dispatches the approved action."
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.grid_ops_dashboard.id}
+          - name: AGENT_MODEL
+            value: ${var.agent_model}
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+          - name: GENIE_SPACE_ID
+            value: ${var.genie_space_id}
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: agent-model
+          serving_endpoint:
+            name: ${var.agent_model}
+            permission: CAN_QUERY
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT

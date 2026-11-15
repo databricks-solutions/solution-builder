@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,7 +6,11 @@ import Navbar from "@/components/layout/navbar";
 import { BubbleBackground } from "@/components/backgrounds/bubble";
 import { ProjectsWorkSection } from "@/components/project/projects-work-section";
 import { TemplateGallerySheet } from "@/components/template/gallery/template-gallery-sheet";
-import { CapabilitiesPanel, WORKSHOP_BASELINE } from "@/components/capabilities-panel";
+import {
+  CapabilitiesPanel,
+  buildSimpleExplicit,
+  buildSimpleSelected,
+} from "@/components/capabilities-panel";
 import { GroundingTablePicker } from "@/components/project/grounding-table-picker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatabricksAnimatedLogo } from "@/components/databricks-animated-logo";
@@ -76,7 +80,18 @@ import {
 // mounts it.
 import { DeployTargetControl } from "@/components/remote-deploy/DeployTargetControl";
 import { FileUploadChip } from "@/components/file-upload-chip";
-import { AUTO_BUILD_KICKOFF, BRAND_NOTE } from "@/lib/auto-build-prompt";
+import { clipboardHasText, clipboardImages } from "@/lib/pasted-images";
+import {
+  AUTO_BUILD_KICKOFF,
+  BRAND_NOTE,
+  buildArchitectureFirstPrompt,
+  buildUploadsNote,
+  DIAGRAM_STYLES,
+  type DiagramStyle,
+} from "@/lib/auto-build-prompt";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { ScanPromptDialog } from "@/components/scan-prompt-dialog";
 import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/")({
   component: Index,
@@ -112,6 +127,23 @@ const EXAMPLE_PROMPTS = [
   "Sales pipeline review",
   "Healthcare cost & budget variance",
 ];
+
+// The Architecture tab's examples: one per diagram style, and clicking one also
+// picks that style, so each chip shows what the style is for.
+const ARCH_EXAMPLE_PROMPTS: { text: string; style: DiagramStyle }[] = [
+  { text: "Real-time fraud detection for a bank", style: "marketing" },
+  { text: "Redshift to Databricks migration, current vs proposed", style: "technical" },
+  { text: "MLOps lifecycle for a churn model", style: "lifecycle" },
+  { text: "Databricks on AWS with PrivateLink", style: "networking" },
+];
+
+/** Stable signature of an explicit-selection map (sorted, order-free). */
+function explicitKey(m: Map<string, "selected" | "unselected">): string {
+  return Array.from(m.entries())
+    .map(([id, st]) => `${id}=${st}`)
+    .sort()
+    .join("|");
+}
 
 /** A UC table shown as a chip. Deep-links to Catalog Explorer when the
  *  workspace host is known; otherwise renders as plain text. Shows the table
@@ -233,12 +265,23 @@ function Index() {
   }, []);
   // Entry mode, driven by the 3 top tabs (restored): "story" = the normal
   // build fork + story-suggestion path, "architecture" = diagram-first,
-  // "workshop" = Genie Code workshop (a "coming soon" pitch — not GA). The
-  // full-vs-diagram output choice for the story flow is still tracked by
-  // `outputKind` and routed through handleCreateProject's `architectureFirst`.
-  const [mode, setMode] = useState<"story" | "architecture" | "workshop">("story");
+  // "workshop" = Genie Code workshop (a private-preview story flow: 3 ideas,
+  // the workshop capability pool, and the agent writes one HTML workshop page
+  // the attendee builds live). The full-vs-diagram output choice for the story
+  // flow is still tracked by `outputKind` and routed through
+  // handleCreateProject's `architectureFirst`.
+  // `?mode=architecture` opens the Architecture tab (the showcase's "Try it yourself").
+  const [scanOpen, setScanOpen] = useState(false);
+  const [mode, setMode] = useState<"story" | "architecture" | "workshop">(() =>
+    new URLSearchParams(window.location.search).get("mode") === "architecture" ? "architecture" : "story");
+  // Simple vs Custom tab of the capability panel — Custom stacks the layout.
+  const [capabilityTab, setCapabilityTab] = useState<"simple" | "custom">("simple");
+  // Story-idea modes (story + workshop) share the idea grid, capability picker
+  // and create CTA. Architecture has none of them.
+  const hasStories = mode === "story" || mode === "workshop";
   // Deep-link from the welcome guide's start cards: `?start=architecture`
-  // selects the Architecture tab (+ the diagram output preference).
+  // selects the Architecture tab (+ the diagram output preference),
+  // `?start=workshop` the Genie Code workshop tab.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -246,24 +289,11 @@ function Index() {
       if (start === "architecture") {
         setMode("architecture");
         setOutputKind("diagram");
+      } else if (start === "workshop") {
+        setMode("workshop");
       }
     } catch {
       // URL unavailable — leave the defaults.
-    }
-  }, []);
-  // Preview-features flag — gates not-yet-GA entries (e.g. the Genie Code
-  // workshop tab). `?preview=on` in the URL turns it on and STICKS it in
-  // localStorage; `?preview=off` clears it. Off by default.
-  const [previewEnabled, setPreviewEnabled] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const p = new URLSearchParams(window.location.search).get("preview");
-      if (p === "on") localStorage.setItem("preview-features", "on");
-      else if (p === "off") localStorage.removeItem("preview-features");
-      setPreviewEnabled(localStorage.getItem("preview-features") === "on");
-    } catch {
-      // storage/URL unavailable — leave preview off.
     }
   }, []);
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(
@@ -326,9 +356,6 @@ function Index() {
   // so thumbnails survive (TemplateSearchResult itself has no screenshot flag).
   const [allTemplates, setAllTemplates] = useState<TemplateListItem[]>([]);
   const [matchedTemplateIds, setMatchedTemplateIds] = useState<string[] | null>(null);
-  // Similarity of the single best template match — feeds the confidence check
-  // in `templateFit` that decides lead/after/hide placement in the grid.
-  const [topTemplateScore, setTopTemplateScore] = useState<number>(0);
   // True while the (independent, debounced) template search is in flight — the
   // grid shows a template-shaped skeleton in the lead slot until it resolves.
   const [isSearchingTemplates, setIsSearchingTemplates] = useState(false);
@@ -351,6 +378,16 @@ function Index() {
   // suggest stream (as `context_text`) and to createProject (as
   // `context_files`). Reset cleanly when the user starts a new project.
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  // Architecture-tab diagram style. `null` = the user hasn't picked one yet, so it
+  // follows the default: "match" when an image is attached, else "marketing".
+  const [archStyleChoice, setArchStyleChoice] = useState<DiagramStyle | null>(null);
+  const hasImageUpload = uploadedFiles.some((f) => f.content_type.startsWith("image/"));
+  // "match" is only offered (and only honoured) when an image is attached.
+  const archStyleOptions = DIAGRAM_STYLES.filter((s) => s.id !== "match" || hasImageUpload);
+  const archStyle: DiagramStyle =
+    archStyleChoice && archStyleOptions.some((s) => s.id === archStyleChoice)
+      ? archStyleChoice
+      : hasImageUpload ? "match" : "marketing";
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -417,7 +454,19 @@ function Index() {
     setUploadError(null);
     try {
       const extracted = await extractFiles(files);
-      setUploadedFiles((prev) => [...prev, ...extracted]);
+      setUploadedFiles((prev) => {
+        // The same image pasted (or picked) twice is skipped.
+        const seen = new Set(prev.map((f) => f.original_b64).filter(Boolean));
+        return [
+          ...prev,
+          ...extracted.filter((f) => {
+            if (!f.original_b64 || !f.content_type.startsWith("image/")) return true;
+            if (seen.has(f.original_b64)) return false;
+            seen.add(f.original_b64);
+            return true;
+          }),
+        ];
+      });
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -494,18 +543,19 @@ function Index() {
   // is inferred from the user's words, not a preset picker. See the suggest
   // effect + the architecture-first prompt.)
 
-  // Workshop mode seed: start from the workshop baseline (synthetic data → SDP →
-  // dashboard → Genie; no app/lakebase). The suggest LLM may still refine it,
-  // but sanitizeSelection guarantees the hidden caps never come back.
-  const workshopSeededRef = useRef(false);
+  // Workshop mode seed: every entry into the workshop tab starts on the Simple
+  // workshop (the locked baseline, same as the panel's Simple tab — this effect runs
+  // after the panel's own lock, so it must agree). Custom workshop re-seeds from
+  // WORKSHOP_BASELINE, explicitly selected (see CapabilitiesPanel).
   useEffect(() => {
-    if (mode !== "workshop" || workshopSeededRef.current) return;
-    workshopSeededRef.current = true;
+    if (mode !== "workshop") return;
+    setProMode(false);
+    const pool = capabilities.filter((c) => c.genie_code_workshop === true).map((c) => c.id);
     handleReplaceSelection(
-      new Set<string>(WORKSHOP_BASELINE),
-      new Map<string, "selected" | "unselected">(),
+      buildSimpleSelected(false, true),
+      buildSimpleExplicit(pool, false, true),
     );
-  }, [mode, handleReplaceSelection]);
+  }, [mode, handleReplaceSelection, capabilities]);
 
   // Load projects and capabilities on mount
   useEffect(() => {
@@ -549,7 +599,6 @@ function Index() {
     const q = topic.trim();
     if (q.length < 3) {
       setMatchedTemplateIds(null);
-      setTopTemplateScore(0);
       setIsSearchingTemplates(false);
       return;
     }
@@ -558,24 +607,21 @@ function Index() {
     // a template skeleton in the lead slot while this independent call resolves.
     setIsSearchingTemplates(true);
     const timer = setTimeout(() => {
-      // Only need the single best match. Keep its similarity so placement can
-      // be confidence-driven (see templateFit below).
+      // Only need the single best match.
       searchTemplates(q, 1)
         .then((results) => {
           if (cancelled) return;
           setMatchedTemplateIds(results.map((r) => r.id));
-          setTopTemplateScore(results[0]?.similarity ?? 0);
         })
         .catch(() => {
           if (!cancelled) {
             setMatchedTemplateIds(null);
-            setTopTemplateScore(0);
           }
         })
         .finally(() => {
           if (!cancelled) setIsSearchingTemplates(false);
         });
-    }, 300);
+    }, 700);
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -609,32 +655,25 @@ function Index() {
   // mid-content. Fix: read `capabilities` + `explicitSelections` through
   // refs so this callback's identity stays stable across those changes.
   const abortControllerRef = useRef<AbortController | null>(null);
-  // Workshop mode: hide capabilities the Genie Code workshop can't co-build
-  // (genie_code_workshop === false: lakebase, apps, KA, MAS). It also SURFACES a
-  // few capabilities that are globally `disabled` (hidden from story) but make
-  // sense to build live with Genie Code — e.g. Notebooks & EDA — by clearing
-  // their disabled flag for this mode only. Story + architecture see the raw list.
-  const WORKSHOP_FORCE_ENABLE = ["notebooks-eda"];
+  // Workshop mode: the picker shows only the workshop pool (genie_code_workshop,
+  // the backend allowlist). Pool caps are offered even where globally `disabled`
+  // (story hides e.g. Notebooks & EDA, data-quality, abac). Story + architecture
+  // see the raw list.
   const visibleCapabilities = useMemo(
     () =>
       mode === "workshop"
         ? capabilities
-            .filter((c) => c.genie_code_workshop !== false)
-            .map((c) =>
-              WORKSHOP_FORCE_ENABLE.includes(c.id) && c.disabled
-                ? { ...c, disabled: false }
-                : c,
-            )
+            .filter((c) => c.genie_code_workshop === true)
+            .map((c) => (c.disabled ? { ...c, disabled: false } : c))
         : capabilities,
     [capabilities, mode],
   );
-  // Ids the Genie Code workshop can't build (genie_code_workshop === false —
-  // apps, lakebase, KA, MAS). Derived from the loaded capabilities so it tracks
-  // the block frontmatter. Load-bearing: hiding a tile in the picker does NOT
-  // remove it from the selection, so we must actively strip these from any
-  // selection while in workshop mode (LLM suggestions + create payload).
+  // Ids outside the workshop pool (apps, lakebase, unstructured documents).
+  // Load-bearing: hiding a tile in the picker does NOT remove it from the
+  // selection, so we must actively strip these from any selection while in
+  // workshop mode (LLM suggestions + create payload).
   const workshopHiddenIds = useMemo(
-    () => new Set(capabilities.filter((c) => c.genie_code_workshop === false).map((c) => c.id)),
+    () => new Set(capabilities.filter((c) => c.genie_code_workshop !== true).map((c) => c.id)),
     [capabilities],
   );
   // Strip workshop-hidden ids from a selection when in workshop mode.
@@ -756,9 +795,12 @@ function Index() {
     let singleRefineApplied = false;
 
     try {
-      // Build capability inputs. In workshop mode, exclude the caps the
-      // workshop can't build so the suggest LLM never proposes them.
-      const hidden = modeRef.current === "workshop" ? workshopHiddenIdsRef.current : null;
+      // Build capability inputs. In workshop mode, drop the caps outside the
+      // workshop pool so the suggest LLM never proposes them. Only explicit
+      // toggles are locked: the workshop baseline is a DEFAULT selection, not a
+      // lock, so the LLM can trim it to what the brief needs and add pool caps.
+      const isWorkshop = modeRef.current === "workshop";
+      const hidden = isWorkshop ? workshopHiddenIdsRef.current : null;
       const capabilityInputs: CapabilityInput[] = caps
         .filter((cap) => !hidden || !hidden.has(cap.id))
         .map((cap) => ({
@@ -781,6 +823,7 @@ function Index() {
         capabilitiesOnly,
         groundingTables,
         grounded ? allowDataWriteRef.current : false,
+        modeRef.current,
       )) {
         // Check if aborted
         if (abortController.signal.aborted) return;
@@ -818,8 +861,12 @@ function Index() {
             // wording (or a capability toggle) must not silently re-pick products.
             continue;
           }
-          // Cold-start: take the LLM's set + apply user overrides.
+          // Cold-start: take the LLM's set + apply user overrides — unless the
+          // user changed their explicit choices while this stream ran (e.g.
+          // switched Simple → Custom): its pick was made for the old ones, and
+          // applying it would overwrite what they just chose.
           const explicitNow = explicitSelectionsRef.current;
+          if (explicitKey(explicitNow) !== explicitKey(explicit)) continue;
           setSelectedProducts(() => {
             const next = new Set<string>();
             for (const capId of event.data.capabilities) {
@@ -830,7 +877,7 @@ function Index() {
               else if (status === "unselected") next.delete(capId);
             }
             // In workshop mode, drop anything the workshop can't build even if
-            // the LLM suggested it (apps, lakebase, KA, MAS).
+            // the LLM suggested it (apps, lakebase, unstructured-documents).
             return sanitizeSelection(next);
           });
         } else if (event.type === "reasoning") {
@@ -838,7 +885,8 @@ function Index() {
           setCapabilityReasoning(event.data.text || null);
         } else if (event.type === "error") {
           console.error("Suggestion error:", event.data.error);
-          if (!isCapabilityChangeRefresh && !isSingleRefine) {
+          if (!isCapabilityChangeRefresh && !isSingleRefine
+              && explicitKey(explicitSelectionsRef.current) === explicitKey(explicit)) {
             // Use fallback capabilities from error (cold-start only).
             setSelectedProducts(new Set(event.data.capabilities));
           }
@@ -878,7 +926,7 @@ function Index() {
     }
   }, []); // ← stable identity; deps are read via refs
 
-  // Debounced capability suggestion (1000ms) — fires when the topic
+  // Debounced capability suggestion (1500ms) — fires when the topic
   // changes. We deliberately depend ONLY on `topic` and a "capabilities
   // ready" boolean, NOT on the full capabilities array or
   // runSuggestionStream — otherwise the cleanup (which aborts the
@@ -955,7 +1003,6 @@ function Index() {
         setExpectedIdeaCount(0);
         setSelectedIdeaIdx(0);
         setMatchedTemplateIds(null);
-        setTopTemplateScore(0);
       }
       return;
     }
@@ -969,7 +1016,7 @@ function Index() {
 
     const timer = setTimeout(() => {
       runSuggestionStream(effectivePrompt);
-    }, 1000);
+    }, 1500);
 
     return () => {
       clearTimeout(timer);
@@ -992,10 +1039,7 @@ function Index() {
   useEffect(() => {
     // Stable signature of the user's explicit overrides — sorted so the
     // ordering of Map iteration doesn't cause spurious diffs.
-    const key = Array.from(explicitSelections.entries())
-      .map(([id, st]) => `${id}=${st}`)
-      .sort()
-      .join("|");
+    const key = explicitKey(explicitSelections);
 
     // Initial mount: capture the baseline (usually empty) and don't fire.
     if (lastExplicitKeyRef.current === "" && key === "") {
@@ -1004,12 +1048,14 @@ function Index() {
     if (key === lastExplicitKeyRef.current) {
       return;
     }
+    const prevKey = lastExplicitKeyRef.current;
     lastExplicitKeyRef.current = key;
 
     // Story + workshop modes: refresh story ideas on selection change. In
     // architecture mode there are no stories to refresh — a toggle just pins
     // the user's choice locally (the LLM already ran).
     if (topic.trim().length < 3 || !capabilitiesReady || proMode || (mode !== "story" && mode !== "workshop")) {
+      setIsRefiningStories(false);
       return;
     }
 
@@ -1031,7 +1077,9 @@ function Index() {
       setIsRefiningStories(true);
     }
 
+    let fired = false;
     const timer = setTimeout(() => {
+      fired = true;
       // Re-check the live capability set against the snapshot — the user
       // may have toggled back to the original state during the debounce
       // window, in which case we skip the (expensive) re-suggest entirely.
@@ -1065,7 +1113,15 @@ function Index() {
       );
     }, 2000);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // Re-run before the refresh fired (e.g. a stream's capability pick
+      // changed selectedProducts): restore the old key so the re-run sees the
+      // change and reschedules. Otherwise it returns early on the same key,
+      // the refresh never runs, and isRefiningStories stays on forever (the
+      // "Generating stories for you…" hang).
+      if (!fired) lastExplicitKeyRef.current = prevKey;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [explicitSelections, capabilitiesReady, selectedProducts, mode, useSyntheticData, groundingTablesKey]);
 
@@ -1131,6 +1187,8 @@ function Index() {
     // Seeds an empty architecture.md and primes the agent to await edits instead
     // of drawing a full diagram. Implies architectureFirst.
     blank = false,
+    // Architecture-first only: the diagram style picked on the Architecture tab.
+    diagramStyle?: DiagramStyle,
   ) => {
     e?.preventDefault();
     // In Pro mode the suggestion stream never ran, so there's no `idea` to
@@ -1159,12 +1217,12 @@ function Index() {
     }
 
     // Capabilities are from selectedProducts (shared across ideas), sanitized
-    // for workshop mode. Architecture-first now CARRIES the selected products
-    // too: in the redesigned Shape dialog the user explicitly picks what the
-    // architecture should contain, so those products are authoritative and the
-    // agent lays exactly them out (see the arch-first prompt below). Only the
-    // BLANK-canvas entry sends none — there's nothing to seed yet.
-    const capabilityIds = blank
+    // for workshop mode. Architecture-first sends NONE: the architecture tab has
+    // no product picker, so selectedProducts there is just the story tab's
+    // default set — sending it as "authoritative" forced UC/Genie Code/Genie One
+    // into every diagram, even one redrawn from an uploaded image that has none
+    // of them. The agent infers the components from the user's words / uploads.
+    const capabilityIds = blank || architectureFirst
       ? []
       : Array.from(sanitizeSelection(selectedProducts));
 
@@ -1203,7 +1261,7 @@ function Index() {
       //
       // The capability list is AUTHORITATIVE — resources.json must contain exactly
       // these capability IDs. The idea hook / story text is narrative flavor and
-      // may reference products by name (e.g. "Knowledge Assistant") that the user
+      // may reference products by name (e.g. "Unstructured documents (PDF)") that the user
       // did NOT select; those mentions must be treated as descriptive language,
       // NOT as a signal to add capabilities the user didn't pick.
       const authoritativeCapsLine = capabilityIds.length > 0
@@ -1243,17 +1301,11 @@ function Index() {
           `Read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`) so you understand the flat \`architecture.md\` format, the component catalog, and the positioning system. \`architecture.md\` already exists at the project root with one empty tab — do NOT populate it or draw a full end-to-end diagram now. Just confirm you're ready, and wait for the user to tell you what to add or change; then make targeted edits to \`architecture.md\`.`;
       } else if (architectureFirst) {
         // Architecture-first entry: the user wants to START by laying out an
-        // architecture diagram to review/edit BEFORE building — but from the
-        // redesigned Shape dialog they ALSO picked the products the solution
-        // should contain (authoritativeCapsLine) and optionally grounded it in
-        // real tables (groundingNote). So the diagram is drawn FROM those
-        // choices, then the agent stops for review. (This reverses the old
-        // "send no capabilities" behavior — products are now an explicit ask.)
-        initialPrompt =
-          `The user wants to START by creating an architecture diagram (architecture-first flow) — review it before building.\n\n` +
-          `What they wrote (may be a tidy brief OR pasted notes / a transcript — extract the intent + use-case from it):\n${topic.trim() || description}` +
-          `\n\nFollow the architecture-first path in SKILL.md: read the databricks-architecture skill (\`.claude/skills/databricks-architecture/SKILL.md\`), then design a coherent architecture that functionally solves the use-case using the selected products as the authoritative component set. Base the diagram on the request ABOVE — \`resources.json\` is empty at this stage, it is NOT the spec, do not read it and reproduce a canonical diagram from it. Write ONLY \`architecture.md\` at the project root. Do not design a story, write specs, or build resources yet — produce the diagram and stop so the user can review/edit it on the Architecture tab.` +
-          `${authoritativeCapsLine}${groundingNote}`;
+        // architecture diagram to review/edit BEFORE building. No capability
+        // list (see capabilityIds above) — the components come from the user's
+        // words and uploads, optionally grounded in real tables (groundingNote).
+        // The agent draws the diagram, then stops for review.
+        initialPrompt = buildArchitectureFirstPrompt(topic.trim() || description, diagramStyle) + groundingNote;
       } else if (grounded) {
         // "Use existing data": the user picked real UC tables to build on,
         // READ-ONLY — every component queries those exact tables in place (no
@@ -1297,23 +1349,22 @@ function Index() {
           `queries over the listed columns support.${dataWriteNote}` +
           `${authoritativeCapsLine}`;
       } else if (mode === "workshop") {
-        // Workshop (Genie Code) mode: same story + spec design as a normal
-        // build, but the BUILD stage forks — instead of provisioning Databricks
-        // resources, the agent generates a hands-on notebook workshop the SA
-        // hands to a customer (build-it-live via Genie Code prompts). SKILL.md's
-        // workshop path + references/example-luxebeauty-workshop are the guide.
+        // Workshop (Genie Code) mode: the agent writes a Genie Code workshop page
+        // (one HTML file) the attendee builds live. SKILL.md flow B → stages/genie-workshop.md is the guide.
         const ideaHeader = effectiveIdea
           ? `\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}`
           : "";
         initialPrompt =
-          `Help me prepare a Genie Code WORKSHOP (not a standard built demo).\n\n` +
+          `Build a Genie Code workshop for this story (not a standard built demo).\n\n` +
           `User request:\n${topic.trim() || description}${ideaHeader}${authoritativeCapsLine}\n\n` +
-          `Follow the WORKSHOP path in SKILL.md: design the story + write the specs as usual, ` +
-          `but at the Build stage take the workshop fork — generate a clean set of Databricks ` +
-          `notebooks whose cells are Genie Code prompts the SA pastes to build the demo live ` +
-          `(raw data → SDP → dashboard → Genie), plus the data-generation script and the Genie ` +
-          `context. Use \`references/example-luxebeauty-workshop\` as the pattern. Do NOT provision ` +
-          `Databricks resources — the deliverable is the downloadable notebook package.`;
+          `Read \`DEMO_SKILL\` and follow flow B (Genie Code workshop → ` +
+          `\`DEMO_SKILL_DIR/stages/genie-workshop.md\`) end to end instead of the stages: ` +
+          `write the story (README.md), the specifications and CONTEXT.md, ` +
+          `the data generation and its test, and finally \`notebooks_html/workshop.html\`. ` +
+          `Run straight through with NO approval gates — choose sensible defaults instead of asking. ` +
+          `Do NOT provision the demo's Databricks resources (no pipelines, dashboards, Genie spaces, ` +
+          `apps or jobs); the only workspace action allowed is the data-generation test into the ` +
+          `project's default schema described there.`;
       } else if (effectiveIdea) {
         initialPrompt = `Help me build a databricks solution.\n\nUser request:\n${topic.trim()}\n\n**${effectiveIdea.title}**\n\n${effectiveIdea.hook}${authoritativeCapsLine}`;
       } else {
@@ -1338,22 +1389,19 @@ function Index() {
           `entities, requirements, phrasing) end-to-end. Do NOT dilute it into ` +
           `a shorter summary; whatever you produce should reflect everything the ` +
           `user actually asked for.`;
+        if (mode === "workshop") {
+          initialPrompt +=
+            ` For the workshop pages this means the brief's names, numbers and steps; ` +
+            `the page copy itself stays short (a line or two per step).`;
+        }
       }
 
       // File context — call out the uploads so the agent knows to read them
       // from `context/uploads/` on its first investigation pass. The
       // backend wrote both the raw original AND a `.extracted.md` sibling
-      // for each file; the agent can pick whichever is more useful.
-      if (uploadedFiles.length > 0) {
-        const fileList = uploadedFiles
-          .map((f) => `- ${f.filename}${f.truncated ? " (truncated)" : ""}`)
-          .join("\n");
-        initialPrompt +=
-          `\n\nThe user uploaded ${uploadedFiles.length} file(s) as ` +
-          `context — they live at \`context/uploads/\` in the project. ` +
-          `Read the \`.extracted.md\` siblings (already text-extracted) ` +
-          `before designing the story so it fits what's actually in them:\n${fileList}`;
-      }
+      // for each file; the agent can pick whichever is more useful. Images
+      // have no text layer, so they get no sibling — the agent opens the image.
+      initialPrompt += buildUploadsNote(uploadedFiles);
 
       // Brand: the app resolves it + writes brand/brand.json, so tell the agent
       // not to web-search for it. Applies to every entry (architecture-first,
@@ -1371,7 +1419,7 @@ function Index() {
       // nothing exists yet.
       // Architecture-first stops after the diagram, so never append the
       // full build kickoff there.
-      if (autoMode && !architectureFirst) {
+      if (autoMode && !architectureFirst && mode !== "workshop") {
         initialPrompt += `\n\n---\n\n${AUTO_BUILD_KICKOFF}`;
       }
 
@@ -1423,7 +1471,7 @@ function Index() {
         // Persisted flag: the workspace opens on the Architecture tab and shows
         // the "Build the solution" CTA until the build is kicked off there.
         architectureFirst,
-        // Entry mode — drives the agent's Build fork (workshop → notebooks).
+        // Entry mode — drives the agent's Build fork (workshop → workshop page).
         mode,
         // Blank canvas: backend seeds an empty architecture.md; agent stands by.
         blank,
@@ -1717,11 +1765,8 @@ function Index() {
                   {([
                     { v: "story" as const, label: "Solution" },
                     { v: "architecture" as const, label: "Architecture" },
-                    // Genie Code workshop is not GA — only shown with preview on
-                    // (`?preview=on`, sticky in localStorage).
-                    ...(previewEnabled
-                      ? [{ v: "workshop" as const, label: "Genie Code workshop", badge: "Private preview" }]
-                      : []),
+                    // Always shown; the flow is in beta (badge).
+                    { v: "workshop" as const, label: "Genie Code workshop", badge: "Beta" },
                   ]).map((t) => {
                     const active = mode === t.v;
                     return (
@@ -1780,26 +1825,6 @@ function Index() {
                   </button>
                 )}
               </div>
-              {mode === "workshop" ? (
-                // Coming-soon pitch — the Genie Code workshop flow isn't GA yet.
-                // Sell the value; no working input.
-                <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <Sparkles className="h-6 w-6" />
-                  </span>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    Genie Workshop is coming soon
-                  </h3>
-                  <p className="max-w-md text-sm text-muted-foreground">
-                    Get a step-by-step guide to build your solution using Genie Code —
-                    a hands-on notebook workshop that walks you through creating each
-                    Databricks resource live, prompt by prompt.
-                  </p>
-                  <span className="mt-1 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                    Coming soon
-                  </span>
-                </div>
-              ) : (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1809,120 +1834,21 @@ function Index() {
                   // idea so the build uses the highlighted story.
                   if (mode === "architecture") {
                     const isBlank = !topic.trim() && uploadedFiles.length === 0;
-                    handleCreateProject(undefined, undefined, true, isBlank);
+                    handleCreateProject(undefined, undefined, true, isBlank, archStyle);
                   } else {
                     handleCreateProject(undefined, ideas[selectedIdeaIdx]);
                   }
                 }}
                 className="space-y-2.5"
               >
-                {/* Textarea + attach button on a single row. The button
-                    is `items-end` so it stays aligned to the bottom of
-                    the textarea as it auto-grows (otherwise it'd drift
-                    upward and stop reading as "attached to the input"). */}
-                <div className="flex items-end gap-2">
-                  <Textarea
-                    ref={textareaRef}
-                    placeholder={
-                      mode === "architecture"
-                        ? "Describe the architecture you want to build…"
-                        : proMode
-                          ? "Describe your use-case in your own words — the agent builds exactly this, no suggested stories…"
-                          : "Describe what you want to build…"
-                    }
-                    value={topic}
-                    onChange={(e) => {
-                      setTopic(e.target.value);
-                      adjustTextareaHeight();
-                    }}
-                    // Bigger free-type box in Custom/Pro mode (write your own
-                    // use-case); compact in Simple (the guided/suggest flow).
-                    className={cn(
-                      "text-lg md:text-lg bg-background/60 resize-none overflow-y-hidden flex-1",
-                      proMode ? "min-h-32" : "min-h-12",
-                    )}
-                    rows={1}
-                    autoFocus
-                  />
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".pdf,.csv,.xlsx,.docx,.md,.txt,.json,.yaml,.yml,.html,.xml,.log"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files) void handleFiles(e.target.files);
-                      // Reset so the same file can be re-picked after remove.
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isUploading}
-                    className={cn(
-                      "shrink-0 inline-flex items-center justify-center size-12 rounded-md border border-border bg-background/60 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer",
-                      isUploading && "opacity-60 cursor-wait",
-                    )}
-                    title="Attach files (PDF, CSV, XLSX, DOCX, MD, TXT)"
-                    aria-label="Attach files"
-                  >
-                    {isUploading ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Paperclip className="size-4" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Architecture CTA — the architecture tab has no story ideas,
-                    so it leads with a single Create button. With a prompt it
-                    lays out a diagram; empty it starts from a blank canvas via
-                    an inline link (so we don't grow the input downward). */}
-                {mode === "architecture" && (() => {
-                  const isBlank = !topic.trim() && uploadedFiles.length === 0;
-                  return (
-                    <div className="flex items-center justify-center gap-3 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => handleCreateProject(undefined, undefined, true, false)}
-                        disabled={isCreating || isBlank}
-                        className="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-6 py-2.5 text-sm font-semibold text-destructive-foreground transition-all hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shadow-sm"
-                      >
-                        {isCreating ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="h-4 w-4" />
-                        )}
-                        {isCreating ? "Creating…" : "Create my architecture"}
-                      </button>
-                      <span className="text-xs text-muted-foreground">or</span>
-                      <button
-                        type="button"
-                        onClick={() => handleCreateProject(undefined, undefined, true, true)}
-                        disabled={isCreating}
-                        className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                      >
-                        start from a blank canvas
-                      </button>
-                    </div>
-                  );
-                })()}
-
-                {/* Deploy-target control (Tier-2 "scale" feature) — a
-                    portable, self-contained module. Renders the collapsed
-                    one-liner + a paste-URL editor, or nothing when the
-                    feature is off. See
-                    components/remote-deploy/DeployTargetControl. */}
-                <DeployTargetControl />
-
-                {/* Chips row — only renders when files are attached or an
-                    upload error occurred, so the layout stays compact
-                    on cold start. */}
+                {/* Attachments row, right above the input it belongs to —
+                    only renders when files are attached (picked, dropped or
+                    pasted) or an upload error occurred, so the layout stays
+                    compact on cold start. */}
                 {(uploadedFiles.length > 0 || uploadError) && (
                   <div className="space-y-1.5">
                     {uploadedFiles.length > 0 && (
-                      <div className="flex items-start gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {uploadedFiles.map((f, i) => (
                           <FileUploadChip
                             key={`${f.filename}-${i}`}
@@ -1939,6 +1865,195 @@ function Index() {
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* Textarea + attach button on a single row. The button
+                    is `items-end` so it stays aligned to the bottom of
+                    the textarea as it auto-grows (otherwise it'd drift
+                    upward and stop reading as "attached to the input"). */}
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder={
+                      mode === "architecture"
+                        ? "Describe the architecture you want to build…"
+                        : mode === "workshop"
+                          ? 'Describe the workshop... e.g. "returns analysis for a luxury beauty brand"'
+                          : proMode
+                            ? "Describe your use-case in your own words — the agent builds exactly this, no suggested stories…"
+                            : "Describe what you want to build…"
+                    }
+                    value={topic}
+                    onChange={(e) => {
+                      setTopic(e.target.value);
+                      adjustTextareaHeight();
+                    }}
+                    // Bigger free-type box in Custom/Pro mode (write your own
+                    // use-case); compact in Simple (the guided/suggest flow).
+                    className={cn(
+                      "text-lg md:text-lg bg-background/60 resize-none overflow-y-hidden flex-1",
+                      proMode ? "min-h-32" : "min-h-12",
+                    )}
+                    rows={1}
+                    autoFocus
+                    onPaste={(e) => {
+                      const images = clipboardImages(e);
+                      if (images.length === 0) return;
+                      if (!clipboardHasText(e)) e.preventDefault();
+                      void handleFiles(images);
+                    }}
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.csv,.xlsx,.docx,.md,.txt,.json,.yaml,.yml,.html,.xml,.log,.png,.jpg,.jpeg,.webp,.gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) void handleFiles(e.target.files);
+                      // Reset so the same file can be re-picked after remove.
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className={cn(
+                      "shrink-0 inline-flex items-center justify-center size-12 rounded-md border border-border bg-background/60 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors cursor-pointer",
+                      isUploading && "opacity-60 cursor-wait",
+                    )}
+                    title="Attach files (PDF, CSV, XLSX, DOCX, MD, TXT, images) — or paste an image"
+                    aria-label="Attach files"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="size-4" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Diagram style picker — a radio group of cards (preview, label,
+                    one line). Hidden-radio + label pattern keeps native radio
+                    semantics and keyboard arrows; "Match my image" only when an
+                    image is attached. */}
+                {mode === "architecture" && (
+                  <div className="space-y-1.5">
+                  <p id="arch-style-heading" className="text-xs font-medium text-muted-foreground">
+                    Select the diagram style
+                  </p>
+                  <TooltipProvider delayDuration={600}>
+                  <RadioGroup
+                    aria-labelledby="arch-style-heading"
+                    value={archStyle}
+                    onValueChange={(v) => setArchStyleChoice(v as DiagramStyle)}
+                    className={cn(
+                      "grid grid-cols-2 gap-2",
+                      archStyleOptions.length === 5 ? "sm:grid-cols-5" : "sm:grid-cols-4",
+                    )}
+                  >
+                    {archStyleOptions.map((s) => {
+                      const id = `arch-style-${s.id}`;
+                      return (
+                        <div key={s.id} className="relative">
+                          <RadioGroupItem value={s.id} id={id} className="peer sr-only" />
+                          {/* Short thumbnail; the full preview opens on a deliberate hover
+                              (600ms) so skimming across the row doesn't flash popups. */}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Label
+                                htmlFor={id}
+                                className="flex h-full cursor-pointer flex-col overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30 peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-data-[state=checked]:border-destructive peer-data-[state=checked]:ring-1 peer-data-[state=checked]:ring-destructive"
+                              >
+                                {/* Full-bleed preview with a divider: the crop reads as deliberate. */}
+                                <img
+                                  src={`/arch-styles/${s.id}.png`}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-16 w-full border-b border-border bg-white object-cover object-top"
+                                />
+                                <span className="flex flex-col gap-0.5 px-2 py-1.5">
+                                  <span className="text-sm font-medium text-foreground">{s.label}</span>
+                                  <span className="text-xs leading-snug text-muted-foreground">{s.blurb}</span>
+                                </span>
+                              </Label>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="bottom"
+                              sideOffset={8}
+                              className="w-[560px] max-w-[90vw] border border-border bg-background p-2 text-foreground shadow-lg"
+                            >
+                              <img
+                                src={`/arch-styles/${s.id}.png`}
+                                alt={`${s.label} diagram style example`}
+                                className="w-full rounded bg-white object-contain"
+                              />
+                              <p className="mt-1.5 px-1 text-xs text-muted-foreground">
+                                <span className="font-medium text-foreground">{s.label}</span> — {s.blurb}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      );
+                    })}
+                  </RadioGroup>
+                  </TooltipProvider>
+                  </div>
+                )}
+
+                {/* Architecture CTA — one button. Empty prompt (no text, no uploads)
+                    → it starts a blank canvas; once the user types or attaches
+                    something it becomes "Create my architecture". */}
+                {mode === "architecture" && (() => {
+                  const isBlank = !topic.trim() && uploadedFiles.length === 0;
+                  return (
+                    <div className="relative flex items-center justify-center pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleCreateProject(undefined, undefined, true, isBlank, isBlank ? undefined : archStyle)}
+                        disabled={isCreating}
+                        className="inline-flex items-center justify-center gap-2 rounded-md bg-destructive px-6 py-2.5 text-sm font-semibold text-destructive-foreground transition-all hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shadow-sm"
+                      >
+                        {isCreating ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {isCreating ? "Creating…" : isBlank ? "Start from a blank canvas" : "Create my architecture"}
+                      </button>
+                      {/* An agent with the CLI explores a running project and writes the brief. */}
+                      <button
+                        type="button"
+                        onClick={() => setScanOpen(true)}
+                        className="absolute left-0 bottom-0 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline cursor-pointer"
+                      >
+                        From an existing project…
+                      </button>
+                      <ScanPromptDialog open={scanOpen} onOpenChange={setScanOpen} />
+                      {/* Showcase: real prompts next to the diagrams the agent drew from them. */}
+                      <Link
+                        to="/architecture-showcase"
+                        className="absolute right-0 bottom-0 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                      >
+                        See what I can do →
+                      </Link>
+                    </div>
+                  );
+                })()}
+
+                {/* Deploy-target control (Tier-2 "scale" feature) — a
+                    portable, self-contained module. Renders the collapsed
+                    one-liner + a paste-URL editor, or nothing when the
+                    feature is off. See
+                    components/remote-deploy/DeployTargetControl. */}
+                <DeployTargetControl />
+
+                {mode === "workshop" && (
+                  <p className="text-xs text-muted-foreground">
+                    💡 Pick a story — the agent writes a Genie Code workshop your
+                    team builds live, prompt by prompt, from one HTML page.
+                  </p>
                 )}
 
                 {/* Grounded selection strip — the real UC tables the demo is
@@ -2037,7 +2152,7 @@ function Index() {
                     synthetic (guided) flow AND the "Use existing data" grounded
                     flow — both stream ideas into `ideas` via /suggest (the
                     grounded flow via "Generate a story"). */}
-                {isHeroCollapsed && mode === "story" && !proMode && (
+                {isHeroCollapsed && hasStories && !proMode && (
                   <div className="pt-2 pb-1">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
@@ -2086,6 +2201,7 @@ function Index() {
                       {/* "Don't generate stories" — right side of the header.
                           Switches to Pro mode (write your own use-case; no
                           stories + no /suggest call). */}
+                      {mode === "story" && (
                       <TooltipProvider delayDuration={100}>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -2106,6 +2222,7 @@ function Index() {
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
+                      )}
                     </div>
                     {/* NOTE: the old standalone "Analyzing your request…" box was
                         removed — the carousel below now renders story skeletons
@@ -2123,7 +2240,7 @@ function Index() {
                       // the user sees a few strong options, not a long scroll.
                       // Templates only in the SYNTHETIC flow (grounded "use
                       // existing data" shows stories only). One template max.
-                      const showTemplates = useSyntheticData;
+                      const showTemplates = useSyntheticData && mode === "story";
                       const tpl = showTemplates ? (templateFit?.template ?? null) : null;
                       const leads = showTemplates && templateFit?.placement === "lead";
                       // Hold a template skeleton in the lead slot while the match
@@ -2546,7 +2663,7 @@ function Index() {
                     While stories are still streaming, the button shows a
                     greyed-out "Generating stories for you…" state instead of
                     appearing/disappearing (which caused the jarring reflow). */}
-                {isHeroCollapsed && mode === "story" && (() => {
+                {isHeroCollapsed && hasStories && (() => {
                   // `ready` = we have something to build with (a story picked, or
                   // pro mode). While NOT ready we still render the button, but
                   // disabled + in its "generating" state.
@@ -2589,15 +2706,25 @@ function Index() {
                         {isCreating
                           ? "Creating…"
                           : !ready
-                            ? "Generating stories for you…"
-                            : proMode
-                              ? "Build solution"
-                              : `Build "${ideas[selectedIdeaIdx]?.title ?? "this story"}"`}
+                            ? ideas.length > 0
+                              ? "Updating stories…"
+                              : "Generating stories for you…"
+                            : mode === "workshop"
+                              ? ideas[selectedIdeaIdx]
+                                ? `Create workshop with "${ideas[selectedIdeaIdx].title}"`
+                                : "Create workshop"
+                              : proMode
+                                ? "Build solution"
+                                : `Build "${ideas[selectedIdeaIdx]?.title ?? "this story"}"`}
                       </span>
                     </button>
                   );
                   const panel = (
                     <CapabilitiesPanel
+                      // Remount per mode so each entry starts on its Simple tab.
+                      key={mode}
+                      onTabChange={setCapabilityTab}
+                      workshop={mode === "workshop"}
                       capabilities={visibleCapabilities}
                       selectedProducts={selectedProducts}
                       onToggleProduct={handleToggleProduct}
@@ -2609,20 +2736,29 @@ function Index() {
                       align="left"
                     />
                   );
-                  // ONE stable row across the whole lifecycle — the panel + button
+                  // ONE stable tree across the whole lifecycle — the panel + button
                   // never change position (the button only swaps its internal
-                  // state), so nothing reflows when stories finish streaming. The
-                  // panel instance is never unmounted, so an open Custom picker
-                  // won't collapse mid-selection.
+                  // state), so nothing reflows when stories finish streaming. Only
+                  // the wrapper classes change: the Custom tab renders the full
+                  // grid inline, too wide to share a row, so it stacks with the
+                  // button under the grid on the right. (Swapping the tree would
+                  // remount the panel and snap it back to its Simple tab.)
+                  const stacked = capabilityTab === "custom";
                   return (
-                    <div className="flex flex-col items-stretch gap-3 pt-1 text-left sm:flex-row sm:items-end sm:justify-between">
+                    <div
+                      className={cn(
+                        "flex flex-col items-stretch gap-3 pt-1 text-left",
+                        !stacked && "sm:flex-row sm:items-end sm:justify-between",
+                      )}
+                    >
                       <div className="min-w-0 flex-1">{panel}</div>
-                      <div className="flex justify-center sm:pb-0.5">{buildButton}</div>
+                      <div className={cn("flex sm:pb-0.5", stacked ? "justify-end" : "justify-center")}>
+                        {buildButton}
+                      </div>
                     </div>
                   );
                 })()}
               </form>
-              )}
             </CardContent>
           </Card>
 
@@ -2634,12 +2770,16 @@ function Index() {
           {!isHeroCollapsed && (
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               <span className="text-xs text-muted-foreground">Try:</span>
-              {EXAMPLE_PROMPTS.map((ex) => (
+              {(mode === "architecture"
+                ? ARCH_EXAMPLE_PROMPTS
+                : EXAMPLE_PROMPTS.map((text) => ({ text, style: null }))
+              ).map(({ text: ex, style }) => (
                 <button
                   key={ex}
                   type="button"
                   onClick={() => {
                     setTopic(ex);
+                    if (style) setArchStyleChoice(style);
                     // Defer height adjust to after the value commits.
                     requestAnimationFrame(adjustTextareaHeight);
                     textareaRef.current?.focus();
@@ -2673,6 +2813,10 @@ function Index() {
           onCloneShared={handleCloneShared}
           cloningId={cloningSharedId}
           onInvitationRespond={handleInvitationRespond}
+          onProjectDeleted={(id) => {
+            setProjects((prev) => prev.filter((p) => p.id !== id));
+            setSharedProjects((prev) => prev.filter((p) => p.id !== id));
+          }}
         />
 
         <div className="h-12" />

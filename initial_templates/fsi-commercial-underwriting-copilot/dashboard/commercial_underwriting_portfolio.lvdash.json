@@ -1,0 +1,983 @@
+{
+  "datasets": [
+    {
+      "name": "ds_trailing",
+      "displayName": "Trailing four quarters",
+      "queryLines": [
+        "WITH q AS (SELECT quarter, SUM(earned_premium) ep, SUM(incurred) inc,\n",
+        "  SUM(CASE WHEN portfolio_cell = 'Habitational · Hail belt' THEN earned_premium END) hail_ep,\n",
+        "  SUM(CASE WHEN portfolio_cell = 'Habitational · Hail belt' THEN incurred END) hail_inc,\n",
+        "  SUM(CASE WHEN portfolio_cell = 'Habitational · Hail belt' AND roof_band = 'Roof > 15 yrs' THEN earned_premium END) old_ep,\n",
+        "  SUM(CASE WHEN portfolio_cell = 'Habitational · Hail belt' AND roof_band = 'Roof > 15 yrs' THEN incurred END) old_inc\n",
+        " FROM gold_portfolio_quarterly GROUP BY quarter),\n",
+        "w AS (SELECT quarter,\n",
+        "  COUNT(*) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) n4,\n",
+        "  SUM(ep) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) ep4,\n",
+        "  SUM(inc) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) inc4,\n",
+        "  SUM(hail_ep) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) hail_ep4,\n",
+        "  SUM(hail_inc) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) hail_inc4,\n",
+        "  SUM(old_ep) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) old_ep4,\n",
+        "  SUM(old_inc) OVER (ORDER BY quarter ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) old_inc4\n",
+        " FROM q)\n",
+        "SELECT make_date(CAST(LEFT(quarter, 4) AS INT), (CAST(RIGHT(quarter, 1) AS INT) - 1) * 3 + 1, 1) AS quarter_start,\n",
+        "  quarter, ep4, inc4 / ep4 AS book_lr4, hail_inc4 / hail_ep4 AS hail_lr4, old_inc4 / old_ep4 AS old_lr4\n",
+        "FROM w WHERE n4 = 4 ORDER BY quarter"
+      ]
+    },
+    {
+      "name": "ds_cell_trend",
+      "displayName": "Loss ratio by portfolio cell and quarter",
+      "queryLines": [
+        "SELECT make_date(CAST(LEFT(quarter, 4) AS INT), (CAST(RIGHT(quarter, 1) AS INT) - 1) * 3 + 1, 1) AS quarter_start, t.*\n",
+        "FROM (SELECT quarter, portfolio_cell, SUM(incurred) / SUM(earned_premium) AS loss_ratio\n",
+        "FROM gold_portfolio_quarterly GROUP BY quarter, portfolio_cell) t\n"
+      ]
+    },
+    {
+      "name": "ds_roof_trend",
+      "displayName": "Hail-belt habitational by roof band",
+      "queryLines": [
+        "SELECT make_date(CAST(LEFT(quarter, 4) AS INT), (CAST(RIGHT(quarter, 1) AS INT) - 1) * 3 + 1, 1) AS quarter_start, t.*\n",
+        "FROM (SELECT quarter, roof_band, SUM(incurred) / SUM(earned_premium) AS loss_ratio, SUM(wind_hail_incurred) / SUM(incurred) AS wind_hail_share\n",
+        "FROM gold_portfolio_quarterly WHERE portfolio_cell = 'Habitational · Hail belt' GROUP BY quarter, roof_band) t\n"
+      ]
+    },
+    {
+      "name": "ds_cell_compare",
+      "displayName": "Last four vs prior four quarters",
+      "queryLines": [
+        "SELECT portfolio_cell,\n",
+        "       SUM(CASE WHEN quarter BETWEEN '2024-Q3' AND '2025-Q2' THEN incurred END) / SUM(CASE WHEN quarter BETWEEN '2024-Q3' AND '2025-Q2' THEN earned_premium END) AS prior_4q_lr,\n",
+        "       SUM(CASE WHEN quarter BETWEEN '2025-Q3' AND '2026-Q2' THEN incurred END) / SUM(CASE WHEN quarter BETWEEN '2025-Q3' AND '2026-Q2' THEN earned_premium END) AS last_4q_lr,\n",
+        "       ROUND(SUM(CASE WHEN quarter BETWEEN '2025-Q3' AND '2026-Q2' THEN earned_premium END)) AS last_4q_earned_premium\n",
+        "FROM gold_portfolio_quarterly GROUP BY portfolio_cell ORDER BY last_4q_lr DESC\n"
+      ]
+    },
+    {
+      "name": "ds_perils",
+      "displayName": "Hail-belt habitational losses by peril",
+      "queryLines": [
+        "SELECT c.accident_quarter AS quarter, c.peril, SUM(c.incurred_amount) AS incurred\n",
+        "FROM claims c JOIN policies p ON p.policy_id = c.policy_id\n",
+        "WHERE p.segment_code = 'HAB' AND p.hail_belt GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_brokers",
+      "displayName": "Broker performance (trailing 12 months)",
+      "queryLines": [
+        "SELECT broker_name, tier, submissions, quoted, bound, hit_ratio, bound_premium, book_loss_ratio\n",
+        "FROM gold_broker_performance ORDER BY bound_premium DESC\n"
+      ]
+    },
+    {
+      "name": "ds_queue",
+      "displayName": "Today's queue",
+      "queryLines": [
+        "SELECT q.submission_id, q.insured_name, q.broker_name, q.segment, q.state, ROUND(q.sov_tiv / 1e6, 1) AS tiv_musd, q.triage_lane, q.priority_score,\n",
+        "       q.discrepancy_count, q.band_as_submitted, q.band_verified, q.days_to_effective, COALESCE(d.decision, 'Not issued') AS decision_issued\n",
+        "FROM gold_submission_queue q LEFT JOIN v_uw_decisions_latest d USING (submission_id) ORDER BY q.priority_score DESC\n"
+      ]
+    },
+    {
+      "name": "ds_lanes",
+      "displayName": "Queue by triage lane",
+      "queryLines": [
+        "SELECT triage_lane, COUNT(*) AS submissions, SUM(sov_tiv) AS tiv FROM gold_submission_queue GROUP BY triage_lane\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "portfolio",
+      "displayName": "Portfolio",
+      "layout": [
+        {
+          "widget": {
+            "name": "t1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Tidewell Commercial Property — portfolio & underwriting\n",
+                "The book runs a steady ~57-61% loss ratio — except **habitational risks in the hail belt** (TX, OK, KS, NE, CO), where buildings with **roofs older than 15 years** have deteriorated sharply on hail and wind. That is why Appetite Bulletin **TSI-UW-B-2026-07** (1 Jul 2026) took them out of appetite. Page 2 shows today's submission queue and the decisions the desk writes back from the Underwriting Copilot. KPI sparklines show the trailing four quarters, through 2026-Q2."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k0",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trailing",
+                  "fields": [
+                    {
+                      "name": "sum(ep4)",
+                      "expression": "SUM(`ep4`)"
+                    },
+                    {
+                      "name": "monthly(quarter_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `quarter_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(ep4)",
+                  "displayName": "Earned premium (4Q)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(quarter_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Earned premium (4Q)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trailing",
+                  "fields": [
+                    {
+                      "name": "avg(book_lr4)",
+                      "expression": "AVG(`book_lr4`)"
+                    },
+                    {
+                      "name": "monthly(quarter_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `quarter_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(book_lr4)",
+                  "displayName": "Book loss ratio (4Q)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(quarter_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Book loss ratio (4Q)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trailing",
+                  "fields": [
+                    {
+                      "name": "avg(hail_lr4)",
+                      "expression": "AVG(`hail_lr4`)"
+                    },
+                    {
+                      "name": "monthly(quarter_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `quarter_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(hail_lr4)",
+                  "displayName": "Hail-belt LR (4Q)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(quarter_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hail-belt LR (4Q)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_trailing",
+                  "fields": [
+                    {
+                      "name": "avg(old_lr4)",
+                      "expression": "AVG(`old_lr4`)"
+                    },
+                    {
+                      "name": "monthly(quarter_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `quarter_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(old_lr4)",
+                  "displayName": "Hail belt, roofs >15 yrs",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(quarter_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hail belt, roofs >15 yrs"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "cell_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cell_trend",
+                  "fields": [
+                    {
+                      "name": "quarter_start",
+                      "expression": "`quarter_start`"
+                    },
+                    {
+                      "name": "loss_ratio",
+                      "expression": "`loss_ratio`"
+                    },
+                    {
+                      "name": "portfolio_cell",
+                      "expression": "`portfolio_cell`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Accident quarter"
+                },
+                "y": {
+                  "fieldName": "loss_ratio",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Loss ratio",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "portfolio_cell",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Habitational · Hail belt",
+                        "color": "#FF7E5C"
+                      }
+                    ]
+                  },
+                  "displayName": "Portfolio cell"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Loss ratio by portfolio cell (accident quarter)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "roof_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_roof_trend",
+                  "fields": [
+                    {
+                      "name": "quarter_start",
+                      "expression": "`quarter_start`"
+                    },
+                    {
+                      "name": "loss_ratio",
+                      "expression": "`loss_ratio`"
+                    },
+                    {
+                      "name": "roof_band",
+                      "expression": "`roof_band`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Accident quarter"
+                },
+                "y": {
+                  "fieldName": "loss_ratio",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Loss ratio",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "roof_band",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Roof > 15 yrs",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Roof <= 15 yrs",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  },
+                  "displayName": "Roof age"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hail-belt habitational: loss ratio by roof age"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "perils",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_perils",
+                  "fields": [
+                    {
+                      "name": "quarter",
+                      "expression": "`quarter`"
+                    },
+                    {
+                      "name": "sum(incurred)",
+                      "expression": "SUM(`incurred`)"
+                    },
+                    {
+                      "name": "peril",
+                      "expression": "`peril`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Accident quarter"
+                },
+                "y": {
+                  "fieldName": "sum(incurred)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Incurred",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "peril",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Peril"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hail-belt habitational incurred losses by peril"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "cmp",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cell_compare",
+                  "fields": [
+                    {
+                      "name": "portfolio_cell",
+                      "expression": "`portfolio_cell`"
+                    },
+                    {
+                      "name": "prior_4q_lr",
+                      "expression": "`prior_4q_lr`"
+                    },
+                    {
+                      "name": "last_4q_lr",
+                      "expression": "`last_4q_lr`"
+                    },
+                    {
+                      "name": "last_4q_earned_premium",
+                      "expression": "`last_4q_earned_premium`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "portfolio_cell",
+                    "displayName": "Portfolio cell"
+                  },
+                  {
+                    "fieldName": "prior_4q_lr",
+                    "displayName": "LR prior 4Q",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "last_4q_lr",
+                    "displayName": "LR last 4Q",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "last_4q_earned_premium",
+                    "displayName": "Earned premium 4Q",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Last 4 quarters vs prior 4"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "brk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_brokers",
+                  "fields": [
+                    {
+                      "name": "broker_name",
+                      "expression": "`broker_name`"
+                    },
+                    {
+                      "name": "tier",
+                      "expression": "`tier`"
+                    },
+                    {
+                      "name": "submissions",
+                      "expression": "`submissions`"
+                    },
+                    {
+                      "name": "quoted",
+                      "expression": "`quoted`"
+                    },
+                    {
+                      "name": "bound",
+                      "expression": "`bound`"
+                    },
+                    {
+                      "name": "hit_ratio",
+                      "expression": "`hit_ratio`"
+                    },
+                    {
+                      "name": "bound_premium",
+                      "expression": "`bound_premium`"
+                    },
+                    {
+                      "name": "book_loss_ratio",
+                      "expression": "`book_loss_ratio`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "broker_name",
+                    "displayName": "Broker"
+                  },
+                  {
+                    "fieldName": "tier",
+                    "displayName": "Tier"
+                  },
+                  {
+                    "fieldName": "submissions",
+                    "displayName": "Submissions"
+                  },
+                  {
+                    "fieldName": "quoted",
+                    "displayName": "Quoted"
+                  },
+                  {
+                    "fieldName": "bound",
+                    "displayName": "Bound"
+                  },
+                  {
+                    "fieldName": "hit_ratio",
+                    "displayName": "Hit ratio",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "bound_premium",
+                    "displayName": "Bound premium",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "book_loss_ratio",
+                    "displayName": "Book loss ratio",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Brokers — trailing 12 months"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 25,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "queue",
+      "displayName": "Underwriting queue",
+      "layout": [
+        {
+          "widget": {
+            "name": "t2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Today's underwriting queue — Mon 28 Sep 2026\n",
+                "24 broker submissions, read at intake with **ai_parse_document** and triaged against the appetite rules. *Documents disagree* = the SOV or loss run contradicts the application. Risk = submission_risk_model@champion, as submitted vs verified on the documents. Decisions issued in the app appear here (uw_decisions write-back). **Start with the top row:** Lone Star Residential Partners reads Low on the application and High on the documents, with 4 discrepancies."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "lanes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_lanes",
+                  "fields": [
+                    {
+                      "name": "triage_lane",
+                      "expression": "`triage_lane`"
+                    },
+                    {
+                      "name": "sum(submissions)",
+                      "expression": "SUM(`submissions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(submissions)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Submissions"
+                },
+                "y": {
+                  "fieldName": "triage_lane",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Triage lane"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Submissions by triage lane"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "queue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_queue",
+                  "fields": [
+                    {
+                      "name": "submission_id",
+                      "expression": "`submission_id`"
+                    },
+                    {
+                      "name": "insured_name",
+                      "expression": "`insured_name`"
+                    },
+                    {
+                      "name": "triage_lane",
+                      "expression": "`triage_lane`"
+                    },
+                    {
+                      "name": "discrepancy_count",
+                      "expression": "`discrepancy_count`"
+                    },
+                    {
+                      "name": "band_as_submitted",
+                      "expression": "`band_as_submitted`"
+                    },
+                    {
+                      "name": "band_verified",
+                      "expression": "`band_verified`"
+                    },
+                    {
+                      "name": "decision_issued",
+                      "expression": "`decision_issued`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "submission_id",
+                    "displayName": "Submission"
+                  },
+                  {
+                    "fieldName": "insured_name",
+                    "displayName": "Insured"
+                  },
+                  {
+                    "fieldName": "triage_lane",
+                    "displayName": "Triage lane"
+                  },
+                  {
+                    "fieldName": "discrepancy_count",
+                    "displayName": "Discrepancies"
+                  },
+                  {
+                    "fieldName": "band_as_submitted",
+                    "displayName": "Band (application)"
+                  },
+                  {
+                    "fieldName": "band_verified",
+                    "displayName": "Band (verified)"
+                  },
+                  {
+                    "fieldName": "decision_issued",
+                    "displayName": "Decision issued"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Queue, highest priority first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 12
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

@@ -64,7 +64,7 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component);
+  const nat = baseSize(d.component, d.params, d.theme);
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
 
   return (
@@ -99,8 +99,10 @@ export const GenieCodeBlock = memo(function GenieCodeBlock({ data, selected }: N
 /** The Genie Code inner content (header + typing terminal + the pipeline →
  *  dashboard build animation), WITHOUT the card chrome — so it can render
  *  standalone or stacked below Lakeflow in the combined block. Owns its own
- *  looping sequence + keyframes. */
+ *  looping sequence + keyframes.
+ *  Under slide theme: bigger header, tagline suppressed. */
 export function GenieCodeBody({ d }: { d: NodeData }) {
+  const slide = d.theme === "slide";
   const GenieCode = DATABRICKS_ICONS.genieCodeBrand;
   const { typed, phase, built, showDash } = useGenieSequence();
   const typing = phase === "typing";
@@ -113,10 +115,10 @@ export function GenieCodeBody({ d }: { d: NodeData }) {
       `}</style>
       {/* header */}
       <div className="flex items-center gap-1.5">
-        <GenieCode className="h-5 w-5 shrink-0" />
+        <GenieCode className={`shrink-0 ${slide ? "h-6 w-6" : "h-5 w-5"}`} />
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="text-[12px] font-bold text-foreground">{d.component.label || "Built with Genie Code"}</span>
-          <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>
+          <span className={`font-bold text-foreground ${slide ? "text-[14px]" : "text-[12px]"}`}>{d.component.label || "Built with Genie Code"}</span>
+          {!slide && <span className="truncate text-[8.5px] text-muted-foreground">Tell genie what to do, it'll build it for you and maintain it</span>}
         </span>
         {/* ZeroOps wordmark, top-right */}
         <FileSvgIcon iconKey="file:vendor/zeroops" className="ml-auto h-3.5 w-auto shrink-0" />

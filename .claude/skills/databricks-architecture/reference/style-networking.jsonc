@@ -1,0 +1,79 @@
+// =============================================================================
+// STYLE: NETWORKING — classic compute in a customer-managed VPC with PrivateLink.
+// Read reference/style-networking.md first.
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. The renderer parses plain JSON only.
+//
+// HOW IT WORKS ON DATABRICKS (AWS): the control plane runs in a Databricks-managed
+// account. Classic compute runs in the customer's own VPC (customer-managed VPC),
+// one private subnet per availability zone, no public IPs. PrivateLink has two
+// independent halves:
+//   • back-end: the clusters reach the control plane through two interface VPC
+//     endpoints in the workspace VPC, one for the workspace REST API and one for
+//     the secure cluster connectivity (SCC) relay. Put them in their own small
+//     endpoint subnet.
+//   • front-end: users reach the web app and REST API through an interface
+//     endpoint in a transit VPC that their network (VPN / Direct Connect) reaches.
+//     It is a different endpoint from the back-end ones.
+// The root bucket is S3 in the customer account, reached through an S3 gateway
+// endpoint, so it sits outside the VPC. On Azure the same picture is VNet
+// injection + front-end / back-end Private Link; on GCP, Private Service Connect.
+//
+// HOW IT IS BUILT (reference/layout.md):
+//   • The top level is a row in traffic order: users | customer account |
+//     Databricks control plane. Every PrivateLink edge then runs left → right.
+//   • Inside the workspace VPC, a row: the AZ subnets (a column group), then the
+//     endpoint subnet, closest to the control plane. Compute → endpoint →
+//     control plane is one direction, with no line crossing a subnet.
+//   • Tracks line each endpoint up with what it reaches: `fe` (users, front-end
+//     endpoint, web app), `scc` (SCC endpoint, relay).
+//   • Boundary facts (CIDR, "Databricks-managed") live in the box `subtitle`.
+// =============================================================================
+[
+  {
+    "name": "Customer-managed VPC with PrivateLink",
+    "story": "Classic compute runs in the customer's VPC, two private subnets in two availability zones, no public IPs. Back-end PrivateLink: the clusters reach the control plane through two VPC endpoints (REST API, SCC relay) in an endpoint subnet. Front-end PrivateLink: users reach the web app through an endpoint in a transit VPC. The root bucket is S3, reached through a gateway endpoint.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": { "title": "Databricks on AWS: customer-managed VPC with PrivateLink", "subtitle": "Front-end and back-end PrivateLink · no public IPs on the clusters" },
+    "options": { "trademarkLogos": false },
+    "layout": "row",
+    "gap": 100,
+    "nodes": [
+      { "id": "users", "type": "logo", "icon": "file:persona/user", "text": "Workspace users", "caption": "bottom", "track": "fe" },
+
+      { "id": "account", "type": "box", "title": "Customer AWS account", "titleIcon": "file:cloud/aws/general/account",
+        "layout": "column", "gap": 50, "align": "start", "children": [
+          { "id": "transit", "type": "box", "title": "Transit VPC", "subtitle": "reached over VPN / Direct Connect", "titleIcon": "file:cloud/aws/general/vpc-group", "children": [
+            { "id": "fe-ep", "type": "logo", "icon": "file:cloud/aws/networking/vpc-endpoint", "text": "Front-end endpoint", "desc": "web app & REST API", "caption": "right", "track": "fe" } ] },
+          { "id": "vpc", "type": "box", "title": "Workspace VPC", "subtitle": "customer-managed · 10.0.0.0/16", "titleIcon": "file:cloud/aws/general/vpc-group",
+            "layout": "row", "gap": 90, "children": [
+              { "id": "azs", "type": "group", "layout": "column", "gap": 40, "children": [
+                { "id": "subnet-a", "type": "box", "title": "Private subnet · AZ a", "subtitle": "10.0.1.0/24", "titleIcon": "file:cloud/aws/general/private-subnet", "children": [
+                  { "id": "cluster-a", "type": "card", "title": "Classic compute", "icon": "file:databricks-line/spark-cluster", "body": "<p><b>Cluster nodes</b> · no public IP</p>" } ] },
+                { "id": "subnet-b", "type": "box", "title": "Private subnet · AZ b", "subtitle": "10.0.2.0/24", "titleIcon": "file:cloud/aws/general/private-subnet", "children": [
+                  { "id": "cluster-b", "type": "card", "title": "Classic compute", "icon": "file:databricks-line/spark-cluster", "body": "<p><b>Cluster nodes</b> · no public IP</p>" } ] } ] },
+              { "id": "ep-subnet", "type": "box", "title": "Endpoint subnet", "subtitle": "10.0.3.0/27", "titleIcon": "file:cloud/aws/general/private-subnet",
+                "layout": "column", "gap": 60, "children": [
+                  { "id": "be-rest", "type": "logo", "icon": "file:cloud/aws/networking/vpc-endpoint", "text": "REST API endpoint", "caption": "bottom" },
+                  { "id": "be-scc", "type": "logo", "icon": "file:cloud/aws/networking/vpc-endpoint", "text": "SCC relay endpoint", "caption": "bottom", "track": "scc" } ] } ] },
+          { "id": "s3", "type": "logo", "icon": "file:cloud/aws/storage/s3", "text": "S3 root bucket", "caption": "right" } ] },
+
+      { "id": "ctrl", "type": "box", "title": "Databricks control plane", "subtitle": "Databricks-managed AWS account",
+        "layout": "column", "gap": 60, "children": [
+          { "id": "web", "type": "logo", "icon": "file:vendor/databricks", "text": "Web app & REST API", "caption": "right", "track": "fe" },
+          { "id": "relay", "type": "logo", "icon": "lucide:server", "text": "SCC relay", "caption": "right", "track": "scc" } ] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "users", "to": "fe-ep", "label": "private network" },
+      { "id": "e2", "from": "fe-ep", "to": "web", "label": "front-end PrivateLink", "color": "#FF5F46" },
+      { "id": "e3", "from": "cluster-a", "to": "ep-subnet" },
+      { "id": "e3b", "from": "cluster-b", "to": "ep-subnet" },
+      { "id": "e4", "from": "be-rest", "to": "web", "label": "back-end PrivateLink", "color": "#FF5F46" },
+      { "id": "e5", "from": "be-scc", "to": "relay", "color": "#FF5F46" },
+      { "id": "e6", "from": "subnet-b", "to": "s3", "label": "S3 gateway endpoint", "flow": true }
+    ]
+  }
+]

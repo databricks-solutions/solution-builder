@@ -110,8 +110,8 @@ The anomaly is the whole point. Every design choice must make it impossible to m
 - **5-second test**: If the stakeholder can't identify the problem in 5 seconds, redesign.
 - **Counters**: Delta catches the eye — show "vs. baseline" or "vs. prior period."
 - **Default filters**: Must show the anomalous period. If the date range hides the spike, the demo fails.
-- **Trend line**: Spike in the rightmost 20% of the time axis with 6-12 months baseline for contrast - avoid stories anomalies just on the last few days, it's not visible enough.
-- **Breakdown bar**: Sort descending, dominant category at top. Horizontal bars for long labels.
+- **Trend line — shape, not just a spike.** A time series must read **build-up → peak → decay with the peak in the PAST** (roughly the middle-to-right 60-80% of the window, with 6-12 months of baseline before it for contrast). The failure mode to avoid is a line that is **flat for the whole window then cliffs only on the max date** — that happens when the data generator anchors the event at `date.today()` (the latest timestamp), so there is no "after." Fix it at the source (move the event back in the generator; see the synthetic-data block's rolling-date pitfall). Only tighten the window to show a bare step when the step genuinely IS the intended incident-timeline — and then say so in the frame description.
+- **Breakdown bar — watch BOTH ends of the cardinality.** Sort descending, dominant category at top, horizontal bars for long labels. Too many categories (50 bars) is unreadable → top-N + "Other". But the **inverse is just as broken**: a `GROUP BY` where **one category dominates and the rest are ~0** renders as one tall bar beside a row of empty bars — visually blank. Instead: (a) a **stacked** affected-vs-healthy / down-vs-up bar so the one-sided split is the point, (b) a top-N **table**, or (c) a single **callout counter**. Don't plot a dozen zero bars.
 
 ## Visual Design
 
@@ -169,6 +169,19 @@ When writing dashboard specifications, include:
 
 The spec describes WHAT to show. The `databricks-aibi-dashboards` Databricks Agent Skill (DAS) handles HOW to build the JSON. Don't put full JSON in the spec.
 
+## MANDATORY Final Review — don't declare the dashboard done before this
+
+The DAS documents every rule below; the failure is **skipping the final pass**. A dashboard can pass a `check_dash` field-binding check yet still ship a run-on title, a sparkline-less counter, a `version:1` table, or a near-empty one-dominant bar — all invisible to that check. After deploying (and after every `update`+`publish`), re-read the live serialized JSON widget by widget and confirm:
+
+1. **Counters**: each has a `period` sparkline over a one-row-per-period dataset (`GROUP BY DATE_TRUNC`), OR is a justified point-in-time snapshot. A single-scalar-row dataset can't spark — fix the dataset, don't ship a bare number.
+2. **Correct `version` per widget** (wrong → "Invalid widget definition is imported"). Matrix is NOT uniform — DAS Widget Index is source of truth: counter/table/symbol-map/filters=**2**; bar/line/pie/area/scatter/histogram/pivot/heatmap=**3**; combo/choropleth/forecast-line/sankey/funnel/box/waterfall=**1**. (Not "all charts are v3".)
+3. **No `color` on a counter `value`** → "unsupported widget definition". Counter color comes only from theme `fontColor`.
+4. **Text `lines[]` splits heading from body**: `["## Heading\n", "\n", "body"]`, not one `"## Title body…"` string (concatenated verbatim → run-on wall of text).
+5. **No degenerate chart** — one dominant value + many ~0 rows renders near-blank. Reframe per the breakdown-bar rule above.
+6. **Time-series = build-up → peak → decay, peak in the past**, not flat-then-cliff on the max date (Trend-line rule). Flat line → check the generator's event date.
+7. **Every widget renders data** (`fieldName` ↔ `query.fields[].name`, the DAS blank-widget gotcha) and **every headline number is truthful** vs a direct SQL query.
+8. **`frame.showTitle: true` on every title, `frame.showDescription: true` on every caption** (both OFF by default).
+
 ## Pitfalls
 
 - **Don't put catalog/schema in the queries and always set the --dataset-catalog and --dataset-schema flag when running `databricks lakeview create` AND `databricks lakeview update`** (update strips catalog/schema otherwise) 
@@ -182,10 +195,34 @@ The spec describes WHAT to show. The `databricks-aibi-dashboards` Databricks Age
 - **Too-fine cardinality in charts** — 50 categories in a bar chart is unreadable, instead get the top ~6 then aggregate as "other" using a window function.
 - **`queryLines` joined without whitespace** — array elements are concatenated verbatim. Each element except the last must end with a space or `\n`, e.g. `["SELECT * ", "FROM items ", "WHERE x = 1"]` (or use a single-element array).
 
+### Fleet-recurring pitfalls (check EVERY one, on EVERY page)
+
+The defects that most often made a generated dashboard look "average":
+
+- **Run-on page headers (#1 recurring).** One `lines` element `["## Heading … story …"]` renders heading jammed into body (concatenated verbatim). Use three: `["## Heading\n", "\n", "story"]`. Fix on every page, not just page 1.
+- **Empty theme + no color pins (near-universal).** `theme: {}` → charts fall back to default colors, the anomaly isn't privileged, colors reshuffle chart-to-chart. Populate the theme and pin the hero semantically — the one county/supplier/region/failure-mode that IS the story gets a warm/red hex, baseline a muted grey, same pins on every chart showing that category.
+- **"Buried hero" chart** — anomaly lost in a many-category chart (worst: palest color). Highest-impact fix: **sort DESC + horizontal bar + 2-color highlight** (hero in anchor hue, rest grey).
+  - **DESC sort**: simplest is `ORDER BY <metric> DESC` in the dataset SQL (what most of the fleet does). Widget-level: DAS-canonical `scale.sort: {"by": "value"}`; fleet also uses `{"by": "x-reversed"}`/`{"by": "y-reversed"}` (with 'd'). Prefer `ORDER BY DESC` or `"value"` (documented + verified).
+- **Sparkline counter headline** = whatever `value.fieldName` aggregates across ALL period rows — normally the window TOTAL (`SUM(x)`), sparkline = per-period. Fine on a cumulative total. RATIO is the trap: `SUM(rate)` is meaningless — divide exposed numerator/denominator, or drop the sparkline. For a **latest-period** headline, point `value.fieldName` at `MAX_BY(x, period)` and keep the period rows. (Confirm total vs latest vs ratio — easy to confuse.)
+- **Headline must match the README hero stat.** Most frequent "undersold" bug: KPI scoped to a different window than the story (headline on 52 weeks while narrative + charts are 104 → number halved). Headline window = story's headline-stat window = main chart window, unless the title says otherwise. Verify every headline vs direct SQL and vs the README.
+- **Flat-then-cliff from a current snapshot across history.** A source with only today's snapshot repeated flat then dropping at the max date is a fake cliff — back-calculate the trajectory from the flow (snapshot ± consumption per past period). More generally, noisy/partial-trailing series read badly: a **trailing moving average** (7-day daily, 3-month monthly) smooths noise AND absorbs the partial last period — default for any drift-over-time chart. (See "Trend line — shape".)
+- **Percent counter as a bare number.** `ROUND(100*x,1)` + no `format` → "28.2" not "28.2%". Output the fraction (0–1) + `format: number-percent` (0.282 → "28.2%"). `number-plain` for true /100 scores and counts; for an already-/100 value append the unit via `format.suffix` or `formatTemplate`.
+- **Over-abbreviation.** `abbreviation:"compact"` → "1K"/"9K" is useless for 3–5-digit operational counts (1,348 / 9,267). Compact is for currency (`$1.5M`); use full integers with grouping otherwise.
+- **Multi-field date filter needs `frame.title`** (e.g. "Date range"), else the UI shows the raw field list ("date,return_date,week").
+- **Default date range must span the full baseline** — last-12-months hides the pre-event baseline the "something changed at date X" story needs. Default to full history.
+- **Title convention**: `AI-BI - <Thing>: <Subtitle>` — no `[AIBI]`/`[AI-BI]` prefixes, no 📶/✈ emoji. `display_name` isn't in the serialized JSON — set it on the `lakeview create`/`update` call AND in `databricks.yml`.
+
+### Deploy/CLI gotchas (verified on CLI v1.10.0)
+
+- **`lakeview update --serialized-dashboard @file` doesn't read the file** — the flag takes a literal string, so `@file` passes verbatim → "failed to parse serialized dashboard". Use `--serialized-dashboard "$(cat file.json)"`, or `--json @body.json` with body `{"serialized_dashboard": "<stringified JSON>", "warehouse_id": "..."}`.
+- **`--dataset-catalog`/`--dataset-schema` are CLI flags, NOT body fields** (silently ignored in `--json` → datasets unbound → every widget "Unable to render visualization" even when a field-checker passes). Pass on BOTH create and update.
+- **`publish` MUST pass `--embed-credentials`** (+ `--warehouse-id`), else credentials are dropped and viewers are locked out. A plain `update`+`publish` silently de-embeds — easy to ship broken.
+- `associative_filter_predicate_group` flagged "column not in dataset" is a **false positive** — a Lakeview-internal virtual column in auto-generated filter queries (not a dataset column); the filter works. Whitelist it. (Different from hand-writing it in a dataset query, which the DAS correctly forbids.)
+
 ## Connections
 
 - **Upstream**: Gold-layer tables from SDP + Unity Catalog. Design Gold tables with dashboard filters and grain in mind.
-- **Downstream**: Raises questions → Genie (the WHAT), Knowledge Assistant (the WHY), apps, agents.
+- **Downstream**: Raises questions → Genie (the WHAT, and the WHY when policy documents are attached to it), apps, agents.
 
 ## URLs
 

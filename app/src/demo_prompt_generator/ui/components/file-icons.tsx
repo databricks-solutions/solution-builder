@@ -14,6 +14,7 @@
 // We only need metadata (path) eagerly for search/tabs; the bytes load via
 // <img src> when an icon actually renders.
 import { REMOTE_VENDOR_LOGOS } from "../icons/remote-logos";
+import { canonicalIconKey } from "../lib/icon-aliases";
 
 const urls = import.meta.glob("../icons/**/*.svg", { query: "?url", import: "default", eager: true }) as Record<string, string>;
 
@@ -70,11 +71,11 @@ export const FILE_ICONS: FileIcon[] = [
 const BY_KEY = new Map(FILE_ICONS.map((i) => [i.key, i]));
 
 export function getFileIcon(key: string): FileIcon | undefined {
-  return BY_KEY.get(key);
+  return BY_KEY.get(canonicalIconKey(key));
 }
 
 export function isFileIconKey(key: string | undefined | null): key is string {
-  return typeof key === "string" && key.startsWith("file:") && BY_KEY.has(key);
+  return typeof key === "string" && key.startsWith("file:") && BY_KEY.has(canonicalIconKey(key));
 }
 
 // --- Logo metadata catalog (trademark / oss / data-source) ------------------

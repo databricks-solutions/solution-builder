@@ -1,38 +1,40 @@
 # Deploy — AI/BI Supply Chain Optimization
 
-No app, no Lakebase — deploy is two commands.
+No app, no Lakebase. Deploying takes two commands.
 
 ```bash
-# 1. Create the schema + dashboard shell + setup job
-databricks bundle deploy \
-  --var catalog=dbdemos_templates \
-  --var schema=aibi_supply_chain \
-  --var warehouse_id=<your-serverless-warehouse-id>
-
-# 2. Generate data + build the medallion, then deploy the Genie space
-databricks bundle run supply_chain_setup \
-  --var catalog=dbdemos_templates \
-  --var schema=aibi_supply_chain \
-  --var warehouse_id=<your-serverless-warehouse-id>
+databricks bundle deploy -t dev -p <profile> \
+  --var catalog=<catalog> --var schema=<schema> --var warehouse_id=<serverless-warehouse-id>
+databricks bundle run supply_chain_setup -t dev -p <profile> \
+  --var catalog=<catalog> --var schema=<schema> --var warehouse_id=<serverless-warehouse-id>
 ```
 
-Requires Databricks CLI **v0.283.0+** (for the dashboard `dataset_catalog` /
-`dataset_schema` rewrite) and `databricks-sdk>=0.114.0` for the Genie task (wired via
-`environment_key: sdk_latest`).
+The catalog must already exist (`CREATE CATALOG IF NOT EXISTS <catalog>`); the bundle creates the schema. The dashboard
+and Genie space go to `--var workspace_folder=...` (default `/Workspace/Users/<you>/aibi-supply-chain`).
 
-After the run:
-- **Data** — `dbdemos_templates.aibi_supply_chain` (9 base tables +
-  `demand_enriched` + `component_status` + the `metrics_demand` metric view).
-- **Dashboard** — "[AI/BI] AIBI - Supply Chain Optimization".
-- **Genie space** — "AI/BI - Supply Chain Optimization".
+Requires Databricks CLI **v0.283.0+**, because the dashboard's `dataset_catalog` / `dataset_schema` rebind needs it. The
+Genie task uses `databricks-sdk>=0.114.0`, wired in through `environment_key: sdk_latest`.
 
-The dashboard's AI forecast (`AI_FORECAST`) and depletion projection run on a SQL
-warehouse; the setup dataset build runs on serverless.
+**Upgrades** run the same two commands. They are idempotent:
+- The schema, dashboard and job are owned by the bundle and keep the same IDs.
+- The Genie space is updated in place. It is reused only when its title matches and its tables point at this
+  catalog.schema, so a fork with the same title is never overwritten.
+- The data is overwritten, and it is deterministic, so the story numbers don't change between runs.
 
-Re-runs are idempotent (data overwrites; Genie updates in place).
+The setup job takes about 3 minutes.
+
+## What the setup job builds
+- **Data**: 9 base tables, plus `demand_enriched`, `component_status` and the `metrics_demand` metric view.
+- **Dashboard**: "Supply Chain Optimization - E-Bike Battery Cell Crunch". It is published with embedded
+  credentials. Its datasets are schema-less and get rebound by the bundle. The metric-view dataset is a SQL query over
+  `metrics_demand`, because an `asset_name` dataset must be catalog-qualified and can't be rebound.
+- **Genie space**: "Supply Chain Optimization - E-Bike Battery Cell Crunch".
+
+The dashboard's AI forecast (`AI_FORECAST`) and depletion projection run on the SQL warehouse. The dataset build runs
+on serverless.
 
 ## Teardown
 ```bash
-databricks bundle destroy --auto-approve
+databricks bundle destroy -t dev -p <profile> --auto-approve
 ```
-(Does not drop the Genie space or UC tables created by the setup job.)
+This drops the schema, the dashboard and the job. It does not delete the Genie space.

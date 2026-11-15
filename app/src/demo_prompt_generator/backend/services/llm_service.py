@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from enum import Enum
 from typing import Any, Literal
 
+import httpx
 from databricks.sdk import WorkspaceClient
 
 from ..core._config import AppConfig
@@ -80,6 +81,13 @@ class ModelSize(str, Enum):
 
 EMBEDDING_DIMENSION = 1024
 
+# Chat/stream timeout. Read timeout applies per socket read: for a streamed call it
+# is the max gap between tokens; for a non-streamed call it is the whole generation
+# (block_factory asks NORMAL/Opus for 4000 tokens in one shot, so 120 s is too tight).
+# Replaces the OpenAI client default of 600 s x 3 attempts.
+_CHAT_TIMEOUT = httpx.Timeout(240.0, connect=10.0)
+_EMBED_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
 
 class LLMService:
     """LLM operations via Databricks serving endpoints. Model names from AppConfig."""
@@ -92,8 +100,13 @@ class LLMService:
     def _get_client(self):
         """Single OpenAI client — SDK handles auth automatically."""
         if self._client is None:
-            self._client = self.ws.serving_endpoints.get_open_ai_client()
+            self._client = self.ws.serving_endpoints.get_open_ai_client(
+                timeout=_CHAT_TIMEOUT, max_retries=1,
+            )
         return self._client
+
+    def _get_embed_client(self):
+        return self._get_client().with_options(timeout=_EMBED_TIMEOUT)
 
     def _model_for(self, size: ModelSize) -> str:
         return self.config.ai_gateway_mini if size == ModelSize.MINI else self.config.ai_gateway
@@ -238,7 +251,7 @@ class LLMService:
         if len(text) > max_chars:
             text = text[:max_chars]
         try:
-            response = self._get_client().embeddings.create(
+            response = self._get_embed_client().embeddings.create(
                 model=self.config.ai_gateway_embedding,
                 input=text,
             )
@@ -251,7 +264,7 @@ class LLMService:
         max_chars = 8000
         truncated = [t[:max_chars] if len(t) > max_chars else t for t in texts]
         try:
-            response = self._get_client().embeddings.create(
+            response = self._get_embed_client().embeddings.create(
                 model=self.config.ai_gateway_embedding,
                 input=truncated,
             )

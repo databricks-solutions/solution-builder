@@ -1,0 +1,89 @@
+// =============================================================================
+// LAKEFLOW CONNECT DIRECT CDC FROM ON-PREMISES SQL SERVER / ORACLE, THROUGH A
+// PRIVATE NETWORK GATEWAY (AZURE)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first; the network part is the
+// same as reference/serverless-png-azure.jsonc (read its header for how PNG works).
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's setup):
+//   • Lakeflow Connect: define the source connection once in Unity Catalog, then build
+//     a fully managed ingestion pipeline on it. Unlike Lakehouse Federation, it runs
+//     the transformation on Databricks and reads changes incrementally, so the load on
+//     the source stays low. It lands change data in a defined schema and table.
+//   • Direct CDC: ONE scheduled serverless pipeline does the snapshot, the CDC and the
+//     replication — no separate ingestion gateway to run. Because it is serverless, it
+//     needs a serverless path into the network where the database lives.
+//   • That path is the Private Network Gateway: a Databricks-managed NIC in a /28 subnet
+//     of the hub VNet (delegated to Microsoft.Databricks/workspaces); the pipeline's
+//     connection then follows the hub's routes through the VPN / ExpressRoute gateway
+//     to the database on-premises. One reusable path instead of a private endpoint and
+//     proxy VMs per database.
+//   • Limits: CDC mode is in Private Preview and supports SQL Server and Oracle only.
+//     During the preview the UI may not create a connection to an on-premises
+//     database: create it with SQL. PNG on Azure is in Public Preview, API only.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The serverless-png-azure structure with the pipeline as the caller: Databricks box →
+//     hub VNet (PNG subnet, gateway subnet) → on-premises. The hops carry `track: "t1"`, so the
+//     red path is one straight line.
+//   • The red path is the pipeline's connection, drawn in the direction it is opened (pipeline → source);
+//     the data comes back on it, so do not draw a second, reversed edge.
+//   • The two supported sources are vendor logos in the on-premises box, one edge each;
+//     the second leaves the link from its bottom (`er@b` → `oracle@l`) so the two do
+//     not fan out of one side and kink.
+//   • The preview status lives in the frame subtitle, not in a tile.
+//
+// ADAPT IT: name the user's databases (one logo and one edge each). If they ask for
+// where the data lands, add the Delta tables in Unity Catalog in the Databricks box,
+// fed from the pipeline. With no PNG available (or a source that is only reachable
+// through a private endpoint service), use the Private Link service pattern instead;
+// with no inbound connection allowed at all, use reference/lakeflow-onprem-agent-azure.jsonc.
+// =============================================================================
+[
+  {
+    "name": "Lakeflow Connect Direct CDC via PNG — Azure",
+    "story": "A Lakeflow Connect Direct CDC pipeline ingests change data from SQL Server and Oracle databases on-premises: one scheduled serverless pipeline for the snapshot, CDC and replication, with no separate gateway. Its connection leaves the serverless plane through the workspace's Private Network Gateway (PNG): a Databricks-managed NIC in a /28 subnet of the customer's hub VNet, delegated to Microsoft.Databricks/workspaces, then through the hub's VPN / ExpressRoute gateway to the databases. The workspace VNet is peered to the hub and is not on this path. Direct CDC is in Private Preview and supports SQL Server and Oracle only.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Lakeflow Connect Direct CDC through a Private Network Gateway","subtitle":"Serverless CDC from on-premises SQL Server and Oracle · Azure · Private Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "subtitle": "Serverless", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "pipeline", "type": "logo", "icon": "file:databricks-line/lakeflow-connect", "text": "Direct CDC pipeline", "caption": "bottom", "ai_reasoning": "one scheduled serverless Lakeflow Connect pipeline: snapshot, CDC and replication, no separate gateway", "track": "line-pipeline"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "png", "type": "logo", "icon": "file:databricks-line/access-connector", "text": "Private Network Gateway", "caption": "bottom", "ai_reasoning": "the serverless way out into the customer network; created inside the NCC", "track": "line-pipeline"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "gap": 72, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 97, "align": "center", "children": [
+          {"id": "png-subnet", "type": "box", "title": "PNG subnet", "subtitle": "10.0.0.0/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (from the PNG)", "caption": "bottom", "track": "line-pipeline"}
+          ] },
+          {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.1.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "track": "line-pipeline"}
+          ] }
+        ] },
+        {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "peered to the hub; not on the pipeline's path, so one card"}
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / VPN", "caption": "bottom", "track": "line-pipeline"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "sqlserver", "type": "logo", "icon": "file:vendor/microsoft-sql-server", "text": "SQL Server", "caption": "bottom", "ai_reasoning": "a supported Direct CDC source", "track": "line-pipeline"},
+        {"id": "oracle", "type": "logo", "icon": "file:vendor/oracle", "text": "Oracle", "caption": "bottom", "ai_reasoning": "the other supported Direct CDC source"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "pipeline", "to": "png", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the pipeline opens its source connection through the NCC's gateway"},
+      {"id": "e2", "from": "png", "to": "nic", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e3", "from": "nic", "to": "gw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "gw", "to": "er", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "er", "to": "sqlserver", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5b", "from": "er@b", "to": "oracle@l", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "leaves ExpressRoute from the bottom so the two source edges do not fan out of one side and kink"},
+      {"id": "e6", "from": "gw-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering", "ai_reasoning": "hub ↔ workspace VNet; dashed grey: not used by the pipeline"}
+    ]
+  }
+]

@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import threading
+import time
 from typing import Any
 
 from typing import TYPE_CHECKING
@@ -44,6 +45,7 @@ CANONICAL_KEYS = (
     "pipeline_id",
     "dashboard_id",
     "genie_space_id",
+    "documents_volume",
     "knowledge_assistant_id",
     "knowledge_assistant_endpoint",
     "multi_agent_supervisor_id",
@@ -80,6 +82,7 @@ Normalization rules — apply ALL of these:
 4. Synonyms — map common aliases to canonical keys:
    - `supervisor_agent_id`, `mas_id` → `multi_agent_supervisor_id`
    - `ka_id`, `assistant_id` → `knowledge_assistant_id`
+   - `pdf_volume`, `docs_volume`, `documents_volume_path` → `documents_volume` (keep the full `/Volumes/<cat>/<sch>/<vol>` path)
    - `model_name`, `uc_model_name`, `ml.model_name` → `ml_model_name`
    - `experiment_path`, `mlflow.experiment_path` → `mlflow_experiment_path`
 
@@ -98,6 +101,7 @@ INPUT:
     "ml_model_name": "ai_demo_gen.demo_x.churn_model",
     "ml_model_version": "1",
     "supervisor_agent_id": "sup-1",
+    "pdf_volume": "/Volumes/ai_demo_gen/demo_x/docs",
     "app": {"name": "my-app", "id": "app-1", "deployment_note": "ok"},
     "tables": {"bronze": ["a", "b"]}
   }
@@ -112,6 +116,7 @@ OUTPUT:
   "pipeline_id": "p-123",
   "dashboard_id": "",
   "genie_space_id": "",
+  "documents_volume": "/Volumes/ai_demo_gen/demo_x/docs",
   "knowledge_assistant_id": "",
   "knowledge_assistant_endpoint": "",
   "multi_agent_supervisor_id": "sup-1",
@@ -137,6 +142,20 @@ Input resources.json:
 # Threadsafe; the lock is only held during dict ops, not the LLM call.
 _cache: dict[str, tuple[str, dict[str, str]]] = {}
 _cache_lock = threading.Lock()
+
+# Negative cache: a failed extraction (LLM outage, missing model) is remembered for
+# a short TTL under the same content hash, so every GET /deployed-resources poll
+# during an outage doesn't re-run the LLM. A content change still retries at once.
+FAILURE_TTL_S = 300.0
+_failures: dict[str, tuple[str, float, str]] = {}  # project_id -> (hash, expires_at, error)
+
+
+def forget(project_id: str) -> None:
+    """Drop a project's cached extraction. Called on delete / folder-reap so the
+    cache doesn't grow one entry per project forever (an unbounded leak)."""
+    with _cache_lock:
+        _cache.pop(project_id, None)
+        _failures.pop(project_id, None)
 
 
 def _hash_content(raw_text: str) -> str:
@@ -172,6 +191,12 @@ def extract_resources(
     if cached and cached[0] == content_hash:
         return cached[1], None
 
+    # Recent failure for this exact content: report it without another LLM call.
+    with _cache_lock:
+        failed = _failures.get(project_id)
+    if failed and failed[0] == content_hash and failed[1] > time.monotonic():
+        return _empty_extraction(), failed[2]
+
     # Miss: call mini. Cap the input — pathological resources.json files
     # bloated with the model's tangential notes can run to thousands of
     # lines; the canonical fields are always near the top so a generous
@@ -191,12 +216,15 @@ def extract_resources(
         logger.warning(
             f"[resources_extractor] LLM extraction failed for {project_id}: {msg}"
         )
+        with _cache_lock:
+            _failures[project_id] = (content_hash, time.monotonic() + FAILURE_TTL_S, msg)
         return _empty_extraction(), msg
 
     extracted = _normalize_extraction(raw)
 
     with _cache_lock:
         _cache[project_id] = (content_hash, extracted)
+        _failures.pop(project_id, None)
 
     return extracted, None
 
@@ -236,5 +264,7 @@ def invalidate_cache(project_id: str | None = None) -> None:
     with _cache_lock:
         if project_id is None:
             _cache.clear()
+            _failures.clear()
         else:
             _cache.pop(project_id, None)
+            _failures.pop(project_id, None)

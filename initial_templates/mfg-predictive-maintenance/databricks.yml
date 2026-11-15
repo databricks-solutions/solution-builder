@@ -1,0 +1,244 @@
+# TechRobotics Industries — Predictive Maintenance Control Room (DAB)
+#
+#   databricks bundle deploy
+#       → builds the app (artifacts), Lakebase database (<project>), agent-traces experiment, dashboard, app, setup job
+#   databricks bundle run pdm_setup
+#       generate_data → train_score_model (UC model @champion) → build_gold (views + metric view)
+#       upload_manuals (PDF manuals → manuals volume) → deploy_genie (Genie agent over the gold tables + that volume;
+#       waits until every manual is indexed)
+#       → finalize_app (UC/Genie grants for the app SP + <catalog>.<schema>.demo_resources the app reads at boot)
+#   databricks bundle run pdm_copilot_app   # deploys the source + starts the app
+#
+# app/scripts/lakebase_setup_db.sh; its Genie id is pinned as a variable).
+
+bundle:
+  name: mfg-predictive-maintenance-copilot
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the demo data
+    default: manufacturing
+  schema:
+    description: Schema for the demo data (created by the generator if missing)
+    default: predictive_maintenance_copilot
+  warehouse_id:
+    description: SQL warehouse used by the dashboard, Genie and the app — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder that holds the bundle, dashboard and Genie space
+    default: /Workspace/Users/${workspace.current_user.userName}/mfg-predictive-maintenance
+  app_name:
+    description: Databricks App name
+    default: pdm-copilot
+  lakebase_project_slug:
+    description: Existing Lakebase (autoscaling) project the app database is created in
+  lakebase_branch_id:
+    default: production
+  lakebase_database_id:
+    description: Lakebase database resource id (db- + database name with hyphens)
+  lakebase_database:
+    description: Postgres database name (the bundle creates it in the project)
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the bundle-created database. Non-personal: a group role, not a personal one.
+  agent_mlflow_experiment_path:
+    description: MLflow experiment the app records agent traces in
+    default: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+workspace:
+  root_path: ${var.workspace_folder}/bundle
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "app/package.json"
+    - "app/package-lock.json"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/tests/**"
+    - "app/test-results/**"
+    - "app/playwright-report/**"
+    - "**/.DS_Store"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  # The bundle creates the app's Lakebase database in an EXISTING Lakebase project (defaults: project `<project>`,
+  # owner role `admins`; override with --var lakebase_project_slug / lakebase_owner_role).
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var lakebase_project_slug=… --var lakebase_owner_role=…]
+  default:
+    default: true
+    resources:
+      experiments:
+        agent_traces:
+          # Bundle-owned so it lives in the demo folder; the app SP gets CAN_EDIT through the app resource
+          # (it can't create experiments in a folder it doesn't own).
+          name: ${var.agent_mlflow_experiment_path}
+      postgres_databases:
+        pdm_db:
+          parent: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+          database_id: ${var.lakebase_database_id}
+          postgres_database: ${var.lakebase_database}
+          role: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/roles/${var.lakebase_owner_role}
+      apps:
+        pdm_copilot_app:
+          resources:
+            - name: sql-warehouse
+              sql_warehouse:
+                id: ${var.warehouse_id}
+                permission: CAN_USE
+            - name: postgres
+              postgres:
+                branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+                database: ${resources.postgres_databases.pdm_db.name}
+                permission: CAN_CONNECT_AND_CREATE
+            - name: agent-traces
+              experiment:
+                experiment_id: ${resources.experiments.agent_traces.id}
+                permission: CAN_EDIT
+
+resources:
+  dashboards:
+    plant_reliability:
+      display_name: "TechRobotics — Plant Reliability & OEE"
+      file_path: ./dashboard/plant_reliability.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  jobs:
+    pdm_setup:
+      name: "[PdM Copilot] Setup — data, ML, gold, Genie"
+      description: "TechRobotics predictive-maintenance demo: synthetic telemetry -> failure-risk model (UC) -> gold views + metric view -> manuals -> Genie agent (tables + manuals)."
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: base
+
+        - task_key: train_score_model
+          depends_on: [{ task_key: generate_data }]
+          spark_python_task:
+            python_file: ./src/ml/train_score_model.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--experiment", "${var.workspace_folder}/pdm_failure_risk_model_experiment"]
+          environment_key: ml
+
+        - task_key: build_gold
+          depends_on: [{ task_key: train_score_model }]
+          spark_python_task:
+            python_file: ./src/pipeline/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--sql-file", "${workspace.file_path}/src/pipeline/gold.sql"]
+          environment_key: base
+
+        - task_key: upload_manuals
+          depends_on: [{ task_key: generate_data }]   # generate_data creates the schema
+          spark_python_task:
+            python_file: ./src/deploy/upload_manuals.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--src-dir", "${workspace.file_path}/src/documents/pdf"]
+          environment_key: base
+
+        - task_key: deploy_genie
+          depends_on: [{ task_key: build_gold }, { task_key: upload_manuals }]
+          spark_python_task:
+            python_file: ./src/deploy/deploy_genie.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--warehouse-id", "${var.warehouse_id}", "--parent-path", "${var.workspace_folder}",
+                         "--config", "${workspace.file_path}/genie/genie_space.json"]
+          environment_key: sdk_latest
+
+        # Grants for the app SP (UC + the Genie agent) and <catalog>.<schema>.demo_resources, which the
+        # app reads at boot — so no Genie id is ever copied by hand into the app config.
+        - task_key: finalize_app
+          depends_on: [{ task_key: deploy_genie }]
+          spark_python_task:
+            python_file: ./src/deploy/finalize_app.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}", "--app-name", "${var.app_name}",
+                         "--dashboard-id", "${resources.dashboards.plant_reliability.id}",
+                         "--warehouse-id", "${var.warehouse_id}",
+                         "--genie-title", "TechRobotics Plant Reliability Genie",
+                         "--agent-mlflow-experiment-path", "${var.agent_mlflow_experiment_path}"]
+          environment_key: sdk_latest
+
+      environments:
+        - environment_key: base
+          spec:
+            client: "4"
+        - environment_key: ml
+          spec:
+            client: "4"
+            dependencies:
+              - "scikit-learn>=1.4"
+              - "mlflow>=3.1"
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"
+
+  # Databricks App — the reliability engineer's control room (Node/Express/React + Lakebase + agent).
+  # app/scripts/lakebase_setup_db.sh.
+  apps:
+    pdm_copilot_app:
+      name: ${var.app_name}
+      description: "TechRobotics PdM Control Room — ML failure risk, root-cause copilot, work-order write-back"
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.plant_reliability.id}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_slug}
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${var.agent_mlflow_experiment_path}
+          - name: LOG_LEVEL
+            value: INFO
+          # GENIE_SPACE_ID is NOT set here: the setup job's finalize_app task writes it to
+          # <catalog>.<schema>.demo_resources, which the app reads at boot (the `demo` target pins them below).
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            permission: CAN_CONNECT_AND_CREATE

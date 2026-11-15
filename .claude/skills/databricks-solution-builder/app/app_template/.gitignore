@@ -24,9 +24,13 @@ test-results/
 # AppKit 0.41 typegen output (generated; regenerated on dev machine with warehouse access)
 shared/appkit-types/
 
-# Drizzle migrations are a BUILD ARTIFACT — regenerated from server/db/schema.ts
-# by `npm run db:generate` (wired into prebuild/predev). Never commit them:
-# a committed .sql drifts from schema.ts (stale tables → boot crash).
+# Drizzle migrations are a BUILD ARTIFACT — generated from server/db/schema.ts
+# by `npm run db:generate` (scripts/db-generate.js, wired into prebuild/predev
+# + build-app.sh). Never commit them INTO THE TEMPLATE: a shipped LuxeBeauty
+# .sql would drift from a fork's schema.ts (stale tables → boot crash). The
+# regenerated baseline has a deterministic identity (0000_init, pinned `when`),
+# so losing this folder is safe for an unchanged schema; keep it between deploys
+# of the same DB once you evolve the schema (incremental migrations live here).
 drizzle/
 
 # Runtime PID file written by start.sh (preview process group) — never commit.

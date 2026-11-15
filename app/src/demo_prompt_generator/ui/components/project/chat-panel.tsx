@@ -37,6 +37,17 @@ import {
   Users,
 } from "lucide-react";
 import { getMessageReasoning, type Message, type ReasoningEntry } from "../../lib/custom-api";
+import { UsageChip } from "./usage-chip";
+import type { ChatImage } from "../../lib/custom-api";
+import { clipboardHasText, clipboardImages, readAsDataUrl } from "../../lib/pasted-images";
+
+/** A pasted image waiting in the composer: what's sent + its preview. */
+interface PendingImage extends ChatImage {
+  url: string; // data: URL for the thumbnail
+}
+
+const MAX_CHAT_IMAGES = 5;
+const MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024; // the model's per-image limit
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,9 +145,13 @@ function formatToolJson(tool: { name: string; input: unknown; result?: string; i
   return JSON.stringify(data, null, 2);
 }
 
-/** Inline horizontal bar showing tool duration relative to the slowest tool
- *  in the same turn. Always renders at least an 8% sliver so even tiny tools
- *  get a visible mark; in-flight tools get a striped/animated treatment. */
+/** Inline horizontal bar showing ELAPSED time since the previous timeline step,
+ *  relative to the slowest step in the same turn. NOTE: this is NOT the tool's
+ *  own execution time — the agent SDK exposes no tool runtime; the value is the
+ *  wall-clock gap between the previous SDK message and this tool's result (so it
+ *  includes the model's round-trip/thinking, and is dominated by that for a fast
+ *  tool). Labeled "elapsed" everywhere to avoid a false duration claim. Always
+ *  renders at least an 8% sliver; in-flight steps get a striped treatment. */
 const DurationBar = memo(function DurationBar({
   ms,
   maxMs,
@@ -148,8 +163,8 @@ const DurationBar = memo(function DurationBar({
   return (
     <div
       className="h-1.5 w-12 bg-muted-foreground/15 rounded-full overflow-hidden shrink-0 ring-1 ring-inset ring-border/40"
-      title={`${ms}ms`}
-      aria-label={`Duration ${ms} milliseconds`}
+      title={`${ms}ms elapsed`}
+      aria-label={`${ms} milliseconds elapsed`}
     >
       <div
         className={`h-full rounded-full ${inFlight ? "bg-amber-500/60 animate-pulse" : "bg-amber-500"}`}
@@ -200,6 +215,9 @@ const ThinkingPill = memo(function ThinkingPill({
   const label = inFlight
     ? (ms !== null ? `Thinking · ${formatThoughtDuration(ms)}` : "Thinking…")
     : (durationMs !== null ? `Thought for ${formatThoughtDuration(durationMs)}` : "Thought");
+  // A finished block with no text (thinking returned "omitted": signature
+  // only) has nothing to show — don't render an empty "Thought for 0ms" pill.
+  if (!inFlight && !block.content.trim()) return null;
 
   return (
     <div className="rounded-md bg-amber-500/5 border border-amber-500/20 overflow-hidden">
@@ -375,7 +393,8 @@ function formatMs(ms: number): string {
 
 interface ChatPanelProps {
   messages: Message[];
-  onSendMessage: (message: string) => Promise<void>;
+  /** `images`: pasted images, saved under context/uploads/ and shown to the model. */
+  onSendMessage: (message: string, images?: ChatImage[]) => Promise<void>;
   isStreaming: boolean;
   isLoadingMessages?: boolean;
   isClearingSession?: boolean;
@@ -386,6 +405,8 @@ interface ChatPanelProps {
   lastReasoning?: ReasoningInfo | null;
   onStop?: () => void;
   onClearSession?: () => void;
+  /** Shows the "$" cost chip (agent tokens + list-price cost) in the header. */
+  projectId?: string;
   onClose?: () => void;
   onAutoBuild?: () => void | Promise<void>;
   canAutoBuild?: boolean;
@@ -901,10 +922,9 @@ const LiveReasoningPopup = memo(function LiveReasoningPopup({
       ref={panelRef}
       style={{
         ...(position ? { left: position.x, top: position.y, bottom: "auto" } : {}),
-        minWidth: 400,
         minHeight: 200,
       }}
-      className={`fixed ${position ? "" : "bottom-4 left-4"} w-[560px] h-80 resize overflow-hidden bg-background/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-xl z-50 flex flex-col transition-opacity duration-500 ${
+      className={`fixed ${position ? "" : "bottom-4 left-4"} h-80 w-[560px] max-w-[calc(100vw-2rem)] min-w-[min(400px,calc(100vw-2rem))] resize overflow-hidden rounded-xl border border-border/60 bg-background/95 shadow-xl backdrop-blur-xl flex flex-col transition-opacity duration-500 ${
         isFadingOut ? "opacity-0" : "opacity-100"
       } ${isStreaming ? "animate-reasoning-pulse" : ""}`}
     >
@@ -1452,6 +1472,7 @@ export const ChatPanel = memo(function ChatPanel({
   lastReasoning,
   onStop,
   onClearSession,
+  projectId,
   onClose,
   onAutoBuild,
   canAutoBuild = true,
@@ -1470,6 +1491,39 @@ export const ChatPanel = memo(function ChatPanel({
   isTakingOver = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  // ⌘V an image → a thumbnail above the input; it goes out with the next send.
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = clipboardImages(e);
+    if (files.length === 0) return;
+    if (!clipboardHasText(e)) e.preventDefault();
+    setImageError(null);
+    const tooBig = files.find((f) => f.size > MAX_CHAT_IMAGE_BYTES);
+    if (tooBig) {
+      setImageError(`Image is ${(tooBig.size / 1024 / 1024).toFixed(1)} MB; the limit is 5 MB.`);
+      return;
+    }
+    const added = await Promise.all(
+      files.map(async (f) => {
+        const url = await readAsDataUrl(f);
+        return { filename: f.name, media_type: f.type, data_b64: url.slice(url.indexOf(",") + 1), url };
+      }),
+    );
+    setImages((prev) => {
+      // The same image pasted twice is skipped.
+      const seen = new Set(prev.map((p) => p.data_b64));
+      const fresh = added.filter((a) => {
+        if (seen.has(a.data_b64)) return false;
+        seen.add(a.data_b64);
+        return true;
+      });
+      const next = [...prev, ...fresh];
+      if (next.length > MAX_CHAT_IMAGES) setImageError(`Up to ${MAX_CHAT_IMAGES} images per message.`);
+      return next.slice(0, MAX_CHAT_IMAGES);
+    });
+  }, []);
   const [userHasScrolledChat, setUserHasScrolledChat] = useState(false);
   const [autoBuildConfirmOpen, setAutoBuildConfirmOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
@@ -1522,20 +1576,27 @@ export const ChatPanel = memo(function ChatPanel({
   // Handle send
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || isStreaming) return;
+    if ((!trimmed && images.length === 0) || isStreaming) return;
     // Can't send when blocked (non-driver + expired token, or still loading) —
     // the parent also guards, but this stops a stray Enter/click.
     if (!canSend) return;
 
+    const sent = images;
     setInput("");
+    setImages([]);
+    setImageError(null);
     try {
-      await onSendMessage(trimmed);
+      await onSendMessage(
+        trimmed,
+        sent.length ? sent.map(({ filename, media_type, data_b64 }) => ({ filename, media_type, data_b64 })) : undefined,
+      );
     } catch {
-      // Send failed (e.g. 409 token expired) — restore the text so the user can
-      // take over and re-send instead of losing what they typed.
+      // Send failed (e.g. 409 token expired) — restore the text + images so the
+      // user can take over and re-send instead of losing what they typed.
       setInput((cur) => (cur ? cur : trimmed));
+      setImages((cur) => (cur.length ? cur : sent));
     }
-  }, [input, isStreaming, canSend, onSendMessage]);
+  }, [input, images, isStreaming, canSend, onSendMessage]);
 
   // Handle keyboard
   const handleKeyDown = useCallback(
@@ -1561,6 +1622,7 @@ export const ChatPanel = memo(function ChatPanel({
           <h2 className="font-semibold text-sm">{title}</h2>
         </div>
         <div className="flex items-center gap-1">
+          {projectId && <UsageChip projectId={projectId} />}
           {onClearSession && messages.length > 0 && (
             <button
               onClick={() => setClearConfirmOpen(true)}
@@ -1782,11 +1844,34 @@ export const ChatPanel = memo(function ChatPanel({
           </div>
         )}
         <div className="rounded-xl border border-border/60 bg-muted/20 shadow-sm focus-within:border-border focus-within:shadow-md transition-all">
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {images.map((img, i) => (
+                <div
+                  key={`${img.filename}-${i}`}
+                  className="group relative size-14 overflow-hidden rounded-lg border border-border/60 bg-background"
+                  title={img.filename}
+                >
+                  <img src={img.url} alt={img.filename} className="size-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                    className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-foreground/70 text-background opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                    aria-label={`Remove ${img.filename}`}
+                  >
+                    <X className="size-2.5" strokeWidth={3} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {imageError && <p className="px-3.5 pt-2 text-[11px] text-destructive">{imageError}</p>}
           <Textarea
             ref={textareaRef}
             value={input}
             onChange={(e) => { setInput(e.target.value); onComposerActivity?.(); }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             onFocus={onComposerActivity}
             placeholder={placeholder}
             disabled={isStreaming}
@@ -1834,7 +1919,7 @@ export const ChatPanel = memo(function ChatPanel({
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && images.length === 0}
                   className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-30 disabled:pointer-events-none"
                   title="Send message"
                   aria-label="Send message"

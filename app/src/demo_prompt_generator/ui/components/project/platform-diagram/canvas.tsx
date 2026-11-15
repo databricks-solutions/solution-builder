@@ -37,9 +37,11 @@ import {
   logoFootprint,
   type PlatformComponent,
   type PlatformSchema,
+  type NodePosition,
   type BandId,
   type AnnotationData,
   type AnnotationVariant,
+  legendEntries,
 } from "@/lib/platform-architecture";
 import {
   type NodeData,
@@ -52,7 +54,7 @@ import {
   nodeFootprint,
   nodeTypeFor,
   baseSize,
-  VERTICAL_SOURCE_SIZE,
+  verticalSourceSize,
 } from "./shared";
 import {
   type Rect,
@@ -61,9 +63,11 @@ import {
   remapHandleForType,
 } from "./edge-routing";
 import { LF_PORTS } from "./composite-lakeflow";
+import { DEFAULT_SHAPE_KIND, type ShapeKind } from "./shape-geometry";
 import {
   IconPicker,
   ANNOTATION_DEFAULT_SIZE,
+  HTML_BLOCK_STARTER,
   type AnnotationNodeData,
 } from "./annotations";
 import { logoLabel } from "../../file-icons";
@@ -73,15 +77,17 @@ import {
   Pencil,
   Undo2,
   Redo2,
-  Copy,
+  PaintRoller,
   Clock,
+  ListOrdered,
 } from "lucide-react";
 import { nodeTypes, edgeTypes } from "./node-types";
 import { DetailPanel } from "./panels/detail-panel";
 import { EditPanel } from "./panels/edit-panel";
 import { LibraryPalette } from "./panels/library-palette";
+import { LegendPanel } from "./panels/legend-panel";
 import { componentLookup, schemaToFlow, flowToLayout, EDGE_Z, NODE_Z, handlesFor, fallbackHandle } from "./flow-mapping";
-import { parseArchitecture, serializeArchitecture } from "@/lib/platform-architecture";
+import { parseArchitecture, serializeArchitecture, naturalSize, cardLayout, htmlBlockLayout } from "@/lib/platform-architecture";
 import { ContextMenu, type CtxMenu } from "./menus/context-menu";
 import { GroupResize, rectOfNode, type GroupScale } from "./group-resize";
 import { useDiagramHistory } from "./hooks/use-diagram-history";
@@ -160,6 +166,62 @@ function sameIdSet(a: { id: string }[], b: { id: string }[]): boolean {
   if (a.length !== b.length) return false;
   const ids = new Set(a.map((x) => x.id));
   return b.every((x) => ids.has(x.id));
+}
+
+/** The set of un-pinned nodes that would REFLOW in `computeLayout` when `draggedId`
+ *  moves — so a drag can freeze exactly them to pixels first and they don't "jump":
+ *
+ *   • the dragged node's column AND every column to its RIGHT. Column X is a
+ *     left→right cascade (each lane's x = the previous lane's right edge + gaps),
+ *     and pinning a node drops it out of the lane math — which re-widths its lane
+ *     and shifts every DOWNSTREAM column. Freezing the dragged column + everything
+ *     right of it keeps those columns exactly where they sit. Columns to the LEFT
+ *     are upstream in the cascade, unaffected by this drag, so they stay symbolic.
+ *   • nodes RELATIONALLY anchored to the group (`below`/`above`/`leftOf`/`rightOf`/
+ *     `alignX`/`alignY` pointing at any node already in the set), transitively.
+ *
+ *  Excludes: the dragged node itself, already-pinned nodes, and WRAPPING BOXES /
+ *  pinned banners (they must stay symbolic to keep auto-sizing around + docking to
+ *  their children — pinning a box to pixels freezes it and children escape it).
+ *  Reads only live `NodeData.placement` + the tab's column order, so it's cheap. */
+function relativeReflowGroup(nds: Node[], draggedId: string, columns?: string[]): Set<string> {
+  const pl = (n: Node) => (n.data as NodeData).placement;
+  const isContainer = (n: Node) => !!(pl(n)?.wraps?.length || pl(n)?.pin);
+  const dragged = nds.find((n) => n.id === draggedId);
+  const draggedCol = pl(dragged ?? ({} as Node))?.col;
+
+  const group = new Set<string>();
+  if (draggedCol) {
+    // Column index in the left→right order; -1 if the tab declares no `columns`
+    // (then we fall back to freezing only the same-named column).
+    const order = columns ?? [];
+    const draggedIdx = order.indexOf(draggedCol);
+    for (const n of nds) {
+      if (n.id === draggedId) continue;
+      if ((n.data as NodeData).pinned || isContainer(n)) continue;
+      const c = pl(n)?.col;
+      if (!c) continue;
+      const inScope = draggedIdx < 0
+        ? c === draggedCol                       // no column order → same column only
+        : order.indexOf(c) >= draggedIdx;        // this column and everything to its right
+      if (inScope) group.add(n.id);
+    }
+  }
+  // Transitively pull in anything anchored to the dragged node or a group member.
+  const anchoredTo = (p: NodePosition["placement"] | undefined) =>
+    [p?.below, p?.above, p?.leftOf, p?.rightOf, p?.alignX, p?.alignY].filter(Boolean) as string[];
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const n of nds) {
+      if (n.id === draggedId || group.has(n.id)) continue;
+      if ((n.data as NodeData).pinned || isContainer(n)) continue;
+      if (anchoredTo(pl(n)).some((ref) => ref === draggedId || group.has(ref))) {
+        group.add(n.id);
+        grew = true;
+      }
+    }
+  }
+  return group;
 }
 
 /** After a node is dropped in a relative column, the un-pinned siblings re-stack.
@@ -242,7 +304,14 @@ const MULTI_SELECT_KEYS = ["Shift"];
 // for a dense one. This bounds only the AUTO-fit — the user can still zoom to
 // the full 0.3–2 range by hand (mouse wheel / Controls). `padding` leaves a
 // comfortable margin so a single centered node isn't edge-to-edge.
-const FIT_VIEW_OPTIONS = { maxZoom: 1, padding: 0.2 };
+const FIT_VIEW_OPTIONS = { maxZoom: 1, padding: 0.08 };
+// Margin kept clear of the pane's right edge when the docked panel opens over
+// the selection (see the occlusion guard). Wide enough for the resize grips,
+// which reach ~13px outside the box.
+const PANEL_GUARD = 28;
+// Smallest box an exact numeric size edit may produce (same floor the group
+// resize uses).
+const MIN_NODE_SIZE = 16;
 
 // memo: the parent (PlatformDiagram) re-renders on every save-status change
 // (saving → saved → idle, ~3× per save). All of Canvas's props are stable
@@ -252,6 +321,11 @@ const FIT_VIEW_OPTIONS = { maxZoom: 1, padding: 0.2 };
 export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSetTrademark, collab, interactingRef: interactingRefProp, onInteractionEnd, onShareLive, onToggleHistory, defaultEditMode = true, readOnly = false, toolbarExtras, toolbarStatus, tabBar }: CanvasProps) {
   const [confirmTrademark, setConfirmTrademark] = useState(false);
   const [sourcePicker, setSourcePicker] = useState(false);
+  // The readable Legend panel (chrome, so it's OUTSIDE the image export). Shown
+  // whenever the tab has a legend — including read-only / standalone HTML, where
+  // it's the only way to read a `show:"panel"` legend.
+  const [legendOpen, setLegendOpen] = useState(false);
+  const hasLegend = legendEntries(schema.legend).length > 0;
   // "see more logos" from search → the full logo picker, seeded with the query
   // the user already typed (null = closed).
   const [logoPicker, setLogoPicker] = useState<string | null>(null);
@@ -294,6 +368,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // A manual useNodesInitialized+fitView() effect here fought that queue and
   // fit against a mid-transition bbox (box not yet sized → zoomed in too far).
   const wrapRef = useRef<HTMLDivElement>(null);
+  // The ReactFlow pane itself (the flex child that SHRINKS when a docked
+  // right-side panel opens) — measured by the occlusion guard below.
+  const paneRef = useRef<HTMLDivElement>(null);
 
   // --- Live collab: relay this tab's pointer (in FLOW coords, so peers place it
   //     correctly at any zoom/pan) whenever collaboration is active. Throttling
@@ -326,14 +403,26 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     c.sendCursor(p.x, p.y);
   }, [screenToFlowPosition]);
 
-  // --- Device-aware wheel: mouse wheel zooms (to cursor, via ReactFlow's
-  //     zoomOnScroll), trackpad two-finger scroll PANS. ReactFlow can't tell the
-  //     two apart from props, so we detect a trackpad-pan gesture here and pan
+  // --- Device-aware wheel: a MOUSE WHEEL zooms (to cursor, via ReactFlow's
+  //     zoomOnScroll); a TRACKPAD two-finger scroll PANS. ReactFlow can't tell
+  //     them apart from props, so we detect the trackpad-pan gesture here and pan
   //     manually, letting a real mouse wheel fall through to ReactFlow's zoom.
-  //     Heuristic (the widely-used one): a trackpad pan has a horizontal
-  //     component (deltaX ≠ 0) OR small fractional/non-line deltas; a mouse
-  //     wheel is a vertical-only, larger, line/page-mode tick. `ctrlKey` (set by
-  //     the OS for a trackpad PINCH) always means zoom → let it through.
+  //     No modifier key is needed for either. `ctrlKey` (set by the OS for a
+  //     trackpad PINCH) always means zoom → let it through.
+  //
+  //     DISCRIMINATOR (the reliable one — the old `deltaMode===0 && |deltaY|<40`
+  //     was wrong: modern mice, especially on macOS/smooth-scroll, emit PIXEL
+  //     mode with small per-notch deltas, so a normal wheel notch was misread as
+  //     a trackpad pan → it panned a little and only zoomed on a hard flick).
+  //     A single event can't perfectly separate the two, so we key on delta SHAPE
+  //     and remember the recent gesture:
+  //       • deltaMode ≠ 0 (line/page)                       → WHEEL  (zoom)
+  //       • horizontal component (deltaX ≠ 0)               → TRACKPAD (pan)
+  //       • fractional deltaY (deltaY % 1 ≠ 0)              → TRACKPAD (pan)
+  //       • otherwise a clean integer vertical pixel tick   → WHEEL  (zoom)
+  //     A trackpad's momentum tail degrades to integer, deltaX=0 frames; a short
+  //     recent-gesture memory (~200ms) keeps it panning through that tail so it
+  //     doesn't flip to zoom mid-flick (and symmetrically keeps a wheel zooming).
   //
   //     Attached as a NATIVE listener with { passive: false } — React's synthetic
   //     onWheel is passive, so calling preventDefault() there is a no-op and
@@ -343,20 +432,48 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const wheelDeps = useRef({ getViewport, setViewport });
   wheelDeps.current = { getViewport, setViewport };
   useEffect(() => {
-    const el = wrapRef.current;
+    // Attach to the PANE (the ReactFlow surface), NOT the whole wrapper — the
+    // wrapper also contains the left library palette and docked panels, and a
+    // capture listener there swallowed THEIR wheel events so those panels could
+    // no longer scroll (the wheel was read as a canvas pan/zoom). Scoped to the
+    // pane, the canvas owns wheel-to-zoom/pan and every panel keeps native scroll.
+    const el = paneRef.current;
     if (!el) return;
+    // Recent-gesture memory: which device the last few wheel events looked like,
+    // and when — so an ambiguous frame (integer, deltaX=0) inherits the ongoing
+    // gesture instead of flipping mode. Reset after a short idle gap.
+    let lastKind: "trackpad" | "wheel" | null = null;
+    let lastAt = 0;
+    const MEMORY_MS = 200;
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) return; // pinch-zoom (OS sets ctrlKey) → ReactFlow zooms
       // Don't hijack a wheel over an OVERLAY surface (logo/icon picker modal); it
       // tags itself [data-arch-overlay] and owns its own scroll.
       if ((e.target as Element | null)?.closest?.("[data-arch-overlay]")) return;
       const { deltaX, deltaY, deltaMode } = e;
-      // trackpad two-finger scroll vs mouse wheel: horizontal component, or a
-      // small pixel-mode vertical delta → trackpad PAN; a big/line-mode notch →
-      // fall through to ReactFlow's zoom-to-cursor.
-      const isTrackpadPan =
-        Math.abs(deltaX) > 0 || (deltaMode === 0 && Math.abs(deltaY) < 40);
-      if (!isTrackpadPan) return; // mouse wheel → ReactFlow zooms
+      const now = e.timeStamp || performance.now();
+      const fresh = now - lastAt < MEMORY_MS;
+      // DEFAULT IS ZOOM. A mouse wheel is the common case and should zoom-to-cursor
+      // with NO modifier — so treat a vertical scroll as a wheel (zoom) unless we
+      // have positive evidence it's a trackpad PAN. The only reliable trackpad
+      // signal in a single event is a HORIZONTAL component (deltaX ≠ 0) — a
+      // two-finger pan moves in x; a mouse wheel never does. (Fractional deltaY is
+      // NOT a reliable trackpad tell: modern mice smooth-scroll fractionally too,
+      // and keying on it misread a normal wheel as a pan — the regression here.)
+      // A short recent-gesture memory keeps a trackpad's momentum tail (which
+      // decays to deltaX=0 frames) panning instead of flipping to zoom mid-flick.
+      let kind: "trackpad" | "wheel";
+      if (Math.abs(deltaX) > 0) {
+        kind = "trackpad"; // horizontal movement → trackpad two-finger pan
+      } else if (fresh && lastKind === "trackpad") {
+        kind = "trackpad"; // vertical tail of an in-progress trackpad pan
+      } else {
+        kind = "wheel"; // vertical-only → mouse wheel → zoom to cursor (default)
+      }
+      void deltaMode;
+      lastKind = kind;
+      lastAt = now;
+      if (kind === "wheel") return; // → ReactFlow's zoom-to-cursor
       e.preventDefault();
       e.stopPropagation();
       const { getViewport: gv, setViewport: sv } = wheelDeps.current;
@@ -442,12 +559,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // setNodes/scheduleSave/edges refs internally (kept live via `bind` once those
   // values exist), which is what used to be Canvas's setNodesRef/scheduleSaveRef/
   // edgesRef trio.
-  const { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, bind: bindNodeMutations } = useNodeMutations();
+  const { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, onAutoHeight, bind: bindNodeMutations } = useNodeMutations();
 
   const initial = useMemo(
-    () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate),
+    () => schemaToFlow(schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate, onAutoHeight),
     // Rebuild only when schema identity changes (not on every selection).
-    [schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate],
+    [schema, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate, onAutoHeight],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
@@ -680,12 +797,36 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   setScheduleSave(scheduleSave);
 
   // All edge reducers (retarget / toggle flow+dashed / shape / flow-style /
-  // label / centerX / remove). Declared here — before edgeOps — so setEdgeCenterX
+  // label / centerX / Bézier controls / remove). Declared here — before edgeOps — so setEdgeCenterX
   // exists in time for the EdgeOps context (no more setEdgeCenterXRef).
   const {
     toggleEdgeFlow, toggleEdgeDashed, setEdgeShape, setEdgeFlowStyle, setEdgeArrow,
-    setEdgeLabel, setEdgeCenterX, removeEdge, retargetEdge,
+    setEdgeLabel, setEdgeCenterX, setEdgeLabelPos, setEdgeBezier, setEdgeWaypoints, setEdgeControlPoints, removeEdge, retargetEdge,
   } = useEdgeMutations({ setEdges, scheduleSave, nodesRef });
+
+  // FREEZE-ON-DRAG: dragging one node in a relative column used to re-stack its
+  // symbolic siblings under it (computeLayout re-packs the lane), so the whole
+  // column "jumped" mid-drag — surprising, since the user only grabbed one tile.
+  // Fix: the instant a drag STARTS, pin the nodes that WOULD reflow because of it
+  // (its column/anchor group — see relativeReflowGroup) to their CURRENT pixels.
+  // They're now `at`, so computeLayout leaves them exactly where they sit and only
+  // the dragged tile moves. Scoped to the dragged node's group (other columns keep
+  // their auto-layout) and only on a real user drag (palette-drop still auto-places,
+  // then freezes on its first drag like everything else). Fires once per drag.
+  const handleNodeDragStart = useCallback(
+    (_e: React.MouseEvent, node: Node) => {
+      const group = relativeReflowGroup(nodesRef.current, node.id, schema.columns);
+      if (!group.size) return; // nothing anchored to it → nothing would jump
+      setNodes((nds) =>
+        nds.map((n) =>
+          group.has(n.id) && !(n.data as NodeData).pinned
+            ? { ...n, data: { ...(n.data as NodeData), pinned: true } }
+            : n,
+        ),
+      );
+    },
+    [setNodes, schema.columns],
+  );
 
   // Wrap change handlers so a drag/add/remove triggers a save + history entry.
   // CRITICAL: a drag emits a `position` change on EVERY pixel (dragging:true)
@@ -824,8 +965,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             id,
             type: "flow",
             zIndex: EDGE_Z, // below nodes (EDGE_Z=0 < NODE_Z=1; see EDGE_Z docblock)
-            data: { animated: true },
-            style: { stroke: "var(--muted-foreground)", strokeWidth: 1.5, opacity: 0.55 },
+            data: { theme: schema.theme, labelFontSize: schema.edgeLabelSize, animated: true },
+            style: { stroke: "var(--muted-foreground)", strokeWidth: 1.5, opacity: schema.theme === "slide" ? 0.65 : 0.55 },
             markerEnd: "url(#arrow)",
           },
           eds,
@@ -834,7 +975,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         return next;
       });
     },
-    [setEdges, scheduleSave, nodes],
+    [setEdges, scheduleSave, nodes, schema.theme, schema.edgeLabelSize],
   );
 
   // Node footprint rect (flow coords) + hit-test, for the endpoint drag.
@@ -934,9 +1075,9 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     () => ({
       editMode, retarget: retargetEdge, nodeAt, rectOf: nodeRect, setDropTarget, portsOf,
       toFlow: (cx: number, cy: number) => screenToFlowPosition({ x: cx, y: cy }),
-      setEdgeCenterX, setEdgeLabel,
+      setEdgeCenterX, setEdgeBezier, setEdgeWaypoints, setEdgeControlPoints, setEdgeLabel, setEdgeLabelPos,
     }),
-    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition, setEdgeCenterX, setEdgeLabel],
+    [editMode, retargetEdge, nodeAt, nodeRect, setDropTarget, portsOf, screenToFlowPosition, setEdgeCenterX, setEdgeBezier, setEdgeWaypoints, setEdgeControlPoints, setEdgeLabel, setEdgeLabelPos],
   );
 
   // --- Add from library (drop or double-click) ------------------------------
@@ -951,7 +1092,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         // two collaborators don't both compute the same #N and clobber).
         const base = baseId(componentId);
         const nodeId = mintInstanceId(base, (id) => nds.some((n) => n.id === id));
-        const fp = nodeFootprint(found.component, {});
+        const themed = naturalSize(base);
+        const fp = nodeFootprint(found.component, { w: themed.w, h: themed.h });
         // A freshly-added node becomes THE selection (deselect the rest) so its
         // edit panel opens right away. onSelectionChange syncs selectedIds.
         const next = [
@@ -967,6 +1109,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             data: {
               nodeId,
               type: base,
+              theme: schema.theme,
               component: found.component,
               bandId: found.bandId,
               bandColor: BAND_COLOR[found.bandId],
@@ -984,19 +1127,40 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         return next;
       });
     },
-    [rawCatalog, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, setNodes, scheduleSave, edges],
+    [rawCatalog, deepLinks, onSelect, onContext, onResize, onRename, onSetDescription, schema.theme, setNodes, scheduleSave, edges],
   );
 
-  // Add a free-form annotation node (text / box / logo / image). Returns the
-  // new node id so callers can act on it (e.g. open the logo picker).
+  // Add a free-form annotation node (text / box / logo / image / callout).
+  // Returns the new node id so callers can act on it (e.g. open the logo picker).
   const annoCounter = useRef(0);
+  // The next free step number for a dropped callout: one past the highest number
+  // already on the canvas, so numbering continues instead of repeating "1".
+  const nextCalloutNumber = useCallback(() => {
+    let max = 0;
+    for (const n of nodesRef.current) {
+      const a = (n.data as Partial<AnnotationNodeData>).annotation;
+      if (a?.variant !== "callout") continue;
+      const v = parseInt((a.text ?? "").replace(/\D+/g, ""), 10);
+      if (Number.isFinite(v)) max = Math.max(max, v);
+    }
+    return max + 1;
+  }, []);
   const addAnnotation = useCallback(
     (variant: AnnotationVariant, at?: { x: number; y: number }, extra?: Partial<AnnotationData>, dataExtra?: Partial<NodeData>): string => {
       const pos = at ?? { x: 160, y: 160 };
+      const themeFont = schema.theme === "slide" ? 18 : 16;
       const defaults: AnnotationData =
-        variant === "box" ? { variant, text: "", vAlign: "middle", hAlign: "center", fontSize: 14 }
-        : variant === "text" ? { variant, text: "", fontSize: 14 }
+        variant === "box" ? { variant, text: "", vAlign: "middle", hAlign: "center", fontSize: themeFont }
+        : variant === "text" ? { variant, text: "", fontSize: themeFont }
+        : variant === "card" ? { variant, title: "Title", body: `<p style="font-weight:700">One-line summary</p><p>Description, two or three lines.</p>` }
+        : variant === "html" ? { variant, html: HTML_BLOCK_STARTER }
         : variant === "logo" ? { variant, icon: "data" }
+        // A step callout: next number in sequence, sized/coloured by the render
+        // (fontSize is left UNSET so the digit tracks the circle when resized).
+        : variant === "callout" ? { variant, text: String(nextCalloutNumber()), bold: true }
+        // A flow step: empty label (the drop auto-focuses it), centred text. The
+        // KIND comes from `extra` — the palette passes which symbol was dragged.
+        : variant === "shape" ? { variant, shape: DEFAULT_SHAPE_KIND, text: "", vAlign: "middle", hAlign: "center", fontSize: themeFont }
         : { variant }; // image — src set via menu/paste
       const annotation = { ...defaults, ...extra };
       annoCounter.current += 1;
@@ -1010,8 +1174,11 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         // Size a captioned logo to its full icon+caption footprint (same
         // `logoFootprint` the render + layout use) so the box wraps the centered
         // unit and the add-time box matches what a reload derives.
+        // A card is measured from its own text (same cardLayout flow-mapping uses).
         const sz = positionedLogo
           ? logoFootprint(ANNOTATION_DEFAULT_SIZE.logo.w, ANNOTATION_DEFAULT_SIZE.logo.h, annotation)
+          : variant === "card" ? cardLayout(annotation)
+          : variant === "html" ? htmlBlockLayout(annotation.html, undefined, annotation.padding ?? 0)
           : ANNOTATION_DEFAULT_SIZE[variant];
         const next = [
           // Deselect the rest; the new annotation is THE selection so its edit
@@ -1032,6 +1199,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             data: {
               nodeId: id,
               type: annotation.variant,
+              theme: schema.theme,
               annotation,
               // Carry w/h into data so RotatableCard renders at the SAME size as
               // the ReactFlow node box on add — otherwise the card falls back to
@@ -1053,7 +1221,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       });
       return id;
     },
-    [onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate, setNodes, scheduleSave, edges],
+    [onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate, schema.theme, setNodes, scheduleSave, edges],
   );
 
   // Ctrl/Cmd+V pastes an image as a centered image annotation. The hook takes
@@ -1075,7 +1243,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     setSourcePicker(false);
     setNodes((nds) => {
       if (nds.some((n) => n.id === id)) return nds;
-      const fp = nodeFootprint(component, {});
+      const themed = naturalSize("source");
+      const fp = nodeFootprint(component, { w: themed.w, h: themed.h });
       const srcYs = nds.filter((n) => (n.data as NodeData).type === "source" || baseId(n.id).startsWith("src-")).map((n) => n.position.y);
       const y = srcYs.length ? Math.max(...srcYs) + 96 : 0;
       const next = [
@@ -1086,7 +1255,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           id, type: "component", position: { x: 0, y }, width: fp.w, height: fp.h, style: { width: fp.w, height: fp.h },
           selected: true,
           data: {
-            nodeId: id, type: "source", component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
+            nodeId: id, type: "source", theme: schema.theme, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
             deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
             allowTrademark: !!schema.enableTrademarkLogos,
             sourceKey: key,
@@ -1097,7 +1266,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       scheduleSave(next, edges);
       return next;
     });
-  }, [onSelect, onContext, onResize, onRename, onSetDescription, schema.enableTrademarkLogos, setNodes, scheduleSave, edges]);
+  }, [onSelect, onContext, onResize, onRename, onSetDescription, schema.enableTrademarkLogos, schema.theme, setNodes, scheduleSave, edges]);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -1105,6 +1274,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       const logoKey = e.dataTransfer.getData("application/x-logo");
       if (logoKey) { addAnnotation("logo", pos, { icon: logoKey }); return; }
+      // A flowchart shape from the Process-flow list — drop it and land the
+      // cursor in its label, like a text node.
+      const shapeKind = e.dataTransfer.getData("application/x-shape");
+      if (shapeKind) {
+        const id = addAnnotation("shape", pos, { shape: shapeKind as ShapeKind });
+        setAutoEditFor(id);
+        return;
+      }
       const sourceKey = e.dataTransfer.getData("application/x-source");
       if (sourceKey) { addSourceFromIcon(sourceKey); return; }
       const anno = e.dataTransfer.getData("application/x-annotation");
@@ -1160,7 +1337,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         let sized = {};
         if (patch.sourceCaption !== undefined && dd.w === undefined && dd.h === undefined) {
           const vertical = patch.sourceCaption === "top" || patch.sourceCaption === "bottom";
-          const size = vertical ? VERTICAL_SOURCE_SIZE : baseSize(dd.component);
+          const size = vertical ? verticalSourceSize() : baseSize(dd.component);
           sized = { width: size.w, height: size.h, style: { ...n.style, width: size.w, height: size.h } };
         }
         return { ...n, ...sized, data: { ...dd, ...patch } };
@@ -1239,7 +1416,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         // than the base 268x96, so `baseSize` (params-unaware) would squish it.
         // nodeFootprint with no w/h + rot:0 routes the medallion through
         // medallionSize(params) — the single source used everywhere else.
-        const nat = nodeFootprint(dd.component, { rot: 0, params: dd.params });
+        const rawNat = nodeFootprint(dd.component, { rot: 0, params: dd.params });
+        const nat = rawNat;
         const cardW = Math.round(nat.w * scale);
         const cardH = Math.round(nat.h * scale);
         const fp = nodeFootprint(dd.component, { w: cardW, h: cardH, rot: dd.rot });
@@ -1266,6 +1444,49 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     });
   }, [setNodes, scheduleSave, edges]);
 
+  // Set a node's EXACT footprint + position from the panel's numeric fields.
+  // `patch` is partial (one field at a time): w/h are the on-canvas FOOTPRINT,
+  // x/y the box's TOP-LEFT in flow coords. Top-left is held fixed across a size
+  // change (position is centre-relative, so it's re-derived from the new size) —
+  // the Figma/Lucid convention, and it keeps the X/Y fields stable while you
+  // type a width. A numeric edit is a deliberate manual placement, so it PINS
+  // the node exactly like a drag-drop or an arrow nudge: it serializes as pixel
+  // `at`/`size` and drops any authored symbolic placement, and the symbolic
+  // siblings re-stack immediately (same local reflow as the drop frame).
+  const setNodeGeometry = useCallback((id: string, patch: { x?: number; y?: number; w?: number; h?: number }) => {
+    setNodes((nds) => {
+      const target = nds.find((n) => n.id === id);
+      if (!target) return nds;
+      const dd0 = target.data as NodeData;
+      const [ox, oy] = (target.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+      const curW = (target.width ?? target.measured?.width ?? dd0.w ?? 200) as number;
+      const curH = (target.height ?? target.measured?.height ?? dd0.h ?? 56) as number;
+      const w = Math.max(MIN_NODE_SIZE, Math.round(patch.w ?? curW));
+      const h = Math.max(MIN_NODE_SIZE, Math.round(patch.h ?? curH));
+      const left = Math.round(patch.x ?? target.position.x - ox * curW);
+      const top = Math.round(patch.y ?? target.position.y - oy * curH);
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData;
+        // data.w/h are the CARD dims (un-rotated) — un-swap the footprint for a
+        // 90/270° rotation, exactly like the resize-grip path (useNodeMutations).
+        const q = (((dd.rot ?? 0) % 360) + 360) % 360;
+        const swapped = q === 90 || q === 270;
+        return {
+          ...n,
+          position: { x: left + ox * w, y: top + oy * h },
+          width: w,
+          height: h,
+          style: { ...n.style, width: w, height: h },
+          data: { ...dd, w: swapped ? h : w, h: swapped ? w : h, pinned: true },
+        };
+      });
+      const reflowed = reflowRelativeSiblings(next, edges, schema, new Set([id]));
+      scheduleSave(reflowed, edges);
+      return reflowed;
+    });
+  }, [setNodes, scheduleSave, edges, schema]);
+
   // Set a SOURCE tile's label position (right/left/top/bottom) — mirrors the
   // logo caption option. Just patches node data + persists.
   const setSourceCaption = useCallback((id: string, pos: "right" | "left" | "top" | "bottom") => {
@@ -1279,7 +1500,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         // — UNLESS the user resized this node (d.w/d.h set), which we respect.
         const vertical = pos === "top" || pos === "bottom";
         const size = dd.w === undefined && dd.h === undefined
-          ? (vertical ? VERTICAL_SOURCE_SIZE : baseSize(dd.component))
+          ? (vertical ? verticalSourceSize() : baseSize(dd.component))
           : null;
         return {
           ...n,
@@ -1322,6 +1543,23 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     });
   }, [setNodes, scheduleSave, edges]);
 
+  // Toggle description WRAP (multi-line, box auto-grows) vs single-line truncate.
+  // Flips the flag on the node; the box's new (taller) height is recomputed by
+  // nodeFootprint on the save→reseed round-trip (same as showDesc's size change).
+  const setWrapDescription = useCallback((id: string, wrap: boolean) => {
+    setNodes((nds) => {
+      const next = nds.map((n) => {
+        if (n.id !== id) return n;
+        const dd = n.data as NodeData;
+        // Clear any stale measured height so the box re-measures for the new mode.
+        return { ...n, data: { ...dd, wrapDesc: wrap, autoH: undefined } };
+      });
+      scheduleSave(next, edges);
+      return next;
+    });
+  }, [setNodes, scheduleSave, edges]);
+
+
   // Change a node's TYPE: replace it with a node of the chosen catalog
   // component at the SAME position/size, and rewire its edges to the new id.
   // (Type is an identity change, so the node id must follow the new component —
@@ -1343,7 +1581,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
       // edge source/target to remap — edges stay attached by id.)
       const newType = found.component.id;
       const component = renamed ? { ...found.component, label: dd.component.label } : found.component;
-      const fp = nodeFootprint(component, { w: dd.w, h: dd.h, rot: dd.rot });
+      const raw = nodeFootprint(component, { w: dd.w, h: dd.h, rot: dd.rot });
+      const fp = raw;
       const next = nds.map((n) =>
         n.id !== id
           ? n
@@ -1534,7 +1773,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   // one defined groupId) → offer Ungroup, not Group.
   const selIsOneGroup = groupTargets.length > 1 && groupIdsInSel.size === 1 && !groupIdsInSel.has(undefined);
   // `isGroup` (offer Ungroup): a single grouped node or a whole-group selection.
-  // (Agent Bricks explode was removed — it's a single composite, not a group.)
+  // (Databricks Agent explode was removed — it's a single composite, not a group.)
   const isGroup = (selectedIds.length === 1 && !!panelPrimaryData?.groupId) || selIsOneGroup;
   // Offer Group unless the selection is already exactly one existing group.
   const canGroup = groupTargets.length > 1 && !selIsOneGroup;
@@ -1574,8 +1813,24 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const nudge = useCallback((ux: number, uy: number, snap: boolean) => {
     setNodes((nds) => {
       if (!nds.some((n) => n.selected)) return nds;
+      // FREEZE-ON-NUDGE: same as drag-start (handleNodeDragStart). Before moving
+      // the selection, pin every node that WOULD reflow because of it — the moved
+      // nodes' column + every column to its right + relational dependents — to
+      // their current pixels. Otherwise reflowRelativeSiblings re-stacks them
+      // under the nudged tile and the neighbours "jump" on every arrow press,
+      // exactly the surprise the drag path already fixes. Union the group over
+      // the whole selection so a multi-select nudge freezes everything affected.
+      const frozen = new Set<string>();
+      for (const sel of nds) {
+        if (!sel.selected) continue;
+        for (const id of relativeReflowGroup(nds, sel.id, schema.columns)) frozen.add(id);
+      }
       const next = nds.map((n) => {
-        if (!n.selected) return n;
+        if (!n.selected) {
+          return frozen.has(n.id) && !(n.data as NodeData).pinned
+            ? { ...n, data: { ...(n.data as NodeData), pinned: true } }
+            : n;
+        }
         // A keyboard nudge is a deliberate reposition, exactly like a drag-drop —
         // PIN it so it serializes as pixel `at` and drops any authored symbolic
         // placement (col/below/alignY/…). Without this, a symbolically-placed
@@ -1764,15 +2019,101 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
   const panelIsPlainTile =
     selectedIds.length === 1 && !!panelPrimaryId && !panelIsSource && !panelAnno;
   const panelCanToggleDesc = selectedIds.length === 1 && (panelIsSource || panelIsLogo || panelIsPlainTile);
+  // SLIDE hides every tile's description whatever showDesc says (component-node.tsx),
+  // so the panel reports the rendered (off) state and locks the toggle — otherwise
+  // it would show "on" while the canvas stays unchanged.
+  const panelDescLocked = (panelIsPlainTile || panelIsSource) && panelPrimaryData?.theme === "slide";
   const panelShowDescription = panelIsLogo
     ? !!panelAnno?.showDesc
-    : panelIsPlainTile
-      ? (panelPrimaryData?.showDesc ?? !!(panelPrimaryData?.component?.desc ?? panelPrimaryData?.component?.sublabel))
-      : !!panelPrimaryData?.showDesc;
+    : panelDescLocked
+      ? false
+      : panelIsPlainTile
+        ? (panelPrimaryData?.showDesc ?? !!(panelPrimaryData?.component?.desc ?? panelPrimaryData?.component?.sublabel))
+        : !!panelPrimaryData?.showDesc;
+  // Label + description for the single node panel fields (same mutations as the
+  // canvas double-click edit). Untitled composites + logos/annotations have no field.
+  const panelCanEditLabel = selectedIds.length === 1 && !panelAnno && !panelHasTitle;
+  const panelHasDesc = selectedIds.length === 1 && (panelIsPlainTile || panelIsSource);
+  const panelDescText = panelIsSource
+    ? (panelPrimaryData?.desc ?? "")
+    : (panelPrimaryData?.component?.desc ?? panelPrimaryData?.component?.sublabel ?? "");
+  const panelOnSetLabel = useCallback((t: string) => { if (panelPrimaryId) onRename(panelPrimaryId, t); }, [panelPrimaryId, onRename]);
+  const panelOnSetDesc = useCallback((t: string) => { if (panelPrimaryId) onSetDescription(panelPrimaryId, t); }, [panelPrimaryId, onSetDescription]);
   const panelOnSetShowDescription = useCallback(
     (show: boolean) => { if (panelPrimaryId) setShowDescription(panelPrimaryId, show); },
     [panelPrimaryId, setShowDescription],
   );
+  // Wrap-description toggle — offered on source + product tiles (NOT logos: a
+  // captioned logo already wraps its own way). Only meaningful when a description
+  // is shown. Reads the node's flag.
+  const panelCanWrapDesc = panelCanToggleDesc && !panelIsLogo;
+  const panelWrapDescription = !!panelPrimaryData?.wrapDesc;
+  const panelOnSetWrapDescription = useCallback(
+    (wrap: boolean) => { if (panelPrimaryId) setWrapDescription(panelPrimaryId, wrap); },
+    [panelPrimaryId, setWrapDescription],
+  );
+
+  // Exact size/position fields (single selection only). Reported as the on-canvas
+  // FOOTPRINT plus the box's TOP-LEFT in flow coords — the numbers the user reads
+  // off the canvas (RF's own `position` is centre-relative via nodeOrigin).
+  // Memoized on the four NUMBERS (not the node object, whose identity churns
+  // every drag frame) so the memo'd EditPanel only re-renders when a displayed
+  // value actually changes — and drags/resizes are grid-snapped, so that's in
+  // 16px steps, not per frame.
+  const geoNode = selectedIds.length === 1 && panelPrimaryId ? nodesById.get(panelPrimaryId) : undefined;
+  const hasGeo = !!geoNode;
+  const [gox, goy] = (geoNode?.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+  const geoW = Math.round((geoNode?.width ?? geoNode?.measured?.width ?? panelPrimaryData?.w ?? 0) as number);
+  const geoH = Math.round((geoNode?.height ?? geoNode?.measured?.height ?? panelPrimaryData?.h ?? 0) as number);
+  const geoX = Math.round((geoNode?.position.x ?? 0) - gox * geoW);
+  const geoY = Math.round((geoNode?.position.y ?? 0) - goy * geoH);
+  const panelGeometry = useMemo(
+    () => (hasGeo ? { x: geoX, y: geoY, w: geoW, h: geoH } : undefined),
+    [hasGeo, geoX, geoY, geoW, geoH],
+  );
+  const panelOnSetGeometry = useCallback(
+    (patch: { x?: number; y?: number; w?: number; h?: number }) => { if (panelPrimaryId) setNodeGeometry(panelPrimaryId, patch); },
+    [panelPrimaryId, setNodeGeometry],
+  );
+
+  // --- Docked-panel occlusion guard ----------------------------------------
+  // The right-side panel is a flex SIBLING of the canvas, so the instant it opens
+  // the ReactFlow pane loses ~240px of width: whatever sat in that strip — which
+  // is usually the node you just clicked, near the right edge — slides out of
+  // view together with its resize grips, and you can no longer drag the box
+  // wider. Pan the viewport left by exactly the overhang (plus a grip margin) on
+  // the panel's closed→open transition so the selection stays reachable. Only
+  // pans when it must, and never pushes the selection's LEFT edge off-screen (a
+  // selection wider than the pane keeps its left edge visible).
+  const panelOpen = editMode && selectedIds.length > 0 && !!panelPrimaryId;
+  const panelWasOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = panelWasOpenRef.current;
+    panelWasOpenRef.current = panelOpen;
+    if (!panelOpen || wasOpen) return;
+    const pane = paneRef.current;
+    if (!pane) return;
+    const sel = nodesRef.current.filter((n) => n.selected);
+    if (!sel.length) return;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (const n of sel) {
+      const dd = n.data as NodeData;
+      const w = (n.width ?? n.measured?.width ?? dd.w ?? 0) as number;
+      const [ox] = (n.origin as [number, number] | undefined) ?? NODE_ORIGIN;
+      const left = n.position.x - ox * w;
+      minX = Math.min(minX, left);
+      maxX = Math.max(maxX, left + w);
+    }
+    const { x, y, zoom } = getViewport();
+    // The panel mounted in this same commit, so clientWidth is the SHRUNK pane.
+    const overhang = maxX * zoom + x + PANEL_GUARD - pane.clientWidth;
+    if (overhang <= 0) return;
+    const room = Math.max(0, minX * zoom + x - PANEL_GUARD);
+    const shift = Math.min(overhang, room);
+    if (shift < 1) return;
+    setViewport({ x: x - shift, y, zoom }, { duration: 140 });
+  }, [panelOpen, getViewport, setViewport]);
 
   // Stable ReactFlow pane/node click handlers (avoid a fresh closure each frame).
   const onPaneClick = useCallback(() => { setSelectedId(null); setMenu(null); }, []);
@@ -1797,6 +2138,10 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     [addAnnotation],
   );
   const paletteOnAddLogo = useCallback((iconKey: string) => addAnnotation("logo", undefined, { icon: iconKey }), [addAnnotation]);
+  const paletteOnAddShape = useCallback(
+    (kind: ShapeKind) => { const id = addAnnotation("shape", undefined, { shape: kind }); setAutoEditFor(id); },
+    [addAnnotation],
+  );
   const paletteOnAddSource = useCallback((iconKey: string) => addSourceFromIcon(iconKey), [addSourceFromIcon]);
   const paletteOnMoreSources = useCallback(() => setSourcePicker(true), []);
   const paletteOnMoreLogos = useCallback((query: string) => setLogoPicker(query), []);
@@ -1827,13 +2172,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
     <EdgeOpsContext.Provider value={edgeOps}>
     <DropTargetContext.Provider value={dropTargetId}>
     <SingleSelectionContext.Provider value={singleSelection}>
-    <div className="flex min-h-0 flex-1" ref={wrapRef} onPointerMove={collab ? onPointerMoveCursor : undefined}>
+    <div className={`arch-theme-${schema.theme} flex min-h-0 flex-1`} ref={wrapRef} onPointerMove={collab ? onPointerMoveCursor : undefined}>
       {editMode && (
         <LibraryPalette
           schema={schema}
           placedIds={placedIds}
           onAdd={paletteOnAdd}
           onAddAnnotation={paletteOnAddAnnotation}
+          onAddShape={paletteOnAddShape}
           onAddPreset={paletteOnAddPreset}
           onAddLogo={paletteOnAddLogo}
           onAddSource={paletteOnAddSource}
@@ -1846,7 +2192,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
         />
       )}
 
-      <div className="relative min-w-0 flex-1" onDrop={onDrop} onDragOver={onCanvasDragOver}>
+      <div className="relative min-w-0 flex-1" ref={paneRef} onDrop={onDrop} onDragOver={onCanvasDragOver}>
         {/* Dim + block the canvas while choosing a replacement type — the only
             interactive surface is the highlighted library on the left. */}
         {pickingFor !== null && (
@@ -1856,11 +2202,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             title="Click a component in the library, or click here to cancel"
           />
         )}
-        {/* Paste-style mode banner — shows until the user presses Esc. */}
+        {/* Format-painter mode banner — shows until the user presses Esc. The
+            paint-roller signals "the style is loaded, click to apply it" (Word). */}
         {copiedStyle && (
           <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5 text-[12px] text-foreground shadow-sm">
-            <Copy className="h-3.5 w-3.5 text-primary" />
-            <span>Click a component to paste the style</span>
+            <PaintRoller className="h-3.5 w-3.5 text-primary" />
+            <span>Style loaded — click components to paint it on</span>
             <button
               type="button"
               onClick={() => setCopiedStyle(null)}
@@ -1887,8 +2234,25 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             standalone viewer shows only the diagram). Sits at top-8 (not top-3)
             so the multi-tab strip above has room to wrap onto a second row
             without colliding with these controls. */}
-        {!readOnly && (
         <div className="absolute right-3 top-8 z-10 flex items-center gap-1.5">
+          {/* Legend — rendered even in hard read-only: the standalone viewer HTML
+              hides every other control, and a `show:"panel"` legend would be
+              unreachable without this. */}
+          {hasLegend && (
+            <div className="flex items-center rounded-lg border border-border bg-card/95 p-1 shadow-sm backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setLegendOpen((v) => !v)}
+                title="What each number on the diagram means"
+                className={`flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium hover:bg-muted ${legendOpen ? "bg-muted text-foreground" : "text-foreground"}`}
+              >
+                <ListOrdered className="h-3.5 w-3.5 text-primary" />
+                Legend
+              </button>
+            </div>
+          )}
+          {!readOnly && (
+          <>
           {/* History + Share live — grouped in one pill (matches the View/Edit
               group), borderless inner buttons split by a divider. In-app only. */}
           {(onToggleHistory || onShareLive) && (
@@ -1985,7 +2349,14 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
             </>
           )}
           </div>
+          </>
+          )}
         </div>
+
+        {/* The readable legend — chrome outside `.react-flow`, so the PNG/SVG
+            export never picks it up (see legend-panel.tsx). */}
+        {hasLegend && legendOpen && schema.legend && (
+          <LegendPanel legend={schema.legend} onClose={() => setLegendOpen(false)} />
         )}
 
         {/* Permission confirmation before enabling real brand logos. */}
@@ -2009,12 +2380,18 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
+          // Format-painter cursor: while a style is loaded, the pane + tiles show a
+          // "copy" cursor so the pointer reads as "click to apply" (see the CSS rule).
+          className={copiedStyle ? "sb-format-painter" : undefined}
           // Edges render BELOW nodes by default (EDGE_Z=0 < NODE_Z=1) so a line
           // tucks under a tile it passes. (No `elevateEdgesOnSelect`: toggling an
           // edge's z on selection refreshed node internals and transiently dropped
           // edge handles — every line vanished until the next full re-render. The
           // endpoint dots draw inside the edge SVG, which is enough to grab.)
           onNodesChange={handleNodesChange}
+          // Freeze the relative-reflow group to pixels the instant a drag starts,
+          // so dragging one tile doesn't re-stack its column (see handleNodeDragStart).
+          onNodeDragStart={handleNodeDragStart}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           // Clicking a grouped node selects the whole group → they drag together.
@@ -2068,7 +2445,8 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           // options so previews frame identically.
           fitView
           fitViewOptions={FIT_VIEW_OPTIONS}
-          minZoom={0.3}
+          // A read-only preview sits in a small frame and must fit a wide diagram whole.
+          minZoom={readOnly ? 0.1 : 0.3}
           maxZoom={2}
           proOptions={PRO_OPTIONS}
           defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
@@ -2153,9 +2531,12 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           onToggleFlow={() => toggleEdgeFlow(menu.id)}
           onToggleDashed={() => toggleEdgeDashed(menu.id)}
           onSetShape={(s) => setEdgeShape(menu.id, s)}
+          onSetBezier={(enabled) => setEdgeBezier(menu.id, enabled)}
+          onSetWaypoints={(points) => setEdgeWaypoints(menu.id, points)}
           onSetFlowStyle={(s) => setEdgeFlowStyle(menu.id, s)}
           onSetArrow={(a) => setEdgeArrow(menu.id, a)}
           onSetEdgeLabel={(label) => setEdgeLabel(menu.id, label)}
+          onSetEdgeLabelPos={(pos) => setEdgeLabelPos(menu.id, pos)}
           onRemoveEdge={() => { removeEdge(menu.id); setMenu(null); }}
         />
       )}
@@ -2173,20 +2554,30 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           style={panelNodeStyle}
           isGroup={isGroup}
           canGroup={canGroup}
-          sourceFontSize={panelIsSource ? (panelPrimaryData?.fontSize as number | undefined) : undefined}
+          sourceFontSize={panelIsSource ? ((panelPrimaryData?.fontSize as number | undefined) ?? (panelPrimaryData?.theme === "slide" ? 20 : 13)) : undefined}
           onSetSourceFontSize={panelIsSource ? panelOnSetSourceFontSize : undefined}
           sourceCaption={panelIsSource ? (panelPrimaryData?.sourceCaption as "right" |"left" | "top" | "bottom" | undefined) : undefined}
           onSetSourceCaption={panelIsSource ? panelOnSetSourceCaption : undefined}
           showDescription={panelCanToggleDesc ? panelShowDescription : undefined}
           onSetShowDescription={panelCanToggleDesc ? panelOnSetShowDescription : undefined}
+          wrapDescription={panelCanWrapDesc ? panelWrapDescription : undefined}
+          onSetWrapDescription={panelCanWrapDesc ? panelOnSetWrapDescription : undefined}
           options={panelOptions}
           params={panelParams}
           onSetParam={panelOnSetParam}
+          componentId={panelPrimaryData?.component.id}
+          label={panelCanEditLabel ? (panelPrimaryData?.component.label ?? "") : undefined}
+          onSetLabel={panelCanEditLabel ? panelOnSetLabel : undefined}
+          desc={panelHasDesc ? panelDescText : undefined}
+          onSetDesc={panelHasDesc ? panelOnSetDesc : undefined}
+          descLockedReason={panelDescLocked ? "hidden in Slide theme" : undefined}
           nodeTitle={panelHasTitle ? panelNodeTitle : undefined}
           onSetTitle={panelHasTitle ? panelOnSetTitle : undefined}
           titlePlaceholder={panelHasTitle
             ? (panelPrimaryData?.component.kind === "medallion-table" ? "Ingestion (SDP)" : "Lakeflow: Data ingestion and processing")
             : undefined}
+          geometry={panelGeometry}
+          onSetGeometry={panelGeometry ? panelOnSetGeometry : undefined}
           onClose={clearSelection}
           onRotate={panelOnRotate}
           onRemove={panelOnRemove}
@@ -2208,7 +2599,7 @@ export const Canvas = memo(function Canvas({ schema, deepLinks, onPersist, onSet
           component={selected.component}
           bandLabel={BAND_META[selected.bandId].label}
           bandColor={BAND_COLOR[selected.bandId]}
-          deepLink={deepLinks[selected.component.id] ?? null}
+          deepLink={selectedNodeData?.deepLink ?? deepLinks[selected.component.id] ?? null}
           onClose={() => setSelectedId(null)}
         />
       )}

@@ -1,0 +1,191 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "52f477d8258807137fa457b9397261ca",
+    "question": [
+     "How has Nanhai Precision Castings' on-time delivery trended by month?"
+    ]
+   },
+   {
+    "id": "7546d81f3a53f4054ce41283535e1020",
+    "question": [
+     "Which inbound purchase orders are delayed, and by how many days?"
+    ]
+   },
+   {
+    "id": "89efe44f4a9291ed31d77e77514ea5b2",
+    "question": [
+     "What does the AI forecast say for SG-400 demand at Dayton over the next 13 weeks?"
+    ]
+   },
+   {
+    "id": "8ef9dec3d0ddf53f25ac09c94572b5b5",
+    "question": [
+     "How has the weekly fill rate by plant changed over the last 12 weeks?"
+    ]
+   },
+   {
+    "id": "ca6766ff704f372904f6b8457253394e",
+    "question": [
+     "Which components are projected to stock out in the next 13 weeks, and how much revenue is at risk?"
+    ]
+   },
+   {
+    "id": "f32e58de4d2501d3b24b12a37a95f786",
+    "question": [
+     "What is our excess and obsolete inventory value by plant?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "What approval does an expedite need under the supply policy, and when may we use an alternate source?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "manufacturing.supply_planning_copilot.bom"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.components"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.customer_orders"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.demand_forecast"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.demand_history"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.gold_demand_weekly"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.gold_fill_rate_weekly"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.gold_inventory_health"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.gold_open_purchase_orders"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.gold_supplier_performance_monthly"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.inventory_projection"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.mv_supply_performance"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.plants"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.products"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.sop_plan_decisions"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.stockout_exposures"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.supplier_signals"
+   },
+   {
+    "identifier": "manufacturing.supply_planning_copilot.suppliers"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "e1403d6e7f5e9a4b9090db9056e5b08a",
+    "content": [
+     "Corvane Motion Systems (fictional) makes servo gearmotors (SG-250/400/600), planetary gearboxes (PG-60/90/120), linear actuators (LA-50/90) and motion controllers (MC-10) in three plants: Dayton OH (plant_id DAY), Monterrey MX (MTY) and Wroclaw PL (WRO). The SG-300 servo was sunset at Monterrey in May.\n",
+     "PLANNING HORIZON: 13 weekly buckets starting Monday (week_start). week_index 0 = the current week (the planning as-of date = stockout_exposures.as_of_date). Demand forecast = AI_FORECAST (demand_forecast); component requirements = forecast exploded through the bill of materials.\n",
+     "STOCK-OUTS / EXPOSURES: use stockout_exposures (one row per component x plant that goes below safety stock or negative). exposure_type 'STOCKOUT' = projected balance goes negative; 'BELOW_SAFETY_STOCK' = dips under safety stock only. revenue_at_risk is in USD; peak_units_short is the maximum projected shortage. For week-by-week detail use inventory_projection (projected_balance uses open POs at their revised ETA; balance_if_on_time uses the promised date).\n",
+     "FILL RATE = SUM(units_shipped) / SUM(units_ordered) from gold_fill_rate_weekly (or the metric view mv_supply_performance, measure fill_rate). Always aggregate with SUM ratios, never AVG of fill_rate. gold_fill_rate_weekly.fill_rate is a 0-1 ratio; report it as a percentage (x 100). Target is 97%. The latest week in the data is the last complete week.\n",
+     "SUPPLIER ON-TIME DELIVERY: gold_supplier_performance_monthly.on_time_pct is ALREADY a percentage between 0 and 100 (e.g. 33.3 means 33.3%) \u2014 never multiply it by 100; when combining months recompute 100 * SUM(pos_on_time) / SUM(pos_received). It is by month of receipt and only counts RECEIVED POs \u2014 an 'on-time delivery trend' question is ALWAYS answered from gold_supplier_performance_monthly, never from open or in-transit POs. For delayed POs that have NOT arrived yet use gold_open_purchase_orders where is_delayed = true (delay_days = revised_eta - promised_date).\n",
+     "EXCESS & OBSOLETE (E&O): gold_inventory_health.eo_value (USD) and eo_category ('Obsolete' = no forward demand and no issue for 90+ days, 'Excess' = more than 26 weeks of cover). Days of supply = gold_inventory_health.days_of_supply.\n",
+     "BOOKED PLANS: sop_plan_decisions holds mitigation plans booked from the Supply Planning Copilot app (plan_cost, revenue_protected, action_summary). It may be empty if nothing was booked yet \u2014 say so.\n",
+     "SUPPLY SIGNALS: supplier_signals is ai_extract output over supplier and forwarder emails (event_type, supplier_name, component, po_numbers, added_delay_days, summary).\n",
+     "Format money as USD with thousands separators, percentages with one decimal. Use plant_name (Dayton, Monterrey, Wroclaw) in answers.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "441d5a3ec551e797f5f1b5a783a7cb22",
+    "question": [
+     "How does SG-400 demand at Dayton over the last 8 weeks compare with the same period a year earlier?"
+    ],
+    "sql": [
+     "SELECT CASE WHEN week_start > (SELECT date_sub(MAX(week_start), 56) FROM manufacturing.supply_planning_copilot.demand_history) THEN 'last 8 weeks' ELSE 'same 8 weeks a year earlier' END AS period, ROUND(AVG(units_ordered), 0) AS avg_weekly_units FROM manufacturing.supply_planning_copilot.demand_history WHERE sku = 'SG-400' AND plant_id = 'DAY' AND (week_start > (SELECT date_sub(MAX(week_start), 56) FROM manufacturing.supply_planning_copilot.demand_history) OR week_start BETWEEN (SELECT date_sub(MAX(week_start), 56 + 364) FROM manufacturing.supply_planning_copilot.demand_history) AND (SELECT date_sub(MAX(week_start), 364) FROM manufacturing.supply_planning_copilot.demand_history)) GROUP BY 1"
+    ]
+   },
+   {
+    "id": "5719f576535866d16eebef3c9f3ea74a",
+    "question": [
+     "What is our excess and obsolete inventory value by plant?"
+    ],
+    "sql": [
+     "SELECT plant_name, eo_category, COUNT(*) AS components, SUM(eo_units) AS eo_units, ROUND(SUM(eo_value), 0) AS eo_value FROM manufacturing.supply_planning_copilot.gold_inventory_health WHERE eo_value > 0 GROUP BY plant_name, eo_category ORDER BY eo_value DESC"
+    ]
+   },
+   {
+    "id": "6505a012deb8738f66fba1b51ff88676",
+    "question": [
+     "Which inbound purchase orders are delayed, and by how many days?"
+    ],
+    "sql": [
+     "SELECT po_number, supplier_name, component_id, plant_name, quantity, promised_date, revised_eta, delay_days, delay_reason, vessel FROM manufacturing.supply_planning_copilot.gold_open_purchase_orders WHERE is_delayed ORDER BY delay_days DESC, revised_eta"
+    ]
+   },
+   {
+    "id": "6824cf7de2d7085f669c0310fc1f510b",
+    "question": [
+     "How has Nanhai Precision Castings' on-time delivery trended by month?"
+    ],
+    "sql": [
+     "SELECT month, pos_received, pos_on_time, on_time_pct, avg_days_late FROM manufacturing.supply_planning_copilot.gold_supplier_performance_monthly WHERE supplier_name = 'Nanhai Precision Castings' ORDER BY month"
+    ]
+   },
+   {
+    "id": "dcd1a304667133884090a5b243723ca2",
+    "question": [
+     "How has the weekly fill rate by plant changed over the last 12 weeks?"
+    ],
+    "sql": [
+     "SELECT week_start, plant_name, ROUND(100 * SUM(units_shipped) / SUM(units_ordered), 1) AS fill_rate_pct FROM manufacturing.supply_planning_copilot.gold_fill_rate_weekly WHERE week_start > (SELECT date_sub(MAX(week_start), 84) FROM manufacturing.supply_planning_copilot.gold_fill_rate_weekly) GROUP BY week_start, plant_name ORDER BY week_start, plant_name"
+    ]
+   },
+   {
+    "id": "efb1524a73a2a57c26714ebf965d370d",
+    "question": [
+     "Which components are projected to stock out in the next 13 weeks, and how much revenue is at risk?"
+    ],
+    "sql": [
+     "SELECT component_id, component_name, plant_name, exposure_type, first_stockout_week, weeks_short, peak_units_short, revenue_at_risk, root_cause, primary_supplier FROM manufacturing.supply_planning_copilot.stockout_exposures ORDER BY revenue_at_risk DESC"
+    ]
+   },
+   {
+    "id": "f8c4689311c1444b6e172a27ea36c3c2",
+    "question": [
+     "What does the AI forecast say for SG-400 demand at Dayton over the next 13 weeks?"
+    ],
+    "sql": [
+     "SELECT week_start, forecast_units, forecast_lower, forecast_upper FROM manufacturing.supply_planning_copilot.demand_forecast WHERE sku = 'SG-400' AND plant_id = 'DAY' ORDER BY week_start"
+    ]
+   }
+  ]
+ }
+}

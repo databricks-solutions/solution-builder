@@ -38,7 +38,7 @@ PGLite auto-provisions a local Postgres — no DB setup needed. Reset with `RESE
 - **Type hints**: required for public Python functions.
 - **Naming**: lowercase-with-hyphens for directories; snake_case for Python; camelCase for TypeScript.
 
-See [`CLAUDE.md`](CLAUDE.md) and [`app/CLAUDE.md`](app/CLAUDE.md) for full conventions.
+See [`AGENTS.md`](AGENTS.md) for full conventions — one file at the repo root, deliberately not one per directory.
 
 ## Type checking & validation
 
@@ -75,9 +75,9 @@ npx playwright test --ui                  # interactive mode
 
 ## Adding a context block
 
-To add a new domain, capability, or pattern to the Solution Generator Skill:
+To add a new capability to the Solution Generator Skill:
 
-1. Create a Markdown file in the appropriate subdirectory under `.claude/skills/databricks-solution-builder/references/blocks/` (`domains/`, `capabilities/`, or `patterns/`).
+1. Create a Markdown file in `.claude/skills/databricks-solution-builder/references/blocks/capabilities/`.
 2. Add YAML frontmatter with `name`, `slug`, `category`, `tags`, `description`, `related`.
 3. Blocks on disk are automatically available to the agent's system prompt for new projects.
 

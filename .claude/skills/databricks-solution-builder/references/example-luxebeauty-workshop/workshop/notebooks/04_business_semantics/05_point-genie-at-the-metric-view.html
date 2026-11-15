@@ -1,0 +1,9 @@
+<h2>3/ Point Genie at the metric view — the whole reason you built it</h2>
+<p>Right now your Genie space still answers from the <strong>raw gold tables</strong>, re-deriving "return rate" every time. That's exactly the drift this step exists to kill. Swap it onto the governed definition:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Attach <code>mv_returns</code> to my <code>LuxeBeauty Operations Analytics</code> Genie space, and add an instruction telling it to prefer the metric view's governed measures over re-deriving rates from the raw gold tables. Then ask it: 'what was our return rate by region last month?'</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> Genie answers using <code>MEASURE(return_rate)</code> from <code>mv_returns</code> — not a hand-rolled <code>COUNT(...)/COUNT(...)</code>. Check the generated SQL to be sure. Then ask it for <strong>"refund %"</strong> — the <em>synonym</em> you set in step 2 should resolve to <code>refund_rate</code> even though nobody ever used that word in the data.</p>
+<blockquote class="note"><p>💡 <strong>This is the payoff of the whole step.</strong> A metric view nobody queries is documentation; a metric view wired into Genie is governance that actually binds.</p></blockquote>

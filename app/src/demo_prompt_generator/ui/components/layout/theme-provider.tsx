@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { initSageThemeBridge } from "@/lib/sage-embed";
 
 type Theme = "dark" | "light" | "system";
 
@@ -75,15 +74,6 @@ export function ThemeProvider({
 
     root.classList.add(theme);
   }, [theme]);
-
-  // When embedded in Sage, adopt Sage's light/dark mode and design tokens.
-  // No-op standalone. Sage pushes on our READY handshake and on every toggle.
-  useEffect(() => {
-    return initSageThemeBridge((mode) => {
-      localStorage.setItem(storageKey, mode);
-      setTheme(mode);
-    });
-  }, [storageKey]);
 
   const value = {
     theme,

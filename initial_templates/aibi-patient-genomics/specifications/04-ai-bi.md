@@ -6,7 +6,7 @@ All three artifacts read the same governed data built in `01-lakeflow.md`: the g
 table `{{CATALOG}}.{{SCHEMA}}.patient_cohort` (+ its survival rollups) and the metric
 view `{{CATALOG}}.{{SCHEMA}}.genomics_metrics`. The story they must all make obvious:
 **OncoTarget-1 works, but UNEVENLY — and the responders share a molecular signature,
-not an organ. Within breast cancer a responder subtype reaches ~99% survival vs ~89%
+not an organ. Within breast cancer a responder subtype reaches ~99% survival vs ~84%
 on standard of care.**
 
 ---
@@ -76,7 +76,7 @@ verbatim; they are the reading order of the story.
    datasets return non-empty).
 2. Page 1's lift bar shows Ovary + Prostate red (Not indicated) and Cerebrum/Breast/
    Skin green (Benefits); the UMAP shows separated clusters.
-3. Page 2's breast bar shows the responder subtype at ~99% treated vs ~89% standard of
+3. Page 2's breast bar shows the responder subtype at ~99% treated vs ~84% standard of
    care.
 
 ---
@@ -91,7 +91,7 @@ verbatim; they are the reading order of the story.
 works overall but unevenly; `lift_by_site.survival_lift` is the treated-minus-standard
 gap per cancer (positive helps, negative harms); it is **not indicated for Ovary and
 Prostate**; the responders are a **molecular subtype** (`patient_cohort.responder_subtype
-= TRUE`), and within breast cancer that subtype reaches ~99% vs ~89%. Compute survival
+= TRUE`), and within breast cancer that subtype reaches ~99% vs ~84%. Compute survival
 rate as `AVG(CASE WHEN survived_24mo THEN 1 ELSE 0 END)` from `patient_cohort`. Don't
 answer questions unrelated to this oncology RWE analysis.
 

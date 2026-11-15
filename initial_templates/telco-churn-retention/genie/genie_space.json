@@ -1,0 +1,187 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "10000000000000000000000000000001",
+    "question": [
+     "Why is churn up since July?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000002",
+    "question": [
+     "Show monthly churn rate by region"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000003",
+    "question": [
+     "Which cell sites have the worst dropped-call rate in September?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000004",
+    "question": [
+     "What is the save rate by offer strategy since August?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000005",
+    "question": [
+     "How much revenue is at risk by top churn driver?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000006",
+    "question": [
+     "What was the churn rate before July vs since July?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000007",
+    "question": [
+     "Which offer saves the most customers for each churn driver?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000008",
+    "question": [
+     "How many call-center calls mention Crest Wireless and threaten to cancel?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.care_call_insights"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.churn_scores"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.competitor_promos"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.customer_features"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.customers"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_churn_monthly"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_network_sites"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.offer_catalog"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.port_out_requests"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.retention_decisions"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.retention_offer_history"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "30000000000000000000000000000001",
+    "content": [
+     "You are the churn & retention analyst for Veridian Mobile, a fictional US regional wireless carrier. Data is as of 2026-09-30.\n",
+     "- Churn rate = SUM(churned) / SUM(active_start) from gold_churn_monthly (monthly, postpaid accounts). Always aggregate over rows; never average churn_rate_pct across rows.\n",
+     "- Baseline churn = the months before 2026-07-01; \"since July\" = Jul-Sep 2026.\n",
+     "- churn_scores holds the 30-day churn probability from the UC model churn_risk_model (@champion) for every ACTIVE account, risk_tier (Critical >= 15%, High >= 7%, Medium >= 3%, Low), top_driver (network | bill_shock | competitor | care | account) and SHAP driver shares in driver_*_pct columns.\n",
+     "- \"Revenue at risk\" = SUM(annual_revenue_at_risk) in churn_scores (probability x monthly bill x 12). \"ARPU book at risk\" = SUM(monthly_bill*12) for Critical+High accounts.\n",
+     "- Save rate = AVG(CAST(saved AS INT)) in retention_offer_history (saved = accepted AND still active 90 days later). offer_strategy distinguishes 'Blanket discount' (DISC-20), 'Driver-matched (pilot)' (Aug-Sep 2026) and 'Rep discretion'.\n",
+     "- retention_decisions is the live write-back from the Retention Desk app (accepted / declined, annual_revenue_saved).\n",
+     "- The 5 cell sites migrated to the 5G SA core on 2026-06-10 are PHX-03, PHX-07, PHX-08, TUS-02, LVS-05 (migrated_to_5g_sa_core in gold_network_sites).\n",
+     "- Crest Wireless launched a $25/line promo on 2026-07-01 in Phoenix, Tucson, Las Vegas, Albuquerque, Dallas, Houston, Austin, San Antonio (competitor_promos).\n",
+     "- care_call_insights = AI Functions over call transcripts (sentiment, primary_intent, cancel_threat, extracted.competitor, extracted.requested_remedy, summary).\n",
+     "Show percentages with 1-2 decimals and money in USD. Prefer charts for trends by month.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "20000000000000000000000000000002",
+    "question": [
+     "Show monthly churn rate by region"
+    ],
+    "sql": [
+     "SELECT month, region, round(100 * sum(churned) / sum(active_start), 2) AS churn_rate_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_churn_monthly GROUP BY month, region ORDER BY month, region\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000003",
+    "question": [
+     "Which cell sites have the worst dropped-call rate in September?"
+    ],
+    "sql": [
+     "SELECT cell_site_id, market, avg_dropped_call_rate_pct, avg_5g_download_mbps, accounts, churned, migrated_to_5g_sa_core\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_network_sites WHERE month = DATE'2026-09-01' ORDER BY avg_dropped_call_rate_pct DESC LIMIT 10\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000004",
+    "question": [
+     "What is the save rate by offer strategy since August?"
+    ],
+    "sql": [
+     "SELECT offer_strategy, count(*) AS offers, round(100 * avg(CAST(saved AS INT)), 1) AS save_rate_pct, round(avg(offer_cost), 0) AS avg_offer_cost\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.retention_offer_history WHERE offer_date >= '2026-08-01' GROUP BY offer_strategy ORDER BY save_rate_pct DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000005",
+    "question": [
+     "How much revenue is at risk by top churn driver?"
+    ],
+    "sql": [
+     "SELECT top_driver, count(*) AS accounts, round(sum(annual_revenue_at_risk), 0) AS revenue_at_risk, round(sum(monthly_bill * 12), 0) AS arpu_book\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.churn_scores WHERE risk_tier IN ('Critical', 'High') GROUP BY top_driver ORDER BY revenue_at_risk DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000006",
+    "question": [
+     "What was the churn rate before July vs since July?"
+    ],
+    "sql": [
+     "SELECT CASE WHEN month >= DATE'2026-07-01' THEN 'Jul-Sep 2026' ELSE 'Oct 2025-Jun 2026' END AS period,\n",
+     "       round(100 * sum(churned) / sum(active_start), 2) AS churn_rate_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_churn_monthly GROUP BY 1 ORDER BY 1 DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000007",
+    "question": [
+     "Which offer saves the most customers for each churn driver?"
+    ],
+    "sql": [
+     "SELECT primary_driver, offer_code, offers, save_rate_pct FROM (\n",
+     "  SELECT primary_driver, offer_code, count(*) AS offers, round(100 * avg(CAST(saved AS INT)), 1) AS save_rate_pct\n",
+     "  FROM {{CATALOG}}.{{SCHEMA}}.retention_offer_history GROUP BY primary_driver, offer_code HAVING count(*) >= 25)\n",
+     "QUALIFY row_number() OVER (PARTITION BY primary_driver ORDER BY save_rate_pct DESC) = 1\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000008",
+    "question": [
+     "How many call-center calls mention Crest Wireless and threaten to cancel?"
+    ],
+    "sql": [
+     "SELECT count(*) AS calls, count_if(cancel_threat) AS cancel_threats\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.care_call_insights WHERE lower(extracted.competitor) LIKE '%crest%'\n"
+    ]
+   }
+  ]
+ }
+}

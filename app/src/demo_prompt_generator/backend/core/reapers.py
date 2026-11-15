@@ -20,7 +20,15 @@ engine + file_sync are already up):
    for a still-existing project it runs `full_sync_project` so any un-flushed
    on-disk change is pushed to the DB first.
 
-A THIRD sweep exists but is NOT started here: the **preview-apps idle sweep**
+3. **Dead-demo-database reaper** (every `DEAD_DB_REAP_INTERVAL` = 6 h, cross-
+   workspace deploys only) — drops shared-pool `db-dbgen-*` Lakebase databases
+   whose Solution Builder project is gone, so a deleted demo stops costing its
+   ~2 zeroETL roles against the hard roles-per-branch limit. The classification
+   is safety-critical (a naive version would drop LIVE demos' dbs) and lives in
+   `services/lakebase_reaper.py`; it is **DRY-RUN by default**. Also runs the
+   rogue-preview reaper (below).
+
+A sweep exists but is NOT started here: the **preview-apps idle sweep**
 (`preview/registry.py` `_idle_loop`, 5 min) stops idle `start.sh` preview
 web-server subprocesses. It's wired independently in `app.py` because it needs no
 DB. It's mentioned here so this module is the one index of every reaper.
@@ -40,7 +48,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from sqlmodel import Session, func, select
 
-from ._config import logger
+from ._config import AppConfig, logger
 from ..models import Message, Project, utc_now
 
 # ── Tunables ────────────────────────────────────────────────────────────────
@@ -112,6 +120,35 @@ def _project_last_activity(
     return max(norm)
 
 
+def _forget_project_singletons(project_id: str, app: FastAPI) -> None:
+    """Drop a project's PER-PROJECT in-memory state after its folder is reaped, so
+    the process's singletons don't accumulate one entry per project ever opened
+    (an unbounded leak: stream/preview locks, narrative locks, extractor cache).
+    Best-effort + isolated — a failure here must never abort the sweep. Safe for
+    the STALE case too (the DB row survives; every one of these is lazily
+    recreated when the project is reopened). Mirrors the delete path in
+    routes/projects.py so a reaped project is reclaimed the same as a deleted one."""
+    def _try(fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[reapers] forget-singleton for {project_id} skipped: {e!r}")
+
+    from ..services.active_stream import get_stream_manager
+    from ..services import narrative, resources_extractor
+    from ..routes import project_files as _pf
+    _try(lambda: get_stream_manager().forget(project_id))
+    _try(lambda: narrative.forget(project_id))
+    _try(lambda: resources_extractor.forget(project_id))
+    _try(lambda: _pf.forget_project(project_id))  # file-listing cache + restore lock
+    reg = getattr(app.state, "preview_registry", None)
+    if reg is not None:
+        _try(lambda: reg.forget(project_id))
+    fs = getattr(app.state, "file_sync", None)
+    if fs is not None and hasattr(fs, "forget"):
+        _try(lambda: fs.forget(project_id))
+
+
 def _sweep_project_files(app: FastAPI) -> tuple[int, int]:
     """One project-file cleanup pass. Returns (orphans_removed, stale_removed).
 
@@ -168,10 +205,12 @@ def _sweep_project_files(app: FastAPI) -> tuple[int, int]:
             if orphan:
                 if remove_project_files_on_disk(project_id):
                     orphans += 1
+                    _forget_project_singletons(project_id, app)
                     logger.info(f"[reapers] removed orphan project folder {project_id}")
             else:
                 if remove_project_files_on_disk(project_id, file_sync=file_sync):
                     stale += 1
+                    _forget_project_singletons(project_id, app)
                     logger.info(
                         f"[reapers] removed stale project folder {project_id} "
                         f"(idle > {FILE_STALE_AFTER}); DB rows kept, restores on open"
@@ -299,23 +338,68 @@ async def _rogue_preview_reaper_loop() -> None:
         await asyncio.sleep(ROGUE_SWEEP_INTERVAL)
 
 
+# ── Dead-demo-database reaper (shared Lakebase pool) ──────────────────────────
+async def _dead_db_reaper_loop(app: FastAPI) -> None:
+    """Every DEAD_DB_REAP_INTERVAL seconds, reclaim shared-pool `db-dbgen-*`
+    databases whose Solution Builder project is gone (each leftover db keeps
+    costing ~2 zeroETL roles against the hard roles-per-branch limit).
+
+    DRY-RUN by default — logs the candidates it WOULD drop until an operator sets
+    LAKEBASE_DEAD_DB_REAP_ARMED. The (safety-critical) classification + the drop
+    live in services/lakebase_reaper.py; a db is only ever reaped when it's
+    unreferenced by BOTH the project-id-suffix AND every live resources.json, and
+    older than the age gate."""
+    from ..services.lakebase_reaper import sweep_dead_databases, DEAD_DB_REAP_INTERVAL
+
+    while True:
+        try:
+            # DB read + Lakebase SDK calls are blocking — run off the event loop.
+            await asyncio.to_thread(sweep_dead_databases, app)
+        except Exception as e:  # noqa: BLE001 — never let the loop die
+            logger.warning(f"[reapers] dead-db reaper loop error: {e!r}")
+        await asyncio.sleep(DEAD_DB_REAP_INTERVAL)
+
+
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 def start_reapers(app: FastAPI) -> None:
     """Start all reaper loops as background tasks (called from the Lakebase
     lifespan, after engine + file_sync are ready). Idempotent-ish: stashes the
     tasks on app.state so stop_reapers can cancel them."""
     from ..services.agent import CLIENT_IDLE_TIMEOUT
+    from ..services.metrics import loop_lag_monitor, metrics_sampler_loop
+    from ..services.lakebase_reaper import (
+        DEAD_DB_REAP_INTERVAL, _reap_armed, pool_projects,
+    )
 
     tasks: list[asyncio.Task] = [
         asyncio.create_task(_agent_session_reaper_loop()),
         asyncio.create_task(_project_file_cleanup_loop(app)),
         asyncio.create_task(_rogue_preview_reaper_loop()),
+        # Live-metrics history sampler for the /internal page (bounded ring buffer).
+        asyncio.create_task(metrics_sampler_loop(app)),
+        # Event-loop lag heartbeat — feeds the loop_lag_ms gauge (wedge diagnosis).
+        asyncio.create_task(loop_lag_monitor()),
     ]
+
+    # Dead-demo-database reaper — only where the shared REMOTE Lakebase pool
+    # exists (cross-workspace deploy). A plain single-workspace build has no
+    # shared pool, so this stays off there.
+    cfg = getattr(app.state, "config", None) or AppConfig()
+    if cfg.cross_workspace_deploy_enabled and cfg.default_target_workspace_host:
+        tasks.append(asyncio.create_task(_dead_db_reaper_loop(app)))
+        dead_db_note = (
+            f"dead-db reaper (every {DEAD_DB_REAP_INTERVAL}s, armed={_reap_armed()}, "
+            f"pool={len(pool_projects())} projects)"
+        )
+    else:
+        dead_db_note = "dead-db reaper (disabled: no remote pool)"
+
     app.state.reaper_tasks = tasks
     logger.info(
         f"[reapers] started: agent-session (every {CLIENT_IDLE_TIMEOUT}s), "
         f"project-file cleanup (every {FILE_CLEANUP_INTERVAL}s, stale > {FILE_STALE_AFTER}), "
-        f"rogue-preview (every {ROGUE_SWEEP_INTERVAL}s, kill > {ROGUE_MAX_AGE_SECONDS}s)"
+        f"rogue-preview (every {ROGUE_SWEEP_INTERVAL}s, kill > {ROGUE_MAX_AGE_SECONDS}s), "
+        f"{dead_db_note}, metrics-sampler, loop-lag-monitor"
     )
 
 
@@ -324,11 +408,12 @@ async def stop_reapers(app: FastAPI) -> None:
     tasks = getattr(app.state, "reaper_tasks", None) or []
     for task in tasks:
         task.cancel()
-    for task in tasks:
-        try:
-            await task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass
+    # Bounded: a reaper inside a blocking call can't unwind at once, and the
+    # platform kills the process 15s after SIGTERM. Whatever is left dies with it.
+    if tasks:
+        _done, pending = await asyncio.wait(tasks, timeout=3.0)
+        if pending:
+            logger.warning(f"[reapers] {len(pending)} reaper task(s) still unwinding after 3s — abandoning")
     app.state.reaper_tasks = []
     if tasks:
         logger.info(f"[reapers] cancelled {len(tasks)} reaper task(s)")

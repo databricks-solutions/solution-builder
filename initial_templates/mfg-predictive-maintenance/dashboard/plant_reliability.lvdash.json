@@ -1,0 +1,1080 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT avg(oee) FROM oee_daily WHERE line LIKE 'Line 2%' AND production_date >= current_date() - INTERVAL 7 DAYS) AS line2_oee_7d,\n",
+        "  (SELECT avg(oee) FROM oee_daily WHERE line LIKE 'Line 2%' AND production_date BETWEEN current_date() - INTERVAL 63 DAYS AND current_date() - INTERVAL 21 DAYS) AS line2_oee_baseline,\n",
+        "  (SELECT avg(oee) FROM oee_daily WHERE production_date >= current_date() - INTERVAL 30 DAYS) AS plant_oee_30d,\n",
+        "  (SELECT ROUND(sum(unplanned_downtime_hours), 0) FROM oee_daily WHERE production_date >= current_date() - INTERVAL 30 DAYS) AS unplanned_downtime_h_30d,\n",
+        "  (SELECT ROUND(sum(mtbf_hours * greatest(failures_12m, 1)) / greatest(sum(failures_12m), 1), 0) FROM asset_reliability_12m) AS plant_mtbf_hours,\n",
+        "  (SELECT sum(total_cost_usd) FROM failure_events WHERE failure_ts >= current_timestamp() - INTERVAL 365 DAYS) AS failure_cost_12m,\n",
+        "  (SELECT sum(downtime_cost_at_risk_usd) FROM asset_risk_scores) AS cost_at_risk_7d,\n",
+        "  (SELECT count(*) FROM asset_risk_scores WHERE risk_tier IN ('Critical','High')) AS assets_at_risk\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_kpi_daily",
+      "displayName": "Daily rolling KPIs (Line 2 OEE 7-d, downtime 30-d)",
+      "queryLines": [
+        "WITH d AS (\n",
+        "  SELECT production_date AS day,\n",
+        "    AVG(CASE WHEN line LIKE 'Line 2%' THEN oee END) AS l2_oee,\n",
+        "    SUM(unplanned_downtime_hours) AS downtime_h\n",
+        "  FROM oee_daily GROUP BY production_date),\n",
+        "r AS (\n",
+        "  SELECT day,\n",
+        "    AVG(l2_oee) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS line2_oee_7d,\n",
+        "    ROUND(SUM(downtime_h) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW), 0) AS downtime_h_30d\n",
+        "  FROM d)\n",
+        "SELECT day, line2_oee_7d, downtime_h_30d FROM r\n",
+        "WHERE day >= current_date() - INTERVAL 90 DAYS\n",
+        "ORDER BY day\n"
+      ]
+    },
+    {
+      "name": "ds_oee_weekly",
+      "displayName": "Daily OEE by line (7-day trailing)",
+      "queryLines": [
+        "WITH d AS (\n",
+        "  SELECT production_date, line, AVG(oee) AS oee\n",
+        "  FROM oee_daily WHERE production_date >= current_date() - INTERVAL 70 DAYS\n",
+        "  GROUP BY production_date, line)\n",
+        "SELECT production_date AS week, line,\n",
+        "  AVG(oee) OVER (PARTITION BY line ORDER BY production_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS oee\n",
+        "FROM d\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_failure_modes",
+      "displayName": "Failure cost by mode (12 m)",
+      "queryLines": [
+        "SELECT replace(failure_mode, '_', ' ') AS failure_mode, count(*) AS failures,\n",
+        "  sum(downtime_hours) AS downtime_hours, sum(total_cost_usd) AS total_cost_usd\n",
+        "FROM failure_events WHERE failure_ts >= current_timestamp() - INTERVAL 365 DAYS GROUP BY ALL\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_mtbf",
+      "displayName": "MTBF by asset type",
+      "queryLines": [
+        "SELECT asset_type, sum(failures_12m) AS failures,\n",
+        "  sum(mtbf_hours * greatest(failures_12m, 1)) / greatest(sum(failures_12m), 1) AS mtbf_hours,\n",
+        "  avg(mttr_hours) AS mttr_hours, sum(unplanned_downtime_hours_12m) AS downtime_hours\n",
+        "FROM asset_reliability_12m GROUP BY asset_type\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_risk",
+      "displayName": "Fleet risk (ML)",
+      "queryLines": [
+        "SELECT asset_id, asset_name, line, ROUND(risk_score, 0) AS risk_score, risk_tier, predicted_failure_mode,\n",
+        "  CASE WHEN est_days_to_failure IS NULL THEN 'Not at risk' ELSE CAST(CAST(ROUND(est_days_to_failure) AS BIGINT) AS STRING) END AS days_label,\n",
+        "  CONCAT(CAST(ROUND(risk_score, 0) AS BIGINT), ' %') AS risk_label,\n",
+        "  CONCAT('$', FORMAT_NUMBER(ROUND(downtime_cost_at_risk_usd / 1000, 1), 1), 'k') AS cost_at_risk_label,\n",
+        "  top_driver_1, last_pm_vendor, COALESCE(last_pm_lubricant, '—') AS last_pm_label\n",
+        "FROM asset_health_current\n",
+        "ORDER BY risk_score DESC\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_drift",
+      "displayName": "Vibration vs baseline — Line 2 FANUC robots",
+      "queryLines": [
+        "SELECT feature_date, asset_id, vib_mean AS vibration_mm_s, temp_mean AS temperature_c\n",
+        "FROM asset_health_features\n",
+        "WHERE asset_id IN ('RA-203','RA-207','RA-211','RA-214','RA-201') AND feature_date >= current_date() - INTERVAL 60 DAYS\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_pm_lube",
+      "displayName": "Preventive maintenance by lubricant (60 d)",
+      "queryLines": [
+        "SELECT w.work_order_id, w.asset_id, a.model, w.scheduled_ts, w.vendor, w.lubricant_used, w.notes,\n",
+        "  r.risk_score, r.risk_tier, CONCAT(CAST(ROUND(r.risk_score, 0) AS BIGINT), ' %') AS risk_label\n",
+        "FROM maintenance_work_orders w JOIN assets a USING (asset_id) LEFT JOIN asset_risk_scores r USING (asset_id)\n",
+        "WHERE w.work_type = 'Preventive' AND a.asset_type = 'Robot' AND w.scheduled_ts >= current_timestamp() - INTERVAL 60 DAYS\n",
+        "ORDER BY (w.lubricant_used LIKE 'Mobilgrease%') DESC, r.risk_score DESC, w.scheduled_ts DESC\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    },
+    {
+      "name": "ds_downtime_month",
+      "displayName": "Unplanned downtime by month and line",
+      "queryLines": [
+        "SELECT date_trunc('MONTH', f.failure_ts) AS month, a.line, sum(f.downtime_hours) AS downtime_hours, sum(f.total_cost_usd) AS cost_usd\n",
+        "FROM failure_events f JOIN assets a USING (asset_id)\n",
+        "WHERE f.failure_ts < date_trunc('MONTH', current_date())\n",
+        "GROUP BY ALL\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "predictive_maintenance"
+    }
+  ],
+  "pages": [
+    {
+      "name": "plant",
+      "displayName": "Plant manager — OEE & downtime",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# TechRobotics Greenville Plant 2 — Reliability & OEE\n",
+                "\n",
+                "Plant-manager view of **OEE, unplanned downtime and MTBF**, with the ML failure-risk model's current fleet scoring. Line 2 (robotic assembly) OEE has slipped over the last two weeks: its bottleneck robot **RA-207** is running a J3-reducer drift and the line is starving behind it. The model scores RA-207 critical — the reliability team is booking the fix into Saturday's planned window."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_l2_oee",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_daily",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(line2_oee_7d)",
+                      "expression": "AVG(`line2_oee_7d`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(line2_oee_7d)",
+                  "displayName": "Line 2 OEE — last 7 days",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Line 2 OEE — last 7 days"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_l2_base",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "line2_oee_baseline",
+                      "expression": "`line2_oee_baseline`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "line2_oee_baseline",
+                  "displayName": "Line 2 OEE — pre-drift baseline",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Line 2 OEE — pre-drift baseline"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_downtime",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi_daily",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(downtime_h_30d)",
+                      "expression": "AVG(`downtime_h_30d`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(downtime_h_30d)",
+                  "displayName": "Unplanned downtime — last 30 days (h)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unplanned downtime — last 30 days (h)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_mtbf",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "plant_mtbf_hours",
+                      "expression": "`plant_mtbf_hours`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "plant_mtbf_hours",
+                  "displayName": "Plant MTBF (operating h per failure)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Plant MTBF (operating h per failure)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_fail_cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "failure_cost_12m",
+                      "expression": "`failure_cost_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "failure_cost_12m",
+                  "displayName": "Breakdown cost — last 12 months",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Breakdown cost — last 12 months"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_risk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "cost_at_risk_7d",
+                      "expression": "`cost_at_risk_7d`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "cost_at_risk_7d",
+                  "displayName": "Downtime $ at risk, next 7 days (ML)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Downtime $ at risk, next 7 days (ML)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "oee_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_oee_weekly",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "line",
+                      "expression": "`line`"
+                    },
+                    {
+                      "name": "avg(oee)",
+                      "expression": "AVG(`oee`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "avg(oee)",
+                  "scale": {
+                    "type": "quantitative",
+                    "zeroBaseline": false
+                  },
+                  "displayName": "OEE",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "line",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Line 1 — Precision Machining",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Line 2 — Robotic Assembly",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Line 3 — Press & Test",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  },
+                  "displayName": "Line"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily OEE, 7-day trailing — Line 2 drops as RA-207 degrades"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "mtbf_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_mtbf",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "sum(mtbf_hours)",
+                      "expression": "SUM(`mtbf_hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "asset_type",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Asset type"
+                },
+                "x": {
+                  "fieldName": "sum(mtbf_hours)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "MTBF (operating h)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "MTBF by asset type (h, trailing 12 months)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 6,
+            "width": 2,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "mode_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_failure_modes",
+                  "fields": [
+                    {
+                      "name": "failure_mode",
+                      "expression": "`failure_mode`"
+                    },
+                    {
+                      "name": "sum(total_cost_usd)",
+                      "expression": "SUM(`total_cost_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "failure_mode",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Failure mode"
+                },
+                "x": {
+                  "fieldName": "sum(total_cost_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Breakdown cost ($)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "What breakdowns cost us — by failure mode (12 months)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "dt_month",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_downtime_month",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "line",
+                      "expression": "`line`"
+                    },
+                    {
+                      "name": "sum(downtime_hours)",
+                      "expression": "SUM(`downtime_hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "sum(downtime_hours)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Unplanned downtime (h)"
+                },
+                "color": {
+                  "fieldName": "line",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Line 1 — Precision Machining",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Line 2 — Robotic Assembly",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Line 3 — Press & Test",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "Utilities",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Line"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unplanned breakdown hours by month and line"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk",
+                  "fields": [
+                    {
+                      "name": "asset_id",
+                      "expression": "`asset_id`"
+                    },
+                    {
+                      "name": "risk_label",
+                      "expression": "`risk_label`"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    },
+                    {
+                      "name": "predicted_failure_mode",
+                      "expression": "`predicted_failure_mode`"
+                    },
+                    {
+                      "name": "days_label",
+                      "expression": "`days_label`"
+                    },
+                    {
+                      "name": "cost_at_risk_label",
+                      "expression": "`cost_at_risk_label`"
+                    },
+                    {
+                      "name": "last_pm_label",
+                      "expression": "`last_pm_label`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "asset_id",
+                    "displayName": "Asset"
+                  },
+                  {
+                    "fieldName": "risk_label",
+                    "displayName": "Risk"
+                  },
+                  {
+                    "fieldName": "risk_tier",
+                    "displayName": "Tier"
+                  },
+                  {
+                    "fieldName": "predicted_failure_mode",
+                    "displayName": "Predicted failure"
+                  },
+                  {
+                    "fieldName": "days_label",
+                    "displayName": "Days to failure"
+                  },
+                  {
+                    "fieldName": "cost_at_risk_label",
+                    "displayName": "$ at risk"
+                  },
+                  {
+                    "fieldName": "last_pm_label",
+                    "displayName": "Last PM lubricant"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 10,
+              "frame": {
+                "showTitle": true,
+                "title": "Fleet failure risk — highest first (ML model)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "rootcause",
+      "displayName": "Reliability — root cause",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Why RA-207? One maintenance event, three robots\n",
+                "\n",
+                "The J3-reducer drift on RA-207 began right after its quarterly grease PM. The same contractor greased **RA-211** and **RA-214** with the same non-OEM substitute (Mobilgrease XHP 222) while Vigo RE0 was backordered. RA-203 failed exactly this way six months ago (CAPA-0117). RA-201, greased in-house with RE0, is the control."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "drift_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_drift",
+                  "fields": [
+                    {
+                      "name": "feature_date",
+                      "expression": "`feature_date`"
+                    },
+                    {
+                      "name": "asset_id",
+                      "expression": "`asset_id`"
+                    },
+                    {
+                      "name": "avg(vibration_mm_s)",
+                      "expression": "AVG(`vibration_mm_s`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "feature_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "avg(vibration_mm_s)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Vibration (mm/s, 3-day avg)"
+                },
+                "color": {
+                  "fieldName": "asset_id",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "RA-207",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "RA-211",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "RA-203",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "RA-214",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "RA-201",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  },
+                  "displayName": "Robot"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "J3 vibration — RA-207 and RA-211 climb after the substitute-grease PM"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "pm_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_pm_lube",
+                  "fields": [
+                    {
+                      "name": "asset_id",
+                      "expression": "`asset_id`"
+                    },
+                    {
+                      "name": "scheduled_ts",
+                      "expression": "`scheduled_ts`"
+                    },
+                    {
+                      "name": "vendor",
+                      "expression": "`vendor`"
+                    },
+                    {
+                      "name": "lubricant_used",
+                      "expression": "`lubricant_used`"
+                    },
+                    {
+                      "name": "risk_label",
+                      "expression": "`risk_label`"
+                    },
+                    {
+                      "name": "risk_tier",
+                      "expression": "`risk_tier`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "asset_id",
+                    "displayName": "Robot"
+                  },
+                  {
+                    "fieldName": "scheduled_ts",
+                    "displayName": "PM date"
+                  },
+                  {
+                    "fieldName": "vendor",
+                    "displayName": "Vendor"
+                  },
+                  {
+                    "fieldName": "lubricant_used",
+                    "displayName": "Lubricant"
+                  },
+                  {
+                    "fieldName": "risk_label",
+                    "displayName": "Risk now"
+                  },
+                  {
+                    "fieldName": "risk_tier",
+                    "displayName": "Tier"
+                  }
+                ]
+              },
+              "invisibleColumns": [],
+              "allowHTMLByDefault": false,
+              "itemsPerPage": 10,
+              "frame": {
+                "showTitle": true,
+                "title": "Robot PMs, last 60 days — substitute grease first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#094074",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#FF7E5C",
+        "#FE9000",
+        "#5ADBFF",
+        "#9AA5B1"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

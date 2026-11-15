@@ -12,15 +12,20 @@
  * To detect crossings we need each edge's polyline. Rather than re-derive it
  * (which drifts from what's actually drawn — the smooth-step router turns toward
  * the ENTRY side, so a naive L-corner is wrong for t/b targets and can leave two
- * lines collinear-overlapping where they should cross at a point), we call the
- * SAME `getSmoothStepPath` FlowEdge calls, with the SAME args (shrunk stub +
- * centerX guard), then `pathToPolyline` its output. The crossings therefore
- * match the rendered geometry pixel-for-pixel. Injecting the arc into the SVG
- * path string lives in `path-hops.ts` (FlowEdge owns the actual path string).
+ * lines collinear-overlapping where they should cross at a point), we build it
+ * from `edge-geometry.drawnPath` — the shared at-rest geometry FlowEdge's own
+ * arg assembly mirrors (same shrunk stub + centerX guard) — then
+ * `pathToPolyline` its output. The crossings therefore match the rendered
+ * geometry pixel-for-pixel. Injecting the arc into the SVG path string lives in
+ * `path-hops.ts` (FlowEdge owns the actual path string).
  */
-import { getSmoothStepPath, getStraightPath } from "@xyflow/react";
-import { type Rect, POS_OF, sidePoint, rectOf } from "../edge-routing";
+import { type Rect, rectOf } from "../edge-routing";
 import { computeFanLayout } from "../fan-layout";
+import { type EdgeShape, drawnPath, pathToPolyline } from "./edge-geometry";
+
+// Re-exported for callers that predate `edge-geometry` (the parser moved there
+// so the label pass could share it).
+export { pathToPolyline } from "./edge-geometry";
 
 export interface Hop {
   /** Crossing point (flow coords). */
@@ -35,7 +40,7 @@ interface CrossEdge {
   sourceHandle?: string | null;
   targetHandle?: string | null;
   /** Edge shape (mirrors FlowEdge's `data.shape`): straight | step | smooth. */
-  data?: { shape?: "straight" | "step" | "smooth" } | null;
+  data?: { shape?: EdgeShape; centerX?: number } | null;
 }
 interface CrossNode {
   internals: { positionAbsolute: { x: number; y: number } };
@@ -92,7 +97,10 @@ const MAX_HOPS = 8;
  * chosen deterministically (greater id) so BOTH edges agree and exactly one
  * hops. Returns Map<edgeId, Hop[]>.
  */
-export function computeCrossings(edges: CrossEdge[], nodeLookup: NodeLookup): Map<string, Hop[]> {
+export function computeCrossings(
+  edges: CrossEdge[],
+  nodeLookup: NodeLookup,
+): Map<string, Hop[]> {
   // No input-identity short-circuit — see the NOTE in fan-layout.ts
   // computeFanLayout: v12 mutates nodeLookup in place and keeps `edges` stable
   // across a drag, so identity would be stale. The signature folds node
@@ -106,46 +114,17 @@ export function computeCrossings(edges: CrossEdge[], nodeLookup: NodeLookup): Ma
     return n ? rectOf(n as never) : null;
   };
 
-  // Build the edge's polyline from the EXACT path FlowEdge draws: same
-  // getSmoothStepPath args (shrunk stub + guarded centerX), then pathToPolyline.
-  // Deriving it any other way drifts from the render (the router turns toward the
-  // entry side), which both misses crossings and produces spurious collinear
-  // overlaps — see the module header.
+  // Build the edge's polyline from the EXACT path FlowEdge draws (shared
+  // `drawnPath`: shrunk stub + guarded centerX). Deriving it any other way drifts
+  // from the render (the router turns toward the entry side), which both misses
+  // crossings and produces spurious collinear overlaps — see the module header.
   const polylineOf = (e: CrossEdge): { x: number; y: number }[] | null => {
     const f = fan.get(e.id);
     const sR = rect(e.source), tR = rect(e.target);
     if (!f || !sR || !tR) return null;
-    const sp = sidePoint(sR, f.sSide, f.sFrac);
-    const tp = sidePoint(tR, f.tSide, f.tFrac);
-    const shape = e.data?.shape ?? "smooth";
-    if (shape === "straight") {
-      const [p] = getStraightPath({ sourceX: sp.x, sourceY: sp.y, targetX: tp.x, targetY: tp.y });
-      return pathToPolyline(p);
-    }
-    // Shrink each stub to ≤40% of the facing gap so close tiles don't S-wiggle
-    // (identical to FlowEdge).
-    const horiz = (f.sSide === "l" || f.sSide === "r") && (f.tSide === "l" || f.tSide === "r");
-    const vert = (f.sSide === "t" || f.sSide === "b") && (f.tSide === "t" || f.tSide === "b");
-    const facingGap = horiz ? Math.abs(tp.x - sp.x) : vert ? Math.abs(tp.y - sp.y) : Infinity;
-    const stepOffset = Math.max(4, Math.min(20, facingGap * 0.4));
-    // centerX: the fan's vertical-elbow X, guarded against folding into a
-    // backward zigzag — only meaningful when BOTH ends are horizontal sides.
-    let centerX = f.centerX;
-    if (centerX !== undefined && (f.sSide === "l" || f.sSide === "r") && (f.tSide === "l" || f.tSide === "r")) {
-      const OFFSET = stepOffset;
-      if (f.sSide === "r") centerX = Math.max(centerX, sp.x + OFFSET);
-      else centerX = Math.min(centerX, sp.x - OFFSET);
-      if (f.tSide === "l") centerX = Math.min(centerX, tp.x - OFFSET);
-      else centerX = Math.max(centerX, tp.x + OFFSET);
-    }
-    const [p] = getSmoothStepPath({
-      sourceX: sp.x, sourceY: sp.y, targetX: tp.x, targetY: tp.y,
-      sourcePosition: POS_OF[f.sSide], targetPosition: POS_OF[f.tSide],
-      offset: stepOffset,
-      borderRadius: shape === "step" ? 0 : Math.min(14, stepOffset),
-      ...(centerX !== undefined ? { centerX } : {}),
-    });
-    return pathToPolyline(p);
+    return pathToPolyline(drawnPath(
+      f, sR, tR, e.data?.shape ?? "smooth", e.data?.centerX,
+    ).path);
   };
 
   const polys = new Map<string, { x: number; y: number }[]>();
@@ -187,29 +166,5 @@ export function computeCrossings(edges: CrossEdge[], nodeLookup: NodeLookup): Ma
 
   cacheSig = sig;
   cacheMap = out;
-  return out;
-}
-
-/** Parse an SVG path (the M/L/Q subset getSmoothStepPath emits) into a polyline.
- *  Exposed for tests / potential path-based callers. Q corners collapse to their
- *  end point. */
-export function pathToPolyline(path: string): { x: number; y: number }[] {
-  const pts: { x: number; y: number }[] = [];
-  const re = /([MLQ])([^MLQ]*)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(path))) {
-    const cmd = m[1];
-    const nums = (m[2].match(/-?\d*\.?\d+/g) ?? []).map(Number);
-    if (cmd === "M" || cmd === "L") {
-      for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] });
-    } else if (cmd === "Q" && nums.length >= 4) {
-      pts.push({ x: nums[2], y: nums[3] });
-    }
-  }
-  const out: { x: number; y: number }[] = [];
-  for (const p of pts) {
-    const last = out[out.length - 1];
-    if (!last || Math.abs(last.x - p.x) > 0.01 || Math.abs(last.y - p.y) > 0.01) out.push(p);
-  }
   return out;
 }

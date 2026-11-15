@@ -1,0 +1,1312 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT ROUND(100 * SUM(units_shipped) / SUM(units_ordered), 1) FROM gold_fill_rate_weekly WHERE week_start > (SELECT date_sub(MAX(week_start), 28) FROM gold_fill_rate_weekly)) AS fill_rate_4w_pct,\n",
+        "  (SELECT ROUND(100 * SUM(units_shipped) / SUM(units_ordered), 1) FROM gold_fill_rate_weekly WHERE plant_id = 'DAY' AND week_start > (SELECT date_sub(MAX(week_start), 28) FROM gold_fill_rate_weekly)) AS dayton_fill_rate_4w_pct,\n",
+        "  (SELECT ROUND(SUM(revenue_at_risk), 0) FROM stockout_exposures) AS revenue_at_risk,\n",
+        "  (SELECT COUNT(*) FROM stockout_exposures WHERE exposure_type = 'STOCKOUT') AS projected_stockouts,\n",
+        "  (SELECT ROUND(SUM(eo_value), 0) FROM gold_inventory_health) AS eo_value,\n",
+        "  (SELECT COUNT(*) FROM gold_open_purchase_orders WHERE is_delayed) AS delayed_pos\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "ds_fill_4w",
+      "displayName": "Rolling 4-week fill rate (weekly)",
+      "queryLines": [
+        "WITH w AS (SELECT week_start, SUM(units_shipped) AS s, SUM(units_ordered) AS o,\n",
+        "  SUM(CASE WHEN plant_id = 'DAY' THEN units_shipped END) AS ds, SUM(CASE WHEN plant_id = 'DAY' THEN units_ordered END) AS dordered\n",
+        "  FROM gold_fill_rate_weekly GROUP BY week_start),\n",
+        "r AS (SELECT week_start,\n",
+        "  100 * SUM(s) OVER (ORDER BY week_start ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) / SUM(o) OVER (ORDER BY week_start ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS fill_rate_4w_pct,\n",
+        "  100 * SUM(ds) OVER (ORDER BY week_start ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) / SUM(dordered) OVER (ORDER BY week_start ROWS BETWEEN 3 PRECEDING AND CURRENT ROW) AS dayton_fill_rate_4w_pct\n",
+        "  FROM w)\n",
+        "SELECT week_start, ROUND(fill_rate_4w_pct / 100, 4) AS fill_rate_4w_pct, ROUND(dayton_fill_rate_4w_pct / 100, 4) AS dayton_fill_rate_4w_pct FROM r\n",
+        "WHERE week_start > (SELECT date_sub(MAX(week_start), 182) FROM w)\n",
+        "ORDER BY week_start\n"
+      ]
+    },
+    {
+      "name": "fill_trend",
+      "displayName": "Fill rate by plant",
+      "queryLines": [
+        "SELECT week_start, plant_name, ROUND(100 * SUM(units_shipped) / SUM(units_ordered), 2) AS fill_rate_pct\n",
+        "FROM gold_fill_rate_weekly\n",
+        "WHERE week_start > (SELECT date_sub(MAX(week_start), 182) FROM gold_fill_rate_weekly)\n",
+        "GROUP BY week_start, plant_name\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "exposures",
+      "displayName": "Exposures + plan status",
+      "queryLines": [
+        "SELECT e.exposure_id, concat(e.component_id, ' @ ', e.plant_name) AS exposure, e.component_name, e.plant_name, e.exposure_type,\n",
+        "  COALESCE(CAST(e.first_stockout_week AS STRING), 'Not at risk') AS first_stockout_label, e.peak_units_short,\n",
+        "  CAST(ROUND(e.revenue_at_risk) AS BIGINT) AS revenue_at_risk, concat('$', format_number(CAST(ROUND(e.revenue_at_risk) AS BIGINT), 0)) AS revenue_label,\n",
+        "  e.root_cause, e.primary_supplier, e.max_delay_days,\n",
+        "  coalesce(p.plan_status, 'Open') AS plan_status, COALESCE(NULLIF(p.action_summary, ''), 'No plan yet') AS mitigation_label,\n",
+        "  p.action_summary, p.plan_cost, p.revenue_protected\n",
+        "FROM stockout_exposures e\n",
+        "LEFT JOIN (SELECT exposure_id, 'Booked' AS plan_status, max_by(action_summary, booked_at) AS action_summary,\n",
+        "                  max_by(plan_cost, booked_at) AS plan_cost, max_by(revenue_protected, booked_at) AS revenue_protected\n",
+        "           FROM sop_plan_decisions GROUP BY exposure_id) p USING (exposure_id)\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "hx220",
+      "displayName": "HX-220 Dayton projection",
+      "queryLines": [
+        "SELECT week_start, series, units FROM (\n",
+        "  SELECT week_start, projected_balance AS `Projected (revised ETA)`, balance_if_on_time AS `If POs on time`, safety_stock_units AS `Safety stock`\n",
+        "  FROM inventory_projection WHERE component_id = 'HX-220' AND plant_id = 'DAY')\n",
+        "UNPIVOT (units FOR series IN (`Projected (revised ETA)`, `If POs on time`, `Safety stock`))\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "eo",
+      "displayName": "E&O by plant",
+      "queryLines": [
+        "SELECT plant_name, eo_category, component_id, ROUND(eo_value, 0) AS eo_value, eo_units, days_since_last_issue\n",
+        "FROM gold_inventory_health WHERE eo_value > 0\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "otd",
+      "displayName": "Supplier on-time delivery",
+      "queryLines": [
+        "SELECT month, supplier_name, on_time_pct, avg_days_late, pos_received\n",
+        "FROM gold_supplier_performance_monthly\n",
+        "WHERE supplier_name IN ('Nanhai Precision Castings', 'Kessler Sensorik GmbH', 'Brightline Electronics', 'Voltara Motor Components')\n",
+        "  AND month >= add_months((SELECT MAX(month) FROM gold_supplier_performance_monthly), -11)\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "delayed",
+      "displayName": "Delayed inbound POs",
+      "queryLines": [
+        "SELECT po_number, supplier_name, component_id, plant_name, quantity, promised_date, revised_eta, delay_days, delay_reason, vessel\n",
+        "FROM gold_open_purchase_orders WHERE is_delayed\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "demand",
+      "displayName": "Demand actual vs AI_FORECAST",
+      "queryLines": [
+        "SELECT week_start, concat(sku, ' ', series) AS series, units\n",
+        "FROM gold_demand_weekly WHERE plant_id = 'DAY' AND sku IN ('SG-250', 'SG-400', 'SG-600')\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    },
+    {
+      "name": "dos",
+      "displayName": "Days of supply",
+      "queryLines": [
+        "SELECT plant_name, component_id, component_name, on_hand_units, avg_weekly_requirement, weeks_of_cover,\n",
+        "  CAST(ROUND(days_of_supply) AS BIGINT) AS days_of_supply, eo_category,\n",
+        "  concat('$', format_number(CAST(ROUND(inventory_value, 0) AS BIGINT), 0)) AS inventory_label,\n",
+        "  CAST(ROUND(inventory_value, 0) AS BIGINT) AS inventory_value\n",
+        "FROM gold_inventory_health\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "supply_planning_copilot"
+    }
+  ],
+  "pages": [
+    {
+      "name": "supply",
+      "displayName": "Supply health",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Corvane Motion Systems — S&OP Supply Health\n",
+                "\n",
+                "**The event** — Dayton's HX-220 gear housings go **negative in week 2** (week of Oct 12): a typhoon berth closure at the Port of Yantian rolled Nanhai's three containers (+25/+18/+18 days), on top of a ~46% surge in SG-400 servo demand. Peak **1,054 housings short**, **$2.04M** of servo revenue at risk.\n",
+                "\n",
+                "**What to see** — the projection line (amber) dives below safety stock while the *if-POs-on-time* line (navy) never does · $2.34M of revenue at risk concentrates in HX-220 @ Dayton · the exposures table shows which plans the app has booked · Nanhai's on-time delivery collapses in September."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fill_4w",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(fill_rate_4w_pct)",
+                      "expression": "AVG(`fill_rate_4w_pct`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(fill_rate_4w_pct)",
+                  "displayName": "Fill rate, last 4 weeks",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Fill rate, last 4 weeks"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_fill_4w",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(dayton_fill_rate_4w_pct)",
+                      "expression": "AVG(`dayton_fill_rate_4w_pct`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(dayton_fill_rate_4w_pct)",
+                  "displayName": "Dayton fill rate, last 4 weeks",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Dayton fill rate, last 4 weeks"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "revenue_at_risk",
+                      "expression": "`revenue_at_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "revenue_at_risk",
+                  "displayName": "Revenue at risk, next 13 weeks ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue at risk, next 13 weeks ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "projected_stockouts",
+                      "expression": "`projected_stockouts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "projected_stockouts",
+                  "displayName": "Projected stock-outs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected stock-outs"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "eo_value",
+                      "expression": "`eo_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "eo_value",
+                  "displayName": "Excess & obsolete inventory ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Excess & obsolete inventory ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "delayed_pos",
+                      "expression": "`delayed_pos`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "delayed_pos",
+                  "displayName": "Delayed inbound POs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Delayed inbound POs"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "hx220",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "units",
+                      "expression": "`units`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "units",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Units"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Projected (revised ETA)",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "If POs on time",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Safety stock",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  },
+                  "displayName": "series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "HX-220 at Dayton — projected balance dips below zero on the revised ETA"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "exposures",
+                  "fields": [
+                    {
+                      "name": "exposure",
+                      "expression": "`exposure`"
+                    },
+                    {
+                      "name": "revenue_at_risk",
+                      "expression": "`revenue_at_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "revenue_at_risk",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue at risk ($)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "exposure",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reverse"
+                    }
+                  },
+                  "displayName": "Exposure"
+                },
+                "color": {
+                  "fieldName": "exposure",
+                  "displayName": "Exposure",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "HX-220 @ Dayton",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "EN-17 @ Wroclaw",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "HX-310 @ Monterrey",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue at risk by exposure"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 6,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "exposures",
+                  "fields": [
+                    {
+                      "name": "exposure",
+                      "expression": "`exposure`"
+                    },
+                    {
+                      "name": "first_stockout_label",
+                      "expression": "`first_stockout_label`"
+                    },
+                    {
+                      "name": "peak_units_short",
+                      "expression": "`peak_units_short`"
+                    },
+                    {
+                      "name": "revenue_label",
+                      "expression": "`revenue_label`"
+                    },
+                    {
+                      "name": "root_cause",
+                      "expression": "`root_cause`"
+                    },
+                    {
+                      "name": "plan_status",
+                      "expression": "`plan_status`"
+                    },
+                    {
+                      "name": "mitigation_label",
+                      "expression": "`mitigation_label`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "exposure",
+                    "displayName": "Exposure"
+                  },
+                  {
+                    "fieldName": "first_stockout_label",
+                    "displayName": "First stockout week"
+                  },
+                  {
+                    "fieldName": "peak_units_short",
+                    "displayName": "Peak units short"
+                  },
+                  {
+                    "fieldName": "revenue_label",
+                    "displayName": "Revenue at risk"
+                  },
+                  {
+                    "fieldName": "root_cause",
+                    "displayName": "Root cause"
+                  },
+                  {
+                    "fieldName": "plan_status",
+                    "displayName": "Plan status"
+                  },
+                  {
+                    "fieldName": "mitigation_label",
+                    "displayName": "Mitigation plan"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Supply exposures and mitigation plans"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "fill_trend",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "fill_rate_pct",
+                      "expression": "`fill_rate_pct`"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "fill_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Fill rate (%)"
+                },
+                "color": {
+                  "fieldName": "plant_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Dayton",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Monterrey",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Wroclaw",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  },
+                  "displayName": "Plant"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unit fill rate by plant, weekly (%) — Dayton drops below 97%"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "otd",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "on_time_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "On-time (%)"
+                },
+                "color": {
+                  "fieldName": "supplier_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Nanhai Precision Castings",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Kessler Sensorik GmbH",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "Brightline Electronics",
+                        "color": "#B8C2CC"
+                      },
+                      {
+                        "value": "Voltara Motor Components",
+                        "color": "#D0D7DE"
+                      }
+                    ]
+                  },
+                  "displayName": "Supplier"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier on-time (%) — Nanhai collapses (Oct 2026 = month to date)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 16,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "eo",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "eo_value",
+                      "expression": "`eo_value`"
+                    },
+                    {
+                      "name": "eo_category",
+                      "expression": "`eo_category`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "plant_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Plant"
+                },
+                "y": {
+                  "fieldName": "eo_value",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "E&O value ($)"
+                },
+                "color": {
+                  "fieldName": "eo_category",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Obsolete",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Excess",
+                        "color": "#3C6997"
+                      }
+                    ]
+                  },
+                  "displayName": "Category"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "E&O by plant ($) — Monterrey holds the leftovers"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "delayed",
+                  "fields": [
+                    {
+                      "name": "po_number",
+                      "expression": "`po_number`"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "component_id",
+                      "expression": "`component_id`"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "revised_eta",
+                      "expression": "`revised_eta`"
+                    },
+                    {
+                      "name": "delay_days",
+                      "expression": "`delay_days`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "po_number",
+                    "displayName": "PO"
+                  },
+                  {
+                    "fieldName": "supplier_name",
+                    "displayName": "Supplier"
+                  },
+                  {
+                    "fieldName": "component_id",
+                    "displayName": "Component"
+                  },
+                  {
+                    "fieldName": "plant_name",
+                    "displayName": "Plant"
+                  },
+                  {
+                    "fieldName": "revised_eta",
+                    "displayName": "Revised ETA"
+                  },
+                  {
+                    "fieldName": "delay_days",
+                    "displayName": "Delay (days)"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Delayed inbound purchase orders"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 22,
+            "width": 4,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "demand",
+      "displayName": "Demand & inventory",
+      "layout": [
+        {
+          "widget": {
+            "name": "w15",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Demand & Inventory\n",
+                "\n",
+                "**Dayton servo demand** actual vs **AI_FORECAST** (13 weeks) and days-of-supply for every component at every plant. The aha: **Monterrey** is sitting on obsolete HX-220, ST-30 and EN-17 leftovers from the sunset SG-300 line — the cheapest cover for Dayton's shortfall.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "demand",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "units",
+                      "expression": "`units`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "units",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Units"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "SG-400 Actual",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "SG-400 Forecast",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "SG-250 Actual",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "SG-250 Forecast",
+                        "color": "#A9B6C6"
+                      },
+                      {
+                        "value": "SG-600 Actual",
+                        "color": "#6B7785"
+                      },
+                      {
+                        "value": "SG-600 Forecast",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Dayton servo demand — actual vs AI_FORECAST (units/week)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dos",
+                  "fields": [
+                    {
+                      "name": "component_id",
+                      "expression": "`component_id`"
+                    },
+                    {
+                      "name": "days_of_supply",
+                      "expression": "`days_of_supply`"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "component_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Component"
+                },
+                "x": {
+                  "fieldName": "days_of_supply",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Days of supply"
+                },
+                "color": {
+                  "fieldName": "plant_name",
+                  "displayName": "Plant",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Dayton",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Monterrey",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Wroclaw",
+                        "color": "#9AA5B1"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Days of supply by component and plant"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dos",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "component_id",
+                      "expression": "`component_id`"
+                    },
+                    {
+                      "name": "days_of_supply",
+                      "expression": "`days_of_supply`"
+                    },
+                    {
+                      "name": "eo_category",
+                      "expression": "`eo_category`"
+                    },
+                    {
+                      "name": "inventory_label",
+                      "expression": "`inventory_label`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "plant_name",
+                    "displayName": "Plant"
+                  },
+                  {
+                    "fieldName": "component_id",
+                    "displayName": "Component"
+                  },
+                  {
+                    "fieldName": "days_of_supply",
+                    "displayName": "Days of supply"
+                  },
+                  {
+                    "fieldName": "eo_category",
+                    "displayName": "E&O category"
+                  },
+                  {
+                    "fieldName": "inventory_label",
+                    "displayName": "Inventory"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Inventory health by plant and component"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 9,
+            "width": 3,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#094074",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#FF7E5C",
+        "#FE9000",
+        "#5ADBFF",
+        "#9AA5B1"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

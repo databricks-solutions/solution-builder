@@ -48,7 +48,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_marketing_campaign
 """
 
@@ -196,7 +196,8 @@ perf_struct = StructType([
 @F.pandas_udf(perf_struct)
 def gen(ids: pd.Series) -> pd.DataFrame:
     import numpy as np
-    rng = np.random.default_rng()
+    # Seeded per batch (spark.range has fixed partitions) so every run/upgrade produces identical data.
+    rng = np.random.default_rng(42 + int(ids.iloc[0]))
     # TikTok is the biggest channel (the one we lean on for growth)
     chans = np.array([1, 2, 3, 4]); chan_w = np.array([0.42, 0.22, 0.22, 0.14])
     plats = np.array(["Mobile", "Web"])

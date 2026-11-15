@@ -3,7 +3,14 @@
     {
       "name": "ds_metrics",
       "displayName": "Sales metrics",
-      "asset_name": "metrics_sales"
+      "queryLines": [
+        "-- Schema-less SQL over the governed metric view (dataset_catalog/dataset_schema rebind it on deploy).\n",
+        "-- Revenue is additive (SUM), so widgets re-aggregate it with SUM().\n",
+        "SELECT `Order Date`, `Product Line`, `Region`, `Segment`, `Latitude`, `Longitude`,\n",
+        "  MEASURE(`Revenue`) AS `Revenue`\n",
+        "FROM metrics_sales\n",
+        "GROUP BY ALL"
+      ]
     },
     {
       "name": "ds_target",
@@ -85,9 +92,9 @@
             "name": "title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Beauty Sales — are we hitting the number?\n",
+                "# Beauty Sales \u2014 are we hitting the number?\n",
                 "\n",
-                "One question every CRO asks. We track actual revenue against the quarter's target and let AI forecast where we'll land — by unifying Salesforce, ERP, Finance and the product catalog in one place."
+                "One question every CRO asks. We track actual revenue against the quarter's target and let AI forecast where we'll land \u2014 by unifying Salesforce, ERP, Finance and the product catalog in one place."
               ]
             }
           },
@@ -157,29 +164,19 @@
         },
         {
           "widget": {
-            "name": "kpi_revenue_trend",
+            "name": "kpi_qtd_revenue",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds_metrics",
+                  "datasetName": "ds_target",
                   "fields": [
                     {
-                      "name": "monthly(Order Date)",
-                      "expression": "DATE_TRUNC(\"MONTH\", `Order Date`)"
-                    },
-                    {
-                      "name": "measure(Revenue)",
-                      "expression": "MEASURE(`Revenue`)"
+                      "name": "qtd_actual",
+                      "expression": "`qtd_actual`"
                     }
                   ],
-                  "disaggregated": false,
-                  "orders": [
-                    {
-                      "direction": "DESC",
-                      "expression": "DATE_TRUNC(\"MONTH\", `Order Date`)"
-                    }
-                  ]
+                  "disaggregated": false
                 }
               }
             ],
@@ -188,8 +185,8 @@
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "measure(Revenue)",
-                  "displayName": "Revenue",
+                  "fieldName": "qtd_actual",
+                  "displayName": "Quarter-to-date revenue",
                   "format": {
                     "type": "number-currency",
                     "currencyCode": "USD",
@@ -199,14 +196,11 @@
                       "places": 1
                     }
                   }
-                },
-                "period": {
-                  "fieldName": "monthly(Order Date)"
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Total revenue (monthly trend)"
+                "title": "Quarter-to-date revenue"
               }
             }
           },
@@ -402,7 +396,7 @@
               ],
               "frame": {
                 "showTitle": true,
-                "title": "Weekly revenue — the AI forecast projects us beating target, led by a late surge"
+                "title": "Weekly revenue \u2014 the AI forecast projects us beating target, led by a late surge"
               }
             }
           },
@@ -427,8 +421,8 @@
                       "expression": "`Product Line`"
                     },
                     {
-                      "name": "measure(Revenue)",
-                      "expression": "MEASURE(`Revenue`)"
+                      "name": "sum(Revenue)",
+                      "expression": "SUM(`Revenue`)"
                     }
                   ],
                   "disaggregated": false
@@ -447,7 +441,7 @@
                   "displayName": "Product Line"
                 },
                 "y": {
-                  "fieldName": "measure(Revenue)",
+                  "fieldName": "sum(Revenue)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -461,7 +455,25 @@
                 "color": {
                   "fieldName": "Product Line",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#FE9000"
+                      }
+                    ]
                   }
                 }
               },
@@ -504,8 +516,8 @@
                   "datasetName": "ds_metrics",
                   "fields": [
                     {
-                      "name": "measure(Revenue)",
-                      "expression": "MEASURE(`Revenue`)"
+                      "name": "sum(Revenue)",
+                      "expression": "SUM(`Revenue`)"
                     },
                     {
                       "name": "Latitude",
@@ -537,7 +549,7 @@
                   }
                 },
                 "color": {
-                  "fieldName": "measure(Revenue)",
+                  "fieldName": "sum(Revenue)",
                   "displayName": "Revenue",
                   "scale": {
                     "type": "quantitative",
@@ -551,7 +563,7 @@
                   }
                 },
                 "size": {
-                  "fieldName": "measure(Revenue)",
+                  "fieldName": "sum(Revenue)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -581,8 +593,8 @@
                       "expression": "`Region`"
                     },
                     {
-                      "name": "measure(Revenue)",
-                      "expression": "MEASURE(`Revenue`)"
+                      "name": "sum(Revenue)",
+                      "expression": "SUM(`Revenue`)"
                     }
                   ],
                   "disaggregated": false
@@ -594,7 +606,7 @@
               "widgetType": "pie",
               "encodings": {
                 "angle": {
-                  "fieldName": "measure(Revenue)",
+                  "fieldName": "sum(Revenue)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -603,7 +615,25 @@
                 "color": {
                   "fieldName": "Region",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "LATAM",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "AMER",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#FE9000"
+                      }
+                    ]
                   },
                   "displayName": "Region"
                 },
@@ -657,7 +687,7 @@
               "lines": [
                 "## 1. Which region is surging?\n",
                 "\n",
-                "Monthly revenue by region — EMEA pulls away from the pack in recent months."
+                "Monthly revenue by region \u2014 EMEA pulls away from the pack in recent months."
               ]
             }
           },
@@ -720,7 +750,25 @@
                 "color": {
                   "fieldName": "region",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "LATAM",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "AMER",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#FE9000"
+                      }
+                    ]
                   },
                   "displayName": "Region"
                 }
@@ -747,7 +795,7 @@
               ],
               "frame": {
                 "showTitle": true,
-                "title": "Daily revenue by region (stacked) — EMEA grows after the launch"
+                "title": "Daily revenue by region (stacked) \u2014 EMEA grows after the launch"
               }
             }
           },
@@ -765,7 +813,7 @@
               "lines": [
                 "## 2. Why EMEA? A new product line went live\n",
                 "\n",
-                "Within EMEA, the **Fragrance** line was near-zero until it launched on **2026-05-04**, then took off — that single launch is driving the beat."
+                "Within EMEA, the **Fragrance** line was near-zero until it launched on **2026-05-04**, then took off \u2014 that single launch is driving the beat."
               ]
             }
           },
@@ -806,7 +854,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "EMEA weekly revenue by product line — Fragrance surges after the May 4 launch"
+                "title": "EMEA weekly revenue by product line \u2014 Fragrance surges after the May 4 launch"
               },
               "annotations": [
                 {
@@ -853,7 +901,25 @@
                   "fieldName": "product_line",
                   "displayName": "Product Line",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Skincare",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Makeup",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Haircare",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Fragrance",
+                        "color": "#FE9000"
+                      }
+                    ]
                   }
                 }
               }
@@ -921,7 +987,7 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Product launches (catalog) — the EMEA Fragrance launch is the trigger"
+                "title": "Product launches (catalog) \u2014 the EMEA Fragrance launch is the trigger"
               }
             }
           },
@@ -1120,16 +1186,13 @@
   "uiSettings": {
     "theme": {
       "visualizationColors": [
-        "#077A9D",
-        "#FF3621",
-        "#FFAB00",
-        "#00A972",
-        "#8BCAE7",
-        "#AB4057",
-        "#99DDB4",
-        "#FCA4A1"
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
       ],
-      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+      "widgetHeaderAlignment": "LEFT"
     },
     "genieSpace": {
       "isEnabled": true,

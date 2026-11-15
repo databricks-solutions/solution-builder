@@ -20,6 +20,9 @@ variables:
     default: aibi_marketing_campaign
   warehouse_id:
     description: SQL warehouse the dashboard + Genie space use.
+  workspace_folder:
+    description: Workspace folder that holds the dashboard + Genie space (also the bundle root_path).
+    default: /Workspace/Users/${workspace.current_user.userName}/aibi-marketing-campaign
 
 resources:
   schemas:
@@ -30,10 +33,13 @@ resources:
 
   dashboards:
     marketing_campaign_dashboard:
-      display_name: "[AI/BI] AIBI - Marketing Campaign effectiveness"
+      display_name: "AI-BI - Marketing Campaign effectiveness"  # no "/" : a dashboard with a parent_path is a workspace item
       file_path: ./dashboard/dashboard.lvdash.json
       warehouse_id: ${var.warehouse_id}
-      # Rebind the dashboard's datasets to the deployed catalog/schema.
+      parent_path: ${var.workspace_folder}
+      embed_credentials: true
+      # Rebind the dashboard's (schema-less) datasets to the deployed catalog/schema. The metric view is queried through
+      # a SQL dataset, not an asset_name dataset: asset_name must be catalog-qualified and is never rebound.
       dataset_catalog: ${var.catalog}
       dataset_schema: ${resources.schemas.demo_schema.name}
 
@@ -59,6 +65,7 @@ resources:
               catalog: ${var.catalog}
               schema: ${resources.schemas.demo_schema.name}
               warehouse_id: ${var.warehouse_id}
+              parent_path: ${var.workspace_folder}
           environment_key: sdk_latest
       environments:
         - environment_key: sdk_default
@@ -74,6 +81,8 @@ resources:
               - databricks-sdk>=0.114.0
 
 targets:
+  # Portable targets (any workspace — this is what "Download DAB" / forks use): pass -p <profile> and
+  # --var catalog/schema/warehouse_id.
   dev:
     mode: development
     default: true

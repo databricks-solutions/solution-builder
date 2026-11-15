@@ -1,58 +1,65 @@
-# LuxeBeauty Workshop — build the demo live with Genie Code
+# LuxeBeauty Co. — Returns Intelligence (Genie Code workshop)
 
-> **What this is.** A **hands-on workshop** variant of the LuxeBeauty returns
-> demo. Instead of shipping pre-built resources, it ships a set of **clean
-> Databricks notebooks** whose cells are **prompts the SA pastes into the
-> Databricks Assistant (Genie Code)** to build the demo live, one step at a
-> time: raw data (in a Volume) → SDP silver/gold → AI/BI dashboard → Genie space.
-> The full pre-built demo lives at `../example-luxebeauty/`.
+## The Story
 
-## The story
-
-Same universe as `../example-luxebeauty-simple/`: LuxeBeauty Co., VP Ops Claire
-Dubois sees weekly refunds spike **3x to ~$180K** three weeks ago. Cause: three
-Skincare SKUs on **one production lot** at Lyon, released despite a QC note about
-a homogenizer pressure issue. The demo proves: **spot the spike on a dashboard →
-ask Genie "why?" → Genie walks the data to the lot and quotes the incident note.**
-
-## How the workshop runs
-
-The SA opens the notebooks in order and, for each step, pastes the given prompt
-into the Assistant (✨). The Assistant reads `CONTEXT.md` (the ground truth) and
-writes the SQL/Python; the SA reviews + runs it.
-
-| Notebook | What it is |
+| | |
 |---|---|
-| `notebooks/00_introduction.py` | **the hub** — platform + story intro, links to every step, the one-time priming prompt |
-| `notebooks/01_setup_and_explore.py` | generate raw data → Volume, explore it (Notebooks & EDA) |
-| `notebooks/02_build_pipeline.py` | the SDP: silver (incl. `ai_classify` anger + AI functions + `silver_production_lots`) → gold |
-| `notebooks/03_dashboard_and_genie.py` | the AI/BI dashboard + the Genie space that cracks the case |
-| `notebooks/04_governance.py` | metric view (`mv_returns`) + ABAC tag-driven policies + data classification |
-| `notebooks/05_ml.py` | the hidden-premium classifier: feature table → train (XGBoost/Optuna/MLflow) → batch-score |
+| **Company** | LuxeBeauty Co. — D2C cosmetics e-commerce |
+| **Hero** | Claire Dubois, VP of Operations (non-technical) |
+| **Problem** | Weekly refunds spiked **~4–5× to ~$140K** about three weeks ago (normal ~$30K), still decaying |
+| **Investigation** | Claire asks *"Why so many returns?"* — the data traces it to 3 Skincare SKUs from **one production lot** at Lyon-France |
+| **Root cause** | The lot was released despite a QC note: homogenizer pressure fluctuations during emulsification caused texture problems |
+| **Impact** | ~4,000 returns from one lot (~80% of its orders) — about 75% of the peak week's refund $ |
 
-`00_introduction` is the landing hub; `01–03` are the core demo; `04–05` layer on
-governance + ML — same build-it-live-with-Genie-Code pattern. Notebooks cross-link
-with `$./` (e.g. `[Build the pipeline]($./02_build_pipeline)`). Run only the
-notebooks whose capabilities
-the demo needs.
+---
 
-## What's in this package
+## Overview
 
-```
-CONTEXT.md                     # the primer the Assistant reads (story + table/column contracts)
-resources.json                 # capabilities (SDP + Dashboard + Genie)
-notebooks/                     # the workshop notebooks (Databricks notebook-source .py)
-data_generation/generate_data.py   # writes 6 raw parquet datasets → UC Volume /raw_data/
-specifications/{01-lakeflow,04-ai-bi}.md   # the specs = the Assistant's context
-```
+Claire sees refunds jump on her dashboard and asks one question: *"Why do I have so many returns?"* Genie walks the data — returns → products → lot — and quotes the lot's incident note inline. The attendee builds every piece of that live with **Genie Code**: raw files → a Lakeflow pipeline → dashboard + Genie, then a governed metric view, PII governance and a premium-customer model.
 
-## Key design points
+---
 
-- **Raw lands as parquet FILES in a UC Volume** (`/Volumes/{cat}/{schema}/raw_data/`)
-  — the bronze landing zone. Silver reads it via `read_files()`; **no bronze
-  pass-through** (keep it simple).
-- **`silver_production_lots`** exposes the lot master (incl. `incident_summary`)
-  as a governed table so Genie can hop to it — the drill-down destination.
-- **The SA builds everything live with Genie Code.** The workshop ships NO
-  pipeline SQL — Genie Code writes it. The notebooks' prompts read like a human
-  prompting a real build; `CONTEXT.md` + the specs are the grounding contract.
+## Key Numbers
+
+These are what `data_generation/generate_data.py` produces. Dates roll with the run date.
+
+| Metric | Value |
+|---|---|
+| Normal weekly refunds | ~$30K (median week) |
+| Peak weekly refunds | ~$140K, ~3 weeks before the latest return (~4–5×) |
+| Everyday return rate | ~8% of orders (~10% for December orders) |
+| Affected lot | `LOT-{YYYY}-{MMDD}` at `Lyon-France` (id changes per run), 3 SKU rows × 2,500 units |
+| Affected SKUs | `SKU-1001` Hydrating Serum 30ml, `SKU-1002` Vitamin C Cream 50ml, `SKU-1003` HA Moisture Boost 15ml (~40 / 30 / 30) |
+| Affected-lot returns | ~4,000 (~80% of its ~5,000 orders); the next-largest lot has ~100 |
+| Skincare share of refund $ | ~70% |
+| Customers | 5,000; ~650 carry a `premium_status` label (~500 premium, ~130 not), the rest are unlabeled |
+
+---
+
+## Workshop Walkthrough
+
+1. **Setup & explore** — generate the raw files into a Volume; Genie Code spots the spike and the lot.
+2. **Build the pipeline** — silver (with an `ai_classify` anger score) → gold, data quality expectations, a Lakeflow Job.
+3. **Dashboard & Genie** — the spike in the past with its decay tail, Paris among the biggest map bubbles, the sankey collapsing to one lot; Genie quotes the QC note. Certify the space.
+4. **Business semantics** — `mv_returns` metric view; Genie answers from its measures; a Discover domain.
+5. **Governance** *(optional)* — ABAC masks PII-tagged columns and filters rows by region; data classification proposals.
+6. **ML** *(optional)* — a feature table, a premium classifier with a `prod` alias, batch scores that surface unlabeled premium customers.
+
+---
+
+## Products Showcased
+
+| Product | What it does in this workshop |
+|---|---|
+| **Genie Code** | Builds everything from plain-English prompts |
+| **Unity Catalog** | Governs the Volume, tables, model and Genie space; tags drive ABAC |
+| **Synthetic data generation** | `generate_data.py` lands 6 raw parquet datasets into a Volume |
+| **Notebooks** | Exploration of the raw files |
+| **Lakeflow Spark Declarative Pipelines** | Raw → silver → gold with expectations |
+| **AI Functions** | `ai_classify` scores customer-comment anger |
+| **Lakeflow Jobs** | Runs the pipeline on a schedule |
+| **AI/BI Dashboards** | Spot the spike, drill to the lot |
+| **Genie** / **Genie One** | Natural-language root cause, certified for business users |
+| **Metric Views** | One governed definition of return rate and refund rate |
+| **ABAC** + **Data Classification** | Tag-driven masking and row filters; proposed PII tags |
+| **ML Training & Serving** + **Feature Store** | Feature table, UC-registered classifier, batch scoring |

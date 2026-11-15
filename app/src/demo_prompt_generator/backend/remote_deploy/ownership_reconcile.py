@@ -99,6 +99,14 @@ MECH_DASHBOARD = "dashboard_can_manage"  # PATCH /permissions/dashboards/{id}
 MECH_ENDPOINT = "endpoint_can_manage"    # PATCH /permissions/serving-endpoints/{id}
 MECH_APP = "app_can_manage"           # PATCH /permissions/apps/{name} CAN_MANAGE
 MECH_LAKEBASE = "lakebase_can_manage"    # PATCH /permissions/database-projects/{slug}
+# Lakebase DATA-plane grant (distinct from MECH_LAKEBASE's control-plane CAN_MANAGE
+# on the database-PROJECT). The SP that deployed the demo owns the `dbgen_<name>`
+# Postgres database + its objects, so CAN_MANAGE alone still leaves the builder with
+# "Permission denied — ask the owner to create a PostgreSQL role for your Databricks
+# identity". This creates a USER Postgres role for the builder AS the SP and GRANTs it
+# CONNECT + schema/table/sequence privileges (the USER analogue of the app-SP grant in
+# app_template/scripts/lakebase_grant_app_credential.sh).
+MECH_LAKEBASE_PGROLE = "lakebase_pgrole_grant"
 MECH_KA_SHARE = "ka_share"            # POST /knowledge-assistants/{id}/share
 MECH_MAS_SHARE = "mas_share"          # POST /multi-agent-supervisors/{id}/share
 # Post-transfer: re-arm the deployer SP's write access to the now-user-owned
@@ -144,6 +152,11 @@ class ReconcileResult:
     actions_planned: int = 0
     succeeded: int = 0
     failed: int = 0
+    # Best-effort actions (e.g. the Lakebase data-plane grant) that failed. Tracked
+    # SEPARATELY from `failed` so a transient Lakebase blip does NOT block the
+    # ownership-hash latch and storm the whole reconcile on every fetch — those
+    # actions self-heal via the manual grant tool / a later reconcile trigger.
+    best_effort_failed: int = 0
     errors: list[str] = field(default_factory=list)
     # human-readable plan (rtype: value -> mechanism), useful for dry-run review
     plan: list[str] = field(default_factory=list)
@@ -577,6 +590,34 @@ def reconcile_ownership(
         actions.append(OwnershipAction("catalog", str(cat), "catalog-use-grant",
                                        "catalog_use_grant", _ORDER_CATALOG_GRANT))
 
+    # Lakebase DATA-plane grant. classify() maps the lakebase trio to a
+    # CAN_MANAGE on the database-PROJECT (slug, control plane) + SKIPs the id +
+    # database children. But Postgres has its OWN permission model: the SP that
+    # deployed the demo owns the `dbgen_<name>` database, so the builder can't
+    # even connect. Assemble ONE action here — where the whole trio is visible —
+    # that (AS the SP) creates a USER Postgres role for the builder and GRANTs it
+    # usage of the db. Carries the project slug + db name; the builder email is
+    # the grant target (`user_email`). The branch isn't in the manifest — the
+    # executor resolves it. Additive + idempotent, so it also passes through the
+    # grant_only (mid-build) transform below unchanged, like MECH_LAKEBASE.
+    # Prefer the EXACT canonical keys (how the app writes the trio) so we never
+    # cross-pair a `lakebase_project_slug` with a *different* resource's prefixed
+    # `..._lakebase_database` — that mispair would target a db that isn't on the
+    # resolved branch. Fall back to suffix-matching only when an exact key is
+    # absent (older/prefixed-only manifests).
+    def _exact_or_suffix(exact: str, suffix: str) -> Optional[str]:
+        v = created.get(exact)
+        if isinstance(v, (str, int, float)) and str(v).strip() and not _is_placeholder(str(v).strip()):
+            return str(v).strip()
+        return _first_value_by_suffix(created, suffix)
+
+    lb_slug = _exact_or_suffix("lakebase_project_slug", "lakebase_project_slug")
+    lb_db = _exact_or_suffix("lakebase_database", "lakebase_database")
+    if lb_slug and lb_db:
+        actions.append(OwnershipAction(
+            "lakebase_project_slug", f"{lb_slug}/{lb_db}",
+            "database-pgrole", MECH_LAKEBASE_PGROLE))
+
     if grant_only:
         # MID-BUILD: turn every ownership TRANSFER into an additive GRANT so the
         # user can read the resource but the SP keeps owning it (build unbroken).
@@ -643,6 +684,15 @@ def reconcile_ownership(
                            sp_client_id=sp_client_id)
         if ok:
             result.succeeded += 1
+        elif a.mechanism == MECH_LAKEBASE_PGROLE:
+            # Best-effort data-plane grant: a failure must NOT block the latch
+            # (which gates on `failed == 0`). Otherwise a transient Lakebase
+            # blip re-runs the ENTIRE reconcile on every deployed-resources
+            # fetch. It self-heals via the manual grant tool or a later trigger.
+            result.best_effort_failed += 1
+            result.errors.append(f"{a.rtype} {a.value} (best-effort): {err}")
+            logger.warning("[reconcile] best-effort %s %s failed (non-blocking): %s",
+                           a.rtype, a.value, err)
         else:
             result.failed += 1
             result.errors.append(f"{a.rtype} {a.value}: {err}")
@@ -668,6 +718,234 @@ def _as_grant_only(a: OwnershipAction, schema: Optional[str]) -> OwnershipAction
         # models API has no simple additive grant here — leave as NOTE (skip).
         return OwnershipAction(a.key, a.value, a.rtype, MECH_NOTE, a.order)
     return a
+
+
+# ---------------------------------------------------------------------------
+# Lakebase data-plane grant (MECH_LAKEBASE_PGROLE)
+#
+# Mirrors app_template/scripts/lakebase_grant_app_credential.sh — but grants a
+# USER (the builder) instead of the app SP. Runs AS the deployer SP (`sp_ws`),
+# which owns the `dbgen_<name>` database, so it can create the role and GRANT.
+# Reuses the OAuth primitives + psycopg connect pattern from core/lakebase.py.
+# ---------------------------------------------------------------------------
+
+# The db is created on the `production` branch by default (lakebase_setup_db.sh),
+# and the trio in resources.json carries no branch — so default here and let the
+# executor prefer the branch actually carrying the db when it can determine it.
+_LAKEBASE_DEFAULT_BRANCH = "production"
+
+
+def _first_value_by_suffix(created: dict[str, Any], suffix: str) -> Optional[str]:
+    """First non-placeholder scalar value whose key ends with `suffix` (case-
+    insensitive). Mirrors classify()'s suffix matching so a prefixed key
+    (`foo_lakebase_database`) is still found."""
+    for k, v in created.items():
+        if isinstance(v, (str, int, float)) and str(k).lower().endswith(suffix):
+            s = str(v).strip()
+            if s and not _is_placeholder(s):
+                return s
+    return None
+
+
+def _pgrole_id_for_user(email: str) -> str:
+    """A valid Lakebase role *resource id* (must match ^[a-z]([a-z0-9-]*)$) derived
+    from a user email. This is only the resource-path slug — the role's
+    `postgres_role` (the actual Postgres role NAME) stays the bare email. Mirrors
+    the app-SP script's `sp-<uuid>` convention with a `user-` prefix.
+
+    A short hash of the email is appended so two distinct emails that slugify to
+    the same string (e.g. `a.b@x.com` and `a-b@x.com` both → `a-b-x-com`) get
+    DISTINCT resource ids on the shared branch — otherwise the second create-role
+    would collide and be swallowed as ALREADY_EXISTS, and that builder's role
+    would never be created."""
+    import hashlib
+    norm = email.strip().lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", norm).strip("-")[:40] or "x"
+    h = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:8]
+    return f"user-{slug}-{h}"
+
+
+def _pg_quote(ident: str) -> str:
+    """Double-quote a Postgres identifier / role name, escaping embedded quotes."""
+    return '"' + ident.replace('"', '""') + '"'
+
+
+def _pgrole_grant_sql(db_name: str, email: str) -> list[str]:
+    """The idempotent data-plane GRANTs letting `email` use the SP-owned
+    `dbgen_<name>` database (Postgres no-ops repeated GRANTs). The USER-scoped
+    analogue of the app-SP recipe in lakebase_grant_app_credential.sh — which is
+    why it must cover the app's OWN schemas (`app`/`appkit`/`drizzle`), NOT just
+    `public`: the demo's tables are created under `pgSchema('app')` (the Delta→
+    Lakebase mirror), so a public-only grant leaves the builder unable to read
+    their own data even though the reconcile reports success."""
+    d, u = _pg_quote(db_name), _pg_quote(email)
+    lit = "'" + email.replace("'", "''") + "'"  # email as a SQL string literal (for format() args)
+    return [
+        f"GRANT CONNECT ON DATABASE {d} TO {u}",
+        # public — the default landing schema.
+        f"GRANT USAGE, CREATE ON SCHEMA public TO {u}",
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {u}",
+        f"GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA public TO {u}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {u}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, USAGE ON SEQUENCES TO {u}",
+        # app/appkit/drizzle — where the demo's data actually lives. Best-effort
+        # per schema (skip one that isn't present yet, or that the SP can't grant
+        # on) so a partial layout never fails the whole reconcile. Mirrors the
+        # app/appkit/drizzle block in lakebase_grant_app_credential.sh.
+        f"""DO $do$
+DECLARE s text;
+BEGIN
+  FOREACH s IN ARRAY ARRAY['app','appkit','drizzle'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = s) THEN
+      BEGIN
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', s, {lit});
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', s, {lit});
+        EXECUTE format('GRANT SELECT, USAGE ON ALL SEQUENCES IN SCHEMA %I TO %I', s, {lit});
+        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', s, {lit});
+        EXECUTE format('ALTER DEFAULT PRIVILEGES IN SCHEMA %I GRANT SELECT, USAGE ON SEQUENCES TO %I', s, {lit});
+      EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'reconcile: cannot grant on schema % (not owner) — skipping', s;
+      END;
+    END IF;
+  END LOOP;
+END $do$;""",
+    ]
+
+
+def _lakebase_role_exists(sp_ws: "WorkspaceClient", branch_path: str, email: str) -> bool:
+    """True if a Postgres role for this USER identity already exists on the branch
+    (idempotency guard for create-role). Best-effort: unknown → False."""
+    try:
+        resp = sp_ws.api_client.do("GET", f"/api/2.0/postgres/{branch_path}/roles")
+        for r in (resp.get("roles", []) if isinstance(resp, dict) else []):
+            if not isinstance(r, dict):
+                continue
+            st = r.get("status") or {}
+            sp = r.get("spec") or {}
+            if st.get("postgres_role") == email or sp.get("postgres_role") == email:
+                return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _ensure_lakebase_user_role(sp_ws: "WorkspaceClient", branch_path: str, email: str) -> None:
+    """Create a USER Postgres role for `email` on the branch if absent — the USER
+    analogue of the app-SP create-role in lakebase_grant_app_credential.sh.
+    Idempotent: guarded by list-roles; tolerates an ALREADY_EXISTS race."""
+    if _lakebase_role_exists(sp_ws, branch_path, email):
+        return
+    try:
+        sp_ws.api_client.do(
+            "POST", f"/api/2.0/postgres/{branch_path}/roles",
+            query={"role_id": _pgrole_id_for_user(email)},
+            body={"spec": {"identity_type": "USER", "postgres_role": email,
+                           "auth_method": "LAKEBASE_OAUTH_V1"}},
+        )
+    except Exception as e:  # noqa: BLE001
+        msg = str(e).lower()
+        if "already" in msg or "exists" in msg:
+            logger.info("[reconcile] lakebase role for %s already exists on %s", email, branch_path)
+            return
+        raise
+
+
+def _resolve_lakebase_branch(sp_ws: "WorkspaceClient", slug: str, db_name: str,
+                             default: str = _LAKEBASE_DEFAULT_BRANCH) -> str:
+    """Best-effort: return the branch whose database set contains `db_name`, else
+    `default` (`production`). The manifest carries no branch, and the db lives on
+    the branch it was created on. Never raises — falls back to `default`."""
+    try:
+        resp = sp_ws.api_client.do("GET", f"/api/2.0/postgres/projects/{slug}/branches")
+        branches = resp.get("branches", []) if isinstance(resp, dict) else []
+        ids: list[str] = []
+        for b in branches:
+            name = (b.get("name") or "") if isinstance(b, dict) else ""
+            bid = name.rstrip("/").split("/")[-1] if name else ""
+            if bid:
+                ids.append(bid)
+        # Check the default branch first, then any others.
+        ordered = ([default] if default in ids else []) + [b for b in ids if b != default]
+        for bid in (ordered or [default]):
+            try:
+                dbs = sp_ws.api_client.do(
+                    "GET", f"/api/2.0/postgres/projects/{slug}/branches/{bid}/databases")
+                for d in (dbs.get("databases", []) if isinstance(dbs, dict) else []):
+                    if not isinstance(d, dict):
+                        continue
+                    spec = d.get("spec") or {}
+                    nm = (d.get("name") or "").rstrip("/").split("/")[-1]
+                    if spec.get("postgres_database") == db_name or nm == db_name:
+                        return bid
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+    return default
+
+
+def _lakebase_oauth(sp_ws: "WorkspaceClient", branch_path: str,
+                    db_name: str) -> tuple[str, str, str]:
+    """Resolve the branch READ_WRITE endpoint + mint an SP OAuth token, reusing
+    core.lakebase's primitives. Returns (host, pg_user, token) — pg_user is the
+    SP identity (the db owner). A thin seam so tests stub the whole Lakebase-
+    client interaction without importing psycopg / the SDK.
+
+    We hand `_resolve_endpoint` a path whose last segment is the Postgres db NAME
+    (`dbgen_<name>`); it only uses that segment for the connect dbname, which is
+    exactly what we want (we connect to the db, not to its resource id)."""
+    from ..core import lakebase as lb  # local: keep psycopg/SDK off the import path
+    endpoint = lb._resolve_endpoint(sp_ws, f"{branch_path}/databases/{db_name}")
+    cred = lb._mint_token(sp_ws, endpoint.endpoint_path)
+    return endpoint.host, lb._user_from_token(cred.token), cred.token
+
+
+def _pg_connect(host: str, dbname: str, user: str, password: str):
+    """Open a psycopg connection to a Lakebase db (autocommit — each idempotent
+    GRANT commits independently). A thin seam so tests stub it without psycopg."""
+    import psycopg  # local: only needed on the actual execution path
+    return psycopg.connect(host=host, port=5432, dbname=dbname, user=user,
+                           password=password, sslmode="require", autocommit=True)
+
+
+def _grant_lakebase_pgrole(sp_ws: "WorkspaceClient", slug_and_db: str,
+                           user_email: str) -> tuple[bool, Optional[str]]:
+    """Data-plane Lakebase grant for the builder: create a USER Postgres role for
+    `user_email` and GRANT it usage of the SP-owned `dbgen_<name>` database, AS
+    the deployer SP (`sp_ws`, the db owner). Best-effort + idempotent. Failures are
+    logged loudly and returned as (False, err) — never raised — so the rest of the
+    reconcile continues. `slug_and_db` is "<project-slug>/<db-name>"."""
+    slug, _, db_name = slug_and_db.partition("/")
+    if not slug or not db_name:
+        return False, f"malformed lakebase pgrole target {slug_and_db!r}"
+
+    branch = _resolve_lakebase_branch(sp_ws, slug, db_name)
+    branch_path = f"projects/{slug}/branches/{branch}"
+
+    # 1. Ensure the builder's USER Postgres role exists (create AS the SP).
+    try:
+        _ensure_lakebase_user_role(sp_ws, branch_path, user_email)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[reconcile] lakebase create-role for %s on %s failed: %s",
+                       user_email, branch_path, e)
+        return False, f"create-role failed: {type(e).__name__}: {e}"
+
+    # 2. Resolve the RW endpoint + mint an SP token, then connect to the db AS the
+    #    SP (the owner) and run the idempotent GRANTs.
+    try:
+        host, pg_user, token = _lakebase_oauth(sp_ws, branch_path, db_name)
+        with _pg_connect(host, db_name, pg_user, token) as conn:
+            with conn.cursor() as cur:
+                for stmt in _pgrole_grant_sql(db_name, user_email):
+                    cur.execute(stmt)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[reconcile] lakebase GRANTs on %s for %s failed: %s",
+                       db_name, user_email, e)
+        return False, f"grant failed: {type(e).__name__}: {e}"
+
+    logger.info("[reconcile] lakebase pgrole granted: db=%s user=%s branch=%s",
+                db_name, user_email, branch)
+    return True, None
 
 
 def _execute(sp_ws: "WorkspaceClient", warehouse_id: Optional[str], user_email: str,
@@ -793,6 +1071,9 @@ def _execute(sp_ws: "WorkspaceClient", warehouse_id: Optional[str], user_email: 
         return _patch_permissions(sp_ws, "apps", a.value, user_email, "CAN_MANAGE")
     if m == MECH_LAKEBASE:
         return _patch_permissions(sp_ws, "database-projects", a.value, user_email, "CAN_MANAGE")
+    if m == MECH_LAKEBASE_PGROLE:
+        # a.value is "<project-slug>/<db-name>"; the grant target is `user_email`.
+        return _grant_lakebase_pgrole(sp_ws, a.value, user_email)
 
     # --- KA / MAS bespoke share ---
     if m == MECH_KA_SHARE:

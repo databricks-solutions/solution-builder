@@ -3,7 +3,14 @@
     {
       "name": "ds_metrics",
       "displayName": "Portfolio holdings metrics",
-      "asset_name": "portfolio_metrics"
+      "queryLines": [
+        "-- Row-level slice of the governed metric view (portfolio x ticker). A SQL dataset instead of an\n",
+        "-- asset_name binding so the dashboard can be bundle-deployed before the metric view exists.\n",
+        "SELECT `Portfolio`, `Ticker`, `Company`, `Sector`, `AI Exposure`,\n",
+        "  MEASURE(`Total Weight`) AS `Total Weight`\n",
+        "FROM portfolio_metrics\n",
+        "GROUP BY ALL"
+      ]
     },
     {
       "name": "ds_kpi_return",
@@ -136,15 +143,15 @@
     {
       "name": "performance",
       "displayName": "Performance & risk",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "title",
             "multilineTextboxSpec": {
               "lines": [
-                "# AI Growth Fund — winning, but how exposed?\n\nOur flagship fund is beating its benchmark by riding the AI rally. The catch: a series of reorgs piled it into AI names — and one major pivot took core-AI exposure from ~30% to ~80%. Great returns, but how much risk are we carrying if the AI trade turns?"
+                "# AI Growth Fund — winning, but how exposed?\n",
+                "\n",
+                "Our flagship fund is beating its benchmark by riding the AI rally. The catch: a series of reorgs piled it into AI names — and one major pivot took core-AI exposure from ~30% to ~80%. Great returns, but how much risk are we carrying if the AI trade turns?"
               ]
             }
           },
@@ -479,7 +486,7 @@
                     },
                     {
                       "name": "measure(Total Weight)",
-                      "expression": "MEASURE(`Total Weight`)"
+                      "expression": "SUM(`Total Weight`)"
                     }
                   ],
                   "disaggregated": false
@@ -488,29 +495,81 @@
             ],
             "spec": {
               "version": 3,
-              "widgetType": "pie",
+              "widgetType": "bar",
               "encodings": {
-                "angle": {
-                  "fieldName": "measure(Total Weight)",
-                  "scale": {
-                    "type": "quantitative"
-                  },
-                  "displayName": "Weight"
-                },
-                "color": {
+                "y": {
                   "fieldName": "Sector",
                   "scale": {
                     "type": "categorical"
                   },
-                  "displayName": "Sector"
+                  "displayName": "Sector",
+                  "axis": {
+                    "hideTitle": true
+                  }
                 },
-                "label": {
-                  "show": true
+                "x": {
+                  "fieldName": "measure(Total Weight)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Weight (%)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    },
+                    "suffix": "%"
+                  }
+                },
+                "color": {
+                  "fieldName": "Sector",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Technology",
+                        "color": "#2E6CB5"
+                      },
+                      {
+                        "value": "Communication Services",
+                        "color": "#3FA7B8"
+                      },
+                      {
+                        "value": "Consumer Discretionary",
+                        "color": "#5CBE8A"
+                      },
+                      {
+                        "value": "Industrials",
+                        "color": "#E8B54E"
+                      },
+                      {
+                        "value": "Consumer Staples",
+                        "color": "#9CC6A6"
+                      },
+                      {
+                        "value": "Energy",
+                        "color": "#9B6A9E"
+                      },
+                      {
+                        "value": "Financials",
+                        "color": "#6E8FD8"
+                      },
+                      {
+                        "value": "Healthcare",
+                        "color": "#E0795A"
+                      }
+                    ]
+                  },
+                  "displayName": "Sector",
+                  "legend": {
+                    "hide": true
+                  }
                 }
               },
               "frame": {
                 "showTitle": true,
-                "title": "Fund allocation by sector"
+                "title": "Fund allocation by sector — 81% Technology"
               }
             }
           },
@@ -526,7 +585,9 @@
             "name": "risk_hdr",
             "multilineTextboxSpec": {
               "lines": [
-                "## How much could a bad day cost?\n\n**Value at Risk** puts a dollar figure on the downside (on a **$100M** book): on 95% of days the fund won't lose more than the figure below — but concentrating into AI pushed that number up. The chart shows which holdings actually reward their risk: **up** = more return, **right** = more risk, **size** = position weight. Best is top-left; the fund's AI names (coral) sit to the right."
+                "## How much could a bad day cost?\n",
+                "\n",
+                "**Value at Risk** puts a dollar figure on the downside (on a **$100M** book): on 95% of days the fund won't lose more than the figure below — but concentrating into AI pushed that number up. The chart shows which holdings actually reward their risk: **up** = more return, **right** = more risk, **size** = position weight. Best is top-left; the fund's AI names (coral) sit to the right."
               ]
             }
           },
@@ -817,7 +878,7 @@
                     },
                     {
                       "name": "measure(Total Weight)",
-                      "expression": "MEASURE(`Total Weight`)"
+                      "expression": "SUM(`Total Weight`)"
                     }
                   ],
                   "disaggregated": false
@@ -871,20 +932,22 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "concentration",
       "displayName": "Concentration risk",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "c_title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Why the strong returns come with risk\n\nThe outperformance is concentrated in AI. A series of reorgs — capped by one major pivot — sold the fund's defensives and bought AI, taking core-AI exposure from ~30% to ~80%. That single decision drove the returns and the risk at the same time."
+                "# Why the strong returns come with risk\n",
+                "\n",
+                "The outperformance is concentrated in AI. A series of reorgs — capped by one major pivot — sold the fund's defensives and bought AI, taking core-AI exposure from ~30% to ~80%. That single decision drove the returns and the risk at the same time."
               ]
             }
           },
@@ -900,7 +963,9 @@
             "name": "c_step1",
             "multilineTextboxSpec": {
               "lines": [
-                "## 1. The reorgs that piled into AI\n\nThree portfolio reorganizations, ending with a major pivot on **Aug 4, 2025** that sold every defensive (JNJ, PG, KO, XOM, JPM) and concentrated the book in core-AI names."
+                "## 1. The reorgs that piled into AI\n",
+                "\n",
+                "Three portfolio reorganizations, ending with a major pivot on **Aug 4, 2025** that sold every defensive (JNJ, PG, KO, XOM, JPM) and concentrated the book in core-AI names."
               ]
             }
           },
@@ -1035,7 +1100,9 @@
             "name": "c_step2",
             "multilineTextboxSpec": {
               "lines": [
-                "## 2. Concentration stepped up at the reorg\n\nCore-AI exposure was steady near 30%, drifted up with two tilts, then **jumped to ~80% at the August pivot** — and has stayed there. The risk is now structural, not incidental."
+                "## 2. Concentration stepped up at the reorg\n",
+                "\n",
+                "Core-AI exposure was steady near 30%, drifted up with two tilts, then **jumped to ~80% at the August pivot** — and has stayed there. The risk is now structural, not incidental."
               ]
             }
           },
@@ -1150,7 +1217,9 @@
             "name": "c_step3",
             "multilineTextboxSpec": {
               "lines": [
-                "## 3. Is the risk paying off — so far? (Sharpe)\n\nThe bet has worked *to date*: after the major pivot the fund's volatility **rose** (from ~23% to ~29%), but returns rose even faster, so its Sharpe is strong (~2.1, above the benchmark's ~1.76). The caution: that reward rides on a single, undiversified ~77% core-AI position — the higher volatility and Value-at-Risk are the price of it, and they bite hard if the AI trade turns."
+                "## 3. Is the risk paying off — so far? (Sharpe)\n",
+                "\n",
+                "The bet has worked *to date*: after the major pivot the fund's volatility **rose** (from ~23% to ~29%), but returns rose even faster, so its Sharpe is strong (~2.1, above the benchmark's ~1.76). The caution: that reward rides on a single, undiversified ~77% core-AI position — the higher volatility and Value-at-Risk are the price of it, and they bite hard if the AI trade turns."
               ]
             }
           },
@@ -1358,7 +1427,9 @@
             "name": "c_step4",
             "multilineTextboxSpec": {
               "lines": [
-                "## 4. The fund is far more exposed to Technology than the benchmark\n\n~87% Technology vs ~34% in the benchmark, and over half the book in core-AI names — a turn in the AI trade would hit it disproportionately."
+                "## 4. The fund is far more exposed to Technology than the benchmark\n",
+                "\n",
+                "~81% Technology vs ~34% in the benchmark, and over half the book in core-AI names — a turn in the AI trade would hit it disproportionately."
               ]
             }
           },
@@ -1468,7 +1539,7 @@
                     },
                     {
                       "name": "measure(Total Weight)",
-                      "expression": "MEASURE(`Total Weight`)"
+                      "expression": "SUM(`Total Weight`)"
                     }
                   ],
                   "disaggregated": false
@@ -1529,7 +1600,9 @@
             "name": "c_step5",
             "multilineTextboxSpec": {
               "lines": [
-                "## 5. The news flow on those AI names\n\nRecent sentiment on the fund's core-AI holdings — the qualitative signal a manager watches for an early turn."
+                "## 5. The news flow on those AI names\n",
+                "\n",
+                "Recent sentiment on the fund's core-AI holdings — the qualitative signal a manager watches for an early turn."
               ]
             }
           },
@@ -1614,13 +1687,13 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "filters",
       "displayName": "Filters",
-      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
@@ -1763,7 +1836,9 @@
             "height": 1
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
     }
   ],
   "uiSettings": {

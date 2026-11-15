@@ -32,6 +32,7 @@ is ephemeral coordination on top of it.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import itertools
 import json
@@ -46,6 +47,13 @@ from ..core._config import logger
 
 def _hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+# Upper bound on one frame send to one member. A socket that can't take a frame in
+# this long (full TCP buffer: sleeping laptop, half-open peer; 10 s leaves room for a
+# big replay frame on a slow link) is dropped rather
+# than stalling every other member and the sender's own receive loop.
+SEND_TIMEOUT_S = 10.0
 
 
 # MESSAGE_PRESENCE(3): our JSON control channel inside the Yjs binary framing —
@@ -90,6 +98,11 @@ class Member:
     role: str  # "editor" | "viewer" (owners/admins map to editor)
     color: str
     ws: WebSocket
+    # Serializes every send to THIS socket: concurrent ws sends can interleave or
+    # reorder frames. Held for one bounded send only (see CollabHub.send_frame).
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    # Set when a send failed or stalled; the next fan-out removes the member.
+    dropped: bool = False
     # Monotonic time of the last INBOUND frame from this member (any message,
     # incl. the client's ~8s ping). A dead/half-open client sends nothing, so a
     # stale last_seen is the reliable liveness signal used to reap ghosts — even
@@ -253,30 +266,53 @@ class CollabHub:
 
     # -- fan-out ------------------------------------------------------------
 
-    async def _send_bytes(self, member: Member, data: bytes) -> bool:
-        """Best-effort BINARY send to one member (Yjs sync/awareness frames)."""
-        try:
-            await member.ws.send_bytes(data)
-            return True
-        except Exception:
+    async def send_frame(self, member: Member, data: bytes | str) -> bool:
+        """Send ONE frame (binary Yjs/presence, or a text ping/pong) to one member.
+        Serialized with every other send to that socket and bounded by
+        SEND_TIMEOUT_S. A failed or stalled send marks the member dropped (the next
+        fan-out removes it, re-electing the writer if needed) and returns False.
+        Routes use this for their own replies too, so a socket never has two
+        concurrent sends."""
+        if member.dropped:
             return False
+        async with member.send_lock:
+            try:
+                send = (
+                    member.ws.send_bytes(data)
+                    if isinstance(data, bytes)
+                    else member.ws.send_text(data)
+                )
+                await asyncio.wait_for(send, timeout=SEND_TIMEOUT_S)
+                return True
+            except Exception:  # includes TimeoutError
+                member.dropped = True
+                return False
+
+    async def _close_dropped(self, member: Member) -> None:
+        """Close a socket we dropped so its client sees the close and reconnects.
+        Bounded: closing a stalled socket can block on the same full buffer."""
+        try:
+            await asyncio.wait_for(member.ws.close(), timeout=SEND_TIMEOUT_S)
+        except Exception:
+            pass
 
     async def broadcast_bytes(
         self, project_id: str, data: bytes, exclude: Optional[int] = None
     ) -> None:
-        """Fan out a raw binary frame to every member except the origin. Reaps a
-        socket that errors."""
+        """Fan out a raw binary frame to every member except the origin. Sends run
+        concurrently across members (one slow socket can't serialize the rest), each
+        bounded and ordered per member by send_frame. A member whose send fails or
+        stalls is removed via leave() (roster + writer stay correct) and closed."""
         room = self._rooms.get(project_id)
         if not room:
             return
-        dead: list[int] = []
-        for conn_id, member in list(room.members.items()):
-            if conn_id == exclude:
-                continue
-            if not await self._send_bytes(member, data):
-                dead.append(conn_id)
-        for conn_id in dead:
-            await self.leave(project_id, conn_id)
+        targets = [m for cid, m in list(room.members.items()) if cid != exclude]
+        results = await asyncio.gather(*(self.send_frame(m, data) for m in targets))
+        dead = [m for m, ok in zip(targets, results) if not ok]
+        for member in dead:
+            await self.leave(project_id, member.conn_id)
+        if dead:
+            await asyncio.gather(*(self._close_dropped(m) for m in dead))
 
     async def relay_yjs(
         self, project_id: str, member: Member, data: bytes, is_sync_update: bool
@@ -308,7 +344,7 @@ class CollabHub:
                 room.compact_requested_bytes = room.yjs_log_bytes
                 writer = room.members.get(room.writer_conn)
                 if writer is not None:
-                    await self._send_bytes(writer, _presence_frame({"type": "compact"}))
+                    await self.send_frame(writer, _presence_frame({"type": "compact"}))
         await self.broadcast_bytes(project_id, data, exclude=member.conn_id)
 
     async def compact_yjs_log(self, project_id: str, member: Member, snapshot: bytes) -> None:
@@ -324,6 +360,40 @@ class CollabHub:
         room.yjs_log_bytes = len(snapshot)
         room.compact_requested_bytes = -1
         await self.broadcast_bytes(project_id, snapshot, exclude=member.conn_id)
+
+    def reconcile_with_disk(self, project_id: str, content: str) -> None:
+        """Before a fresh joiner is replayed the room's Yjs log, make DISK
+        authoritative if it drifted out-of-band.
+
+        The room's `known_hash` tracks the content the room last agreed on (the
+        writer's own save, or an agent-takeover snapshot we broadcast). If the
+        current on-disk `architecture.md` no longer matches it, the file changed
+        WHILE the room's log stopped tracking it — an agent write, or (the dev
+        footgun) an external edit made while the only members were half-open
+        ghosts that never persisted it. In that case the accumulated Yjs log
+        describes a STALE doc: replaying it to the newcomer would resurrect the
+        old content over the newer file (the 'flash then revert', and then the
+        newcomer-as-writer persists the stale doc back over disk). So drop the
+        log and re-baseline to disk — the joiner then seeds its doc from
+        `architecture.md` (an empty replay log → the client's cold-seed path).
+
+        A no-op when the room is empty/absent (a truly cold room seeds from disk
+        anyway) or when disk already matches `known_hash` (a live writer keeps
+        the two in lockstep, so normal collaborative editing is untouched)."""
+        room = self._rooms.get(project_id)
+        if not room:
+            return
+        h = _hash(content)
+        if room.known_hash is not None and h != room.known_hash:
+            room.yjs_updates.clear()
+            room.yjs_log_bytes = 0
+            room.compact_requested_bytes = -1
+            room.known_hash = h
+            logger.debug(
+                f"[collab] join reconcile: disk drifted from room for project "
+                f"{project_id} — cleared stale log ({len(content)} chars); "
+                f"joiner seeds from disk"
+            )
 
     def yjs_replay_log(self, project_id: str) -> list[bytes]:
         """The accumulated sync-update frames to replay to a fresh joiner so their

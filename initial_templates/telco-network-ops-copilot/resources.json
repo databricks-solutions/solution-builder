@@ -1,0 +1,26 @@
+{
+    "short_description": "A regional carrier's NOC drowns in a 457-alarm storm from 64 cell sites. A Lakeflow SDP pipeline streams RAN KPIs, alarms and optical counters into Unity Catalog; topology correlation turns the storm into one incident and a KPI anomaly model (Isolation Forest in UC) finds a sector degrading with no alarm. The NOC Copilot app on Lakebase runs a triage agent that walks the topology to the root cause (a fiber cut plus a backup optic nobody fixed), sizes customer impact, asks the Genie agent about the NOC runbooks, and opens one parent trouble ticket with the right field dispatch; ops leadership tracks availability, alarms and MTTR in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "sdp",
+            "unity-catalog",
+            "ml-training",
+            "ai-functions",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "mlflow-tracing"
+        ],
+        "talking_track": [
+            "zerobus",
+            "lakeflow-connect",
+            "metric-views",
+            "unstructured-documents",
+            "databricks-one"
+        ]
+    },
+    "created_resources": {}
+}

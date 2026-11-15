@@ -51,7 +51,9 @@ export const CAPABILITY_META: Record<string, CapabilityMeta> = {
   "lakeflow-jobs": { group: "Data Processing", display: "Lakeflow Jobs", icon: "sdpPipeline" },
 
   // ── AI ────────────────────────────────────────────────────────────
-  "agent-bricks":           { group: "AI", display: "Agent Bricks", icon: "agents" },
+  "unstructured-documents": { group: "AI", display: "Unstructured documents (PDF)", icon: "unstructuredData", deployed_type: "documents_volume" },
+  // Legacy: KA/MAS are deprecated for new projects, but existing demos still
+  // carry them. Keep the entries so their overview tiles still render and link.
   "knowledge-assistant":    { group: "AI", display: "Knowledge Assistant", icon: "knowledgeAssistant", deployed_type: "knowledge_assistant" },
   "supervisor-agent":       { group: "AI", display: "Supervisor Agent", icon: "multiAgentSupervisor", deployed_type: "multi_agent_supervisor" },
   "ml-training-serving":    { group: "AI", display: "ML Training & Serving", icon: "mlModel", deployed_type: ["mlflow_experiment", "ml_model"] },

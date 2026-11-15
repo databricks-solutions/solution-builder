@@ -29,6 +29,7 @@ import {
   removeTabFromDoc,
   renameTabInDoc,
   tabOrder,
+  HYDRATE_ORIGIN,
 } from "./ydoc-model";
 
 export interface ArchDocApi {
@@ -151,6 +152,15 @@ export function useArchDoc({
   // become-writer catch-up) skips re-saving byte-identical content (which would
   // spawn a spurious history version, e.g. on a writer handoff).
   const lastSavedMd = useRef<string | null>(null);
+  // Whether the LOCAL user has actually edited the doc this session (a `tr.local`
+  // transaction). The become-writer catch-up save MUST NOT fire without this —
+  // otherwise merely opening/refreshing a project (which seeds the doc, then
+  // elects this client writer) persists the just-seeded doc back to disk. When
+  // the seed came from a STALE room replay log rather than fresh disk, that
+  // silently CLOBBERS a newer on-disk file (e.g. an agent/external edit) with
+  // zero user action — the "idle refresh reverts my changes" bug. A passive
+  // join is never a reason to write; only a real local edit is.
+  const localEdited = useRef(false);
 
   // Observe the doc for ANY change (local or remote) → re-derive the tab arrays,
   // and (writer only) debounce a snapshot save. `transaction.local` is false for
@@ -168,6 +178,11 @@ export function useArchDoc({
     // threw inside every update apply, killing sync entirely.
     const onAfter = (tr: Y.Transaction) => {
       const interacting = !!interactingRefLocal.current?.current;
+      // A HYDRATE transaction is a programmatic full-doc reset (seed from disk /
+      // agent rehydrate), NOT a user edit — it must never mark the doc as locally
+      // edited nor trigger a writer save (that would persist the just-seeded doc
+      // straight back to disk, clobbering newer on-disk content on a passive join).
+      const isHydrate = tr.origin === HYDRATE_ORIGIN;
       // Defer ONLY remote changes during a local interaction. A local transaction
       // (our own drag frame) must re-derive immediately or the canvas desyncs.
       if (interacting && !tr.local) {
@@ -175,12 +190,15 @@ export function useArchDoc({
       } else {
         refresh();
       }
+      if (tr.local && !isHydrate) localEdited.current = true; // a real local edit — safe to persist
       if (!tr.local) onExternalWriteRef.current?.(); // remote/rehydrate change
-      // Writer persists the merged doc → md (debounced). Non-writers never save.
-      if (isWriterRef.current) {
+      // Writer persists the merged doc → md (debounced). Non-writers never save;
+      // a hydrate reset never triggers a save (it's disk content already).
+      if (isWriterRef.current && !isHydrate) {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
           saveTimer.current = null;
+          if (!localEdited.current) return; // no real edit yet — don't persist a passive/seed state
           try {
             const md = docToMd(ydoc);
             if (md !== lastSavedMd.current) { lastSavedMd.current = md; doSaveRef.current(md); }
@@ -195,13 +213,18 @@ export function useArchDoc({
   // Writer catch-up save. The writer-save above only fires on a doc CHANGE, but an
   // edit made in the window BETWEEN connect and the server confirming us as writer
   // (isWriter false then) scheduled NO save. So whenever we BECOME the writer,
-  // snapshot the current doc once. Guarded by lastSavedMd so we DON'T re-save
-  // (which could spawn a spurious history version on a writer HANDOFF where the
-  // content is unchanged) — only saves if the doc differs from the last save this
-  // client made. Covers: a solo user's first edits before the `writer` frame lands.
+  // snapshot the current doc once — but ONLY if the local user has actually edited
+  // (`localEdited`). Without that guard, merely joining/refreshing a project seeds
+  // the doc then elects this client writer, and this save persists the just-seeded
+  // doc back to disk — CLOBBERING a newer on-disk file with a stale room replay,
+  // no user action involved (the "idle refresh reverts my edit" bug). `lastSavedMd`
+  // additionally dedups byte-identical re-saves (a writer HANDOFF of unchanged
+  // content). Covers the real case: a solo user's first edits made before the
+  // `writer` frame lands.
   useEffect(() => {
     if (!enabled || !collab.synced || !collab.isWriter) return;
     const t = setTimeout(() => {
+      if (!localEdited.current) return; // passive join — never persist a non-edit
       try {
         const md = docToMd(ydoc);
         if (md !== lastSavedMd.current) { lastSavedMd.current = md; doSaveRef.current(md); }

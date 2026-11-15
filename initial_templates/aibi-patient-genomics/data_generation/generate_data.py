@@ -30,7 +30,7 @@ the treatment arm + outcome, so no external outcome generator is needed.
 The single load-bearing signal is the UMAP:
     responder_subtype := (tissue = 'Breast, NOS' AND c1 > 2)
 That responder subtype earns OncoTarget-1 its headline +0.22 (+22pp) survival lift in
-the breast deep-dive (~99% treated vs ~89% standard of care). The fraction of Breast
+the breast deep-dive (~99% treated vs ~84% standard of care). The fraction of Breast
 patients with c1>2 MUST be preserved (~0.406 in the real data), reproduced here with a
 two-component Breast mixture. Tissue COUNTS are preserved too, so `lift_by_site`
 (HAVING patients>150) and `survival_by_arm` (patients>80) keep surfacing the same sites.
@@ -46,7 +46,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_patient_genomics
 """
 
@@ -341,8 +341,10 @@ def gen(ids):
     return pd.DataFrame(out, columns=[f.name for f in schema])
 
 print("== generating patient base (deterministic) ==")
+# NO .cache(): serverless job compute rejects PERSIST ("NOT_SUPPORTED_WITH_SERVERLESS"). Safe to recompute —
+# gen() seeds a per-row RNG from the id, so every re-evaluation yields identical rows (same case_ids).
 base = (spark.range(0, N_PATIENTS, numPartitions=16)
-        .select(gen(F.col("id")).alias("p")).select("p.*")).cache()
+        .select(gen(F.col("id")).alias("p")).select("p.*"))
 print(f"   patients: {base.count()}")
 
 

@@ -1,5 +1,5 @@
 {
-    "short_description": "The flagship full-stack demo: a VP Ops asks an agent why refunds spike, a Multi-Agent Supervisor traces it to a bad production lot, and one click clears the ticket queue — a Databricks App on Lakebase over the full platform.",
+    "short_description": "The flagship full-stack demo: a VP Ops asks an agent why refunds spike, a Genie Agent traces it to a bad production lot in the data and the incident report, and one click clears the ticket queue — a Databricks App on Lakebase over the full platform.",
     "capabilities": {
         "buildable": [
             "synthetic-data-gen",
@@ -7,8 +7,7 @@
             "metric-views",
             "aibi-dashboards",
             "genie",
-            "knowledge-assistant",
-            "supervisor-agent",
+            "unstructured-documents",
             "ml-training-serving",
             "lakebase",
             "databricks-apps"

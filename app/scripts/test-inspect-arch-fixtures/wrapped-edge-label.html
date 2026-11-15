@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>inspect-arch wrapped SVG label regression</title>
+  <style>
+    html, body { margin: 0; width: 900px; height: 500px; }
+    .react-flow { position: relative; width: 900px; height: 500px; overflow: hidden; }
+    .react-flow__viewport { position: absolute; inset: 0; transform: matrix(1, 0, 0, 1, 0, 0); }
+    .react-flow__node { position: absolute; box-sizing: border-box; }
+  </style>
+</head>
+<body data-arch-ready="1">
+  <div class="react-flow">
+    <div class="react-flow__viewport">
+      <!-- Deliberately outside the edge-label area so this fixture tests only
+           that a wrapped SVG label is counted, not collision geometry. -->
+      <div class="react-flow__node" data-id="fixture-node" style="left: 400px; top: 200px; width: 180px; height: 80px;"></div>
+      <svg class="react-flow__edges" width="900" height="500" aria-hidden="true">
+        <g class="react-flow__edge" data-id="fixture-edge">
+          <path class="react-flow__edge-path" d="M 40 60 L 300 60" fill="none" stroke="black"></path>
+          <!-- This is the shape produced by the dev label chip when text wraps. -->
+          <text x="150" y="50"><tspan x="150" y="50">42</tspan></text>
+        </g>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

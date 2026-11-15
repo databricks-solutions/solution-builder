@@ -2,389 +2,181 @@
  * Official Databricks product icons for architecture diagrams.
  */
 
-import { SVGProps } from "react";
+import { SVGProps, useId, type CSSProperties, type ReactElement } from "react";
+import { ICON_ALIASES, ICON_ALIAS_COLOR } from "../lib/icon-aliases";
 
 type IconProps = SVGProps<SVGSVGElement>;
 
-// Dashboard icon
-export function DashboardIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M1 1.75A.75.75 0 0 1 1.75 1h12.5a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75zm1.5 8.75v3h4.75v-3zm0-1.5h4.75V2.5H2.5zm6.25-6.5v3h4.75v-3zm0 11V7h4.75v6.5z" clipRule="evenodd" />
-    </svg>
-  );
+// Official icon artwork: the thin-line pictograms (ui/icons/databricks-line) and the
+// workspace's own Databricks UI app icons (ui/icons/db). Inlined so every glyph keeps the same
+// colour contract as the other built-ins.
+// Vite expands import.meta.glob at build time. The bun-run unit tests (test:layout)
+// load this module without Vite and never render these glyphs, so they get an empty map.
+const OFFICIAL_SVG: Record<string, string> = (() => {
+  try {
+    return import.meta.glob(["../icons/databricks-line/*.svg", "../icons/db/*.svg"], { query: "?raw", import: "default", eager: true }) as Record<string, string>;
+  } catch {
+    return {};
+  }
+})();
+const OFFICIAL_NAVY = "#1B3139";
+
+/** An official icon as an inline SVG. `path` is `databricks-line/<slug>` or `db/<name>`.
+ *  Navy line artwork is rewritten to `currentColor` so it recolours and takes the band/card
+ *  tint like the glyph it replaces. Orange line variants and Databricks UI (already `currentColor`)
+ *  are used as-is. The DATABRICKS_ICONS entries below are the one place a key maps to an
+ *  official SVG. */
+function officialIcon(key: string): (props: IconProps) => ReactElement {
+  const path = key.replace(/^file:/, "");
+  const raw = OFFICIAL_SVG[`../icons/${path}.svg`] ?? "";
+  if (!raw && Object.keys(OFFICIAL_SVG).length > 0) throw new Error(`missing official icon: ${path}`);
+  const viewBox = raw.match(/viewBox="([^"]+)"/)?.[1] ?? "0 0 150 150";
+  // Root-level style on the source <svg> (e.g. the Lakeflow glyph's rotate:90deg) must survive.
+  const rootStyle = Object.fromEntries(
+    (raw.match(/<svg[^>]*\sstyle="([^"]*)"/)?.[1] ?? "").split(";").map((d) => d.split(":").map((s) => s.trim())).filter(([k, v]) => k && v),
+  ) as CSSProperties;
+  let inner = raw.replace(/^[\s\S]*?<svg[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+  if (path.startsWith("databricks-line/") && !path.endsWith("-orange")) inner = inner.split(OFFICIAL_NAVY).join("currentColor");
+  // Workspace (Databricks UI) art is 16px, so it reads heavy scaled into a large slot: it caps at
+  // 32px and centres in the slot the caller sizes (className goes on the slot, not the art).
+  // The size sits in inline style: parents may force descendants with [&_svg]:h-full.
+  if (path.startsWith("db/")) {
+    return function WorkspaceIcon({ className, style }: IconProps) {
+      return (
+        <span className={`inline-flex items-center justify-center ${className ?? ""}`} style={style}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox={viewBox} fill="none"
+            style={{ width: 32, height: 32, maxWidth: "100%", maxHeight: "100%", ...rootStyle }} dangerouslySetInnerHTML={{ __html: inner }} />
+        </span>
+      );
+    };
+  }
+  return function OfficialIcon(props: IconProps) {
+    return <svg xmlns="http://www.w3.org/2000/svg" viewBox={viewBox} fill="none" {...props} style={{ ...rootStyle, ...props.style }} dangerouslySetInnerHTML={{ __html: inner }} />;
+  };
 }
 
-// Agents icon
-export function AgentsIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
-      <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
-      <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
-    </svg>
-  );
+// Dashboard icon
+/** A built-in name's component: its canonical official artwork (see ICON_ALIASES). */
+const aliased = (key: string) => {
+  const Art = officialIcon(ICON_ALIASES[key]);
+  const color = ICON_ALIAS_COLOR[key];
+  // An alias with a colour (the Databricks orange variants) keeps its look: the colour
+  // is the default, an explicit style still wins.
+  return color ? function TintedIcon(props: IconProps) { return Art({ ...props, style: { color, ...props.style } }); } : Art;
+};
+
+const officialCache = new Map<string, (props: IconProps) => ReactElement>();
+/** Inline component for a canonical `file:databricks-line/*` or `file:db/*` key (after
+ *  alias resolution), or undefined for any other key. Lets AnyIcon / BrandMark keep the
+ *  colour contract (navy line art follows the text colour) instead of falling back to an <img>. */
+export function officialComponentFor(key: string): ((props: IconProps) => ReactElement) | undefined {
+  if (!key.startsWith("file:databricks-line/") && !key.startsWith("file:db/")) return undefined;
+  if (!OFFICIAL_SVG[`../icons/${key.slice("file:".length)}.svg`]) return undefined;
+  let c = officialCache.get(key);
+  if (!c) { c = officialIcon(key); officialCache.set(key, c); }
+  return c;
 }
+
+export const DashboardIcon = aliased("dashboard");
+
+// Agents icon
+export const AgentsIcon = aliased("agents");
 
 // ML Model icon
 // ML Model — connected-nodes glyph (filled; the shape is designed as a fill,
 // not a stroke, so outlining it inverts the read). It's a solid icon by design.
-export function MLModelIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <g clipPath="url(#ModelsIcon_clip)">
-        <path fill="currentColor" fillRule="evenodd" d="M0 4.75a2.75 2.75 0 0 1 5.145-1.353l4.372-.95a2.75 2.75 0 1 1 3.835 2.823l.282 2.257a2.75 2.75 0 1 1-2.517 4.46l-2.62 1.145.003.118a2.75 2.75 0 1 1-4.415-2.19L3.013 7.489A2.75 2.75 0 0 1 0 4.75M2.75 3.5a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5m2.715 1.688q.027-.164.033-.333l4.266-.928a2.75 2.75 0 0 0 2.102 1.546l.282 2.257c-.377.165-.71.412-.976.719zM4.828 6.55a2.8 2.8 0 0 1-.413.388l1.072 3.573q.13-.012.263-.012c.945 0 1.778.476 2.273 1.202l2.5-1.093a2.8 2.8 0 0 1 .012-.797zM12 10.25a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0M5.75 12a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5M11 2.75a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0" clipRule="evenodd" />
-      </g>
-      <defs>
-        <clipPath id="ModelsIcon_clip">
-          <path fill="#fff" d="M0 0h16v16H0z" />
-        </clipPath>
-      </defs>
-    </svg>
-  );
-}
+export const MLModelIcon = aliased("mlModel");
 
 // Model Serving icon
-export function ModelServingIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" d="M3.394 5.586a4.752 4.752 0 0 1 9.351.946A3.75 3.75 0 0 1 15.787 9H14.12a2.25 2.25 0 0 0-1.871-1H12a.75.75 0 0 1-.75-.75v-.5a3.25 3.25 0 0 0-6.475-.402.75.75 0 0 1-.698.657A2.75 2.75 0 0 0 4 12.49V14a.8.8 0 0 1-.179-.021 4.25 4.25 0 0 1-.427-8.393" />
-      <path fill="currentColor" fillRule="evenodd" d="M8 7a2.25 2.25 0 0 1 2.03 3.22l.5.5a2.25 2.25 0 1 1-1.06 1.06l-.5-.5A2.25 2.25 0 1 1 8 7m.75 2.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0m3.5 3.5a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const ModelServingIcon = aliased("modelServing");
 
 // AI Gateway icon
-export function AIGatewayIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M0 12.25c0-1.26.848-2.322 2.004-2.648A2.75 2.75 0 0 1 4.75 7h2.5V4h1.5v3h2.5a2.75 2.75 0 0 1 2.746 2.602 2.751 2.751 0 1 1-3.371 3.47 2.751 2.751 0 0 1-5.25 0A2.751 2.751 0 0 1 0 12.25M2.75 11a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5m2.625.428a2.76 2.76 0 0 0-1.867-1.822A1.25 1.25 0 0 1 4.75 8.5h2.5v1.104c-.892.252-1.6.942-1.875 1.824M8.75 9.604V8.5h2.5c.642 0 1.17.483 1.242 1.106a2.76 2.76 0 0 0-1.867 1.822A2.76 2.76 0 0 0 8.75 9.604M12 12.25a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0m-5.25 0a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const AIGatewayIcon = aliased("aiGateway");
 
 // Lakeflow Connect icon (rotated 90deg)
-export function LakeflowConnectIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" style={{ transform: "rotate(90deg)" }} {...props}>
-      <path fill="currentColor" d="M2.5 1a.75.75 0 0 0-.75.75v3c0 .414.336.75.75.75H6V4H3.25V2.5h9.5V4H10v1.5h3.5a.75.75 0 0 0 .75-.75v-3A.75.75 0 0 0 13.5 1z" />
-      <path fill="currentColor" fillRule="evenodd" d="M0 12.25c0-1.26.848-2.322 2.004-2.648A2.75 2.75 0 0 1 4.75 7h2.5V4h1.5v3h2.5a2.75 2.75 0 0 1 2.746 2.602 2.751 2.751 0 1 1-3.371 3.47 2.751 2.751 0 0 1-5.25 0A2.751 2.751 0 0 1 0 12.25M2.75 11a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5m2.625.428a2.76 2.76 0 0 0-1.867-1.822A1.25 1.25 0 0 1 4.75 8.5h2.5v1.104c-.892.252-1.6.942-1.875 1.824M8.75 9.604V8.5h2.5c.642 0 1.17.483 1.242 1.106a2.76 2.76 0 0 0-1.867 1.822A2.76 2.76 0 0 0 8.75 9.604M12 12.25a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0m-5.25 0a1.25 1.25 0 1 0 2.5 0 1.25 1.25 0 0 0-2.5 0" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const LakeflowConnectIcon = aliased("lakeflowConnect");
 
 // SQL Warehouse icon
-export function SQLWarehouseIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M13 13.75C13 14.5784 11.6569 15.25 10 15.25C8.34315 15.25 7 14.5784 7 13.75" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M3.39373 5.58639C3.91293 3.52534 5.77786 2 8 2C10.5504 2 12.6314 4.01005 12.7451 6.5324C14.1591 6.7189 15.3247 7.69323 15.7866 9H14.1211C13.7175 8.39701 13.0301 8 12.25 8H12C11.5858 8 11.25 7.66421 11.25 7.25V6.75C11.25 4.95507 9.79493 3.5 8 3.5C6.34131 3.5 4.97186 4.74324 4.7745 6.34833C4.73041 6.70685 4.43704 6.98301 4.07651 7.00536C2.63892 7.09448 1.5 8.28952 1.5 9.75C1.5 11.1845 2.59873 12.3629 4 12.4888V14C3.93845 14 3.87864 13.9926 3.8214 13.9786C1.67511 13.7633 0 11.9526 0 9.75C0 7.69604 1.45669 5.98279 3.39373 5.58639Z" fill="currentColor" />
-      <path d="M7 11.5V13.7769" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M13 11.5V13.7769" stroke="currentColor" strokeWidth="1" fill="none" />
-      <ellipse cx="10" cy="11.5" rx="3" ry="1.5" stroke="currentColor" strokeWidth="1" fill="none" />
-    </svg>
-  );
-}
+export const SQLWarehouseIcon = aliased("sqlWarehouse");
 
 // Genie icon
-export function GenieIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M0 2.75A.75.75 0 0 1 .75 2H8v1.5H1.5v9h13V10H16v3.25a.75.75 0 0 1-.75.75H.75a.75.75 0 0 1-.75-.75zm12.987-.14a.75.75 0 0 0-1.474 0l-.137.728a1.93 1.93 0 0 1-1.538 1.538l-.727.137a.75.75 0 0 0 0 1.474l.727.137c.78.147 1.39.758 1.538 1.538l.137.727a.75.75 0 0 0 1.474 0l.137-.727c.147-.78.758-1.39 1.538-1.538l.727-.137a.75.75 0 0 0 0-1.474l-.727-.137a1.93 1.93 0 0 1-1.538-1.538z" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const GenieIcon = aliased("genie");
 
 // Jobs/Pipelines icon
-export function JobsPipelinesIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M3.75 4a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5m2.646-.5a2.751 2.751 0 1 1 0-1.5h5.229a3.375 3.375 0 0 1 .118 6.748L8.436 11.11a.75.75 0 0 1-.872 0l-3.3-2.357a1.875 1.875 0 0 0 .111 3.747h5.229a2.751 2.751 0 1 1 0 1.5H4.375a3.375 3.375 0 0 1-.118-6.748L7.564 4.89a.75.75 0 0 1 .872 0l3.3 2.357a1.875 1.875 0 0 0-.111-3.747zm7.104 9.75a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0M8 6.422 5.79 8 8 9.578 10.21 8z" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const JobsPipelinesIcon = aliased("jobsPipelines");
 
 // Notebooks icon
-export function NotebooksIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="#EF5B3F" fillRule="evenodd" d="M3 1.75A.75.75 0 0 1 3.75 1h10.5a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75H3.75a.75.75 0 0 1-.75-.75V12.5H1V11h2V8.75H1v-1.5h2V5H1V3.5h2zm1.5.75v11H6v-11zm3 0v11h6v-11z" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const NotebooksIcon = aliased("notebooks");
 
 // SDP Pipeline icon
-export function SDPPipelineIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M10.75 6.75A5.75 5.75 0 0 0 5 1H1.75a.75.75 0 0 0-.75.75V6c0 .414.336.75.75.75H5a.25.25 0 0 1 .25.25v2.25A5.75 5.75 0 0 0 11 15h3.25a.75.75 0 0 0 .75-.75V10a.75.75 0 0 0-.75-.75H11a.25.25 0 0 1-.25-.25zM5.5 2.53a4.25 4.25 0 0 1 3.75 4.22V9a1.75 1.75 0 0 0 1.25 1.678v2.793A4.25 4.25 0 0 1 6.75 9.25V7A1.75 1.75 0 0 0 5.5 5.322zM4 2.5v2.75H2.5V2.5zm9.5 8.25H12v2.75h1.5z" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const SDPPipelineIcon = aliased("sdpPipeline");
 
 // Unity Catalog icon
-export function UnityCatalogIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" fillRule="evenodd" d="M8.646.368a.75.75 0 0 0-1.292 0l-3.25 5.5A.75.75 0 0 0 4.75 7h6.5a.75.75 0 0 0 .646-1.132zM8 2.224 9.936 5.5H6.064zM8.5 9.25a.75.75 0 0 1 .75-.75h5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-.75.75h-5a.75.75 0 0 1-.75-.75zM10 10v3.5h3.5V10zM1 11.75a3.25 3.25 0 1 1 6.5 0 3.25 3.25 0 0 1-6.5 0M4.25 10a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const UnityCatalogIcon = aliased("unityCatalog");
 
 // Unstructured Data icon - stacked documents/papers
-export function UnstructuredDataIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* Back paper with folded corner - closed shape */}
-      <path d="M5 3V1h5.5l2.5 2.5v9.5a1 1 0 0 1-1 1H10" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <path d="M10.5 1v2.5H13" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {/* Front paper with folded corner */}
-      <path d="M2 3h6l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
-      <path d="M8 3v2h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {/* Text lines */}
-      <path d="M4 9h4M4 12h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-    </svg>
-  );
-}
+export const UnstructuredDataIcon = aliased("unstructuredData");
 
 // Delta Lake icon (from Databricks CDN)
-export function DeltaLakeIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path fill="currentColor" d="M8 1L2 5.5v5L8 15l6-4.5v-5L8 1zm0 1.5l4.5 3.375L8 9.25 3.5 5.875 8 2.5zM3 6.75l4.5 3.375v4.125L3 10.875V6.75zm5.5 7.5V10.125L13 6.75v4.125l-4.5 3.375z"/>
-    </svg>
-  );
-}
+export const DeltaLakeIcon = aliased("deltaLake");
 
 // Data icon - database cylinder with 3 stacks
-export function DataIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* Top ellipse */}
-      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Left side */}
-      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Middle ring 1 */}
-      <path d="M2.5 6.5c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Middle ring 2 */}
-      <path d="M2.5 10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
-    </svg>
-  );
-}
+export const DataIcon = aliased("data");
 
 // Catalog / Schema / Table — nested database cylinders. Same cylinder family,
 // distinguished by nesting depth (Catalog 3 rings → Schema 2 → Table 1) so the
 // hierarchy reads at a glance. Red/orange (the unified accent) by default; the
 // right-menu "Icon color" override can recolor them.
-const DB_ORANGE = "#FF5F46";
-const CYL_SW = 0.85; // thin, delicate cylinder lines (1.5 default read too heavy)
 // Catalog — cylinder with 3 rings (deepest nesting).
-export function DbCatalogIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
-      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 6.5c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-    </svg>
-  );
-}
+export const DbCatalogIcon = aliased("dbCatalog");
 // Schema — cylinder with 2 rings.
-export function DbSchemaIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
-      <ellipse cx="8" cy="4" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 4v8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V4" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-    </svg>
-  );
-}
+export const DbSchemaIcon = aliased("dbSchema");
 // Table — a single plain cylinder (no inner rings).
-export function DbTableIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: DB_ORANGE, ...props.style }}>
-      <ellipse cx="8" cy="4.5" rx="5.5" ry="2" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-      <path d="M2.5 4.5v7c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2v-7" stroke="currentColor" strokeWidth={CYL_SW} fill="none" />
-    </svg>
-  );
-}
+export const DbTableIcon = aliased("dbTable");
 
 // Delta Table icon (database with delta symbol)
-export function DeltaTableIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* Top ellipse */}
-      <ellipse cx="8" cy="3" rx="5.5" ry="2" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Left side */}
-      <path d="M2.5 3v10c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V3" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Middle ring */}
-      <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Delta symbol inside */}
-      <path d="M8 6l-2 4h4l-2-4z" fill="currentColor" />
-    </svg>
-  );
-}
+export const DeltaTableIcon = aliased("deltaTable");
 
 // Business User icon
-export function BusinessUserIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <circle cx="8" cy="4.5" r="2.5" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
-    </svg>
-  );
-}
+export const BusinessUserIcon = aliased("businessUser");
 
 // Input Data / External Source icon
-export function InputDataIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <rect x="1.5" y="2.5" width="10" height="11" rx="1" stroke="currentColor" strokeWidth="1" fill="none" />
-      {/* Table grid - horizontal lines */}
-      <path d="M1.5 6h10M1.5 9h10" stroke="currentColor" strokeWidth="1" />
-      {/* Table grid - vertical line */}
-      <path d="M5 6v7" stroke="currentColor" strokeWidth="1" />
-    </svg>
-  );
-}
+export const InputDataIcon = aliased("inputData");
 
 // Knowledge Assistant icon
 // Knowledge Assistant — the Databricks "agent" glyph. The base fills the frame,
 // so the agent is scaled into the LEFT ~70% and a document sits in the cleared
 // right column (KA reads documents to ground its answers).
-export function KnowledgeAssistantIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* agent base (exact paths), scaled+shifted left to free the right column */}
-      <g transform="translate(-0.75 1.5) scale(0.65)">
-        <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
-        <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
-        <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
-      </g>
-      {/* document at the right — outlined page with a folded corner + text lines */}
-      <path d="M10.4 6.2h2.9l1.7 1.7v5.4a.7.7 0 0 1-.7.7h-3.9a.7.7 0 0 1-.7-.7V6.9a.7.7 0 0 1 .7-.7Z" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />
-      <path d="M13.2 6.3v1.7h1.7" stroke="currentColor" strokeWidth="1.1" fill="none" strokeLinejoin="round" />
-      <path d="M10.9 10h3M10.9 11.5h3M10.9 13h1.9" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" />
-    </svg>
-  );
-}
+export const KnowledgeAssistantIcon = aliased("knowledgeAssistant");
 
 // Multi-Agent Supervisor — the "agent" glyph (kept full-size) with small
 // connection dots in the empty corners BESIDE the head, linked to it: the
 // supervisor orchestrating satellite agents.
-export function MultiAgentSupervisorIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      {/* links from the head to the satellite dots (drawn first, behind dots) */}
-      <path d="M5 3 2.7 2.2M11 3l2.3-.8M4.6 5.4 2.2 6" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" opacity="0.55" />
-      {/* satellite agent dots, in the clear corners beside the head */}
-      <circle cx="2.3" cy="2" r="1.05" fill="currentColor" />
-      <circle cx="13.7" cy="2" r="1.05" fill="currentColor" />
-      <circle cx="1.9" cy="6.1" r="1.05" fill="currentColor" />
-      {/* agent base (exact) */}
-      <path fill="currentColor" d="M8 1c.664 0 1.282.2 1.797.542l-.014.072-.062.357-.357.062c-.402.07-.765.245-1.06.493a1.75 1.75 0 1 0 0 3.447c.295.25.658.424 1.06.494l.357.062.062.357.014.072A3.25 3.25 0 1 1 8 1" />
-      <path fill="currentColor" d="M9.59 4.983A.75.75 0 0 1 9.62 3.51l.877-.152a.75.75 0 0 0 .61-.61l.153-.878a.75.75 0 0 1 1.478 0l.152.877a.75.75 0 0 0 .61.61l.878.153a.75.75 0 0 1 0 1.478l-.877.152a.75.75 0 0 0-.61.61l-.153.878a.75.75 0 0 1-1.478 0l-.152-.877a.75.75 0 0 0-.61-.61l-.878-.153z" />
-      <path fill="currentColor" fillRule="evenodd" d="M1.164 12.287A8.74 8.74 0 0 1 8 9a8.74 8.74 0 0 1 6.836 3.287.75.75 0 0 1 .164.469v1.494a.75.75 0 0 1-.75.75H1.75a.75.75 0 0 1-.75-.75v-1.494a.75.75 0 0 1 .164-.469m1.336.74v.473h11v-.474A7.23 7.23 0 0 0 8 10.5c-2.2 0-4.17.978-5.5 2.526" clipRule="evenodd" />
-    </svg>
-  );
-}
+export const MultiAgentSupervisorIcon = aliased("multiAgentSupervisor");
 
 // Vector Search icon — magnifying glass with nodes
-export function VectorSearchIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <circle cx="6.5" cy="6.5" r="4" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M10 10l4 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-      <circle cx="5.5" cy="5.5" r="0.75" fill="currentColor" />
-      <circle cx="7.5" cy="5" r="0.75" fill="currentColor" />
-      <circle cx="6" cy="7.5" r="0.75" fill="currentColor" />
-      <path d="M5.5 5.5L7.5 5M5.5 5.5L6 7.5M7.5 5L6 7.5" stroke="currentColor" strokeWidth="0.5" />
-    </svg>
-  );
-}
+export const VectorSearchIcon = aliased("vectorSearch");
 
 // Lakebase icon — PostgreSQL-style database with connection
-export function LakebaseIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <ellipse cx="8" cy="3.5" rx="5" ry="1.75" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M3 3.5v9c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75v-9" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M3 7.5c0 .97 2.24 1.75 5 1.75s5-.78 5-1.75" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M13 10.5c0 .97-2.24 1.75-5 1.75S3 11.47 3 10.5" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" fill="none" />
-    </svg>
-  );
-}
+export const LakebaseIcon = aliased("lakebase");
 
 // Databricks Apps icon — browser window with Databricks diamond
-export function DatabricksAppsIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <rect x="1" y="2" width="14" height="12" rx="1.5" stroke="currentColor" strokeWidth="1" fill="none" />
-      <path d="M1 5.5h14" stroke="currentColor" strokeWidth="1" />
-      <circle cx="3" cy="3.75" r="0.5" fill="currentColor" />
-      <circle cx="4.75" cy="3.75" r="0.5" fill="currentColor" />
-      <circle cx="6.5" cy="3.75" r="0.5" fill="currentColor" />
-      <path d="M8 7.5l-2.5 2.5 2.5 2.5 2.5-2.5L8 7.5z" fill="currentColor" />
-    </svg>
-  );
-}
+export const DatabricksAppsIcon = aliased("databricksApps");
 
 // Databricks Metastore icon — a triangle over a linked square + circle (UC glyph)
-export function DatabricksMetastoreIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props} style={{ color: "#FF5F46", ...props.style }}>
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M8.646.368a.75.75 0 0 0-1.292 0l-3.25 5.5A.75.75 0 0 0 4.75 7h6.5a.75.75 0 0 0 .646-1.132zM8 2.224 9.936 5.5H6.064zM8.5 9.25a.75.75 0 0 1 .75-.75h5a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-.75.75h-5a.75.75 0 0 1-.75-.75zM10 10v3.5h3.5V10zM1 11.75a3.25 3.25 0 1 1 6.5 0 3.25 3.25 0 0 1-6.5 0M4.25 10a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
+export const DatabricksMetastoreIcon = aliased("databricksMetastore");
 
 // Streaming icon — real-time data flow with lightning bolt
-export function StreamingIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M2 4h3l2-2h3l2 2h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <path d="M2 4v8l3-1.5L7 12l2-1.5L11 12l3-1.5V4" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
-      <path d="M8.5 6L7 9h2l-1.5 3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
+export const StreamingIcon = aliased("streaming");
 
 // Metric Views icon — chart with checkmark (governed metrics)
-export function MetricViewsIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M2 13V7l3-2 3 3 3-5 3 2v8H2z" stroke="currentColor" strokeWidth="0.7" strokeLinejoin="round" fill="none" />
-      <path d="M2 13h12" stroke="currentColor" strokeWidth="0.7" />
-      <path d="M10.5 9l1.5 1.5 3-3" stroke="currentColor" strokeWidth="0.7" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-    </svg>
-  );
-}
+export const MetricViewsIcon = aliased("metricViews");
 
 // AI Functions icon — function symbol with sparkle
-export function AIFunctionsIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <text x="2" y="12" fontFamily="serif" fontStyle="italic" fontSize="12" fontWeight="bold" fill="currentColor">f</text>
-      <path d="M10.5 2l.5 1 1 .5-1 .5-.5 1-.5-1-1-.5 1-.5.5-1z" fill="currentColor" />
-      <path d="M13 5.5l.35.7.7.35-.7.35-.35.7-.35-.7-.7-.35.7-.35.35-.7z" fill="currentColor" />
-    </svg>
-  );
-}
+export const AIFunctionsIcon = aliased("aiFunctions");
 
 // Delta Sharing icon — delta with sharing arrows
-export function DeltaSharingIcon(props: IconProps) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" {...props}>
-      <path d="M4 12l4-8 4 8H4z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" fill="none" />
-      <path d="M12 5l2.5-1M12 8l2.5 0M12 11l2.5 1" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-    </svg>
-  );
-}
+export const DeltaSharingIcon = aliased("deltaSharing");
 
 // ---------------------------------------------------------------------------
 // Official Databricks brand product icons (two-tone, multi-color).
@@ -468,15 +260,21 @@ export function LakebaseBrandIcon(props: IconProps) {
   );
 }
 
-// LakeWatch — the "watch/eye" mark: a dark-red circle overlapping a coral
-// triangle (play/aperture), white lens where they meet. Agentic SIEM.
+// LakeWatch — the official mark (databricks.com LakeWatch promo art): a dark-red
+// circle and a coral rounded triangle pointing into it, white where they overlap.
+// Drawn as the two shapes each masked by the other, so the lens is exactly their
+// intersection. Ids come from useId so many marks on one page don't collide.
 export function LakeWatchBrandIcon(props: IconProps) {
+  const id = useId().replace(/:/g, "");
+  const tri = "M22.8 17.7L40.47 7.12A2 2 0 0 1 43.5 8.83V39.17A2 2 0 0 1 40.47 40.88L22.8 30.3A7.3 7.3 0 0 1 22.8 17.7Z";
   return (
     <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <path d="M18 9.6c0-1.5 1.7-2.4 3-1.6l19.9 12.4a2.9 2.9 0 0 1 0 4.9L21 39.9c-1.3.8-3-.1-3-1.6V9.6Z" fill="#FF5F46"/>
-      <circle cx="18" cy="24" r="13.4" fill="#B0281C"/>
-      <path d="M18 10.7a13.4 13.4 0 0 1 0 26.6 13.4 13.4 0 0 0 0-26.6Z" fill="#fff"/>
-      <path d="M18 10.7v26.6A13.4 13.4 0 0 0 30 24 13.4 13.4 0 0 0 18 10.7Z" fill="#fff"/>
+      <defs>
+        <mask id={`${id}-nt`} maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48"><rect width="48" height="48" fill="#fff"/><path d={tri} fill="#000"/></mask>
+        <mask id={`${id}-nc`} maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48"><rect width="48" height="48" fill="#fff"/><circle cx="16.8" cy="24" r="12.8" fill="#000"/></mask>
+      </defs>
+      <circle cx="16.8" cy="24" r="12.8" fill="#BD2B26" mask={`url(#${id}-nt)`}/>
+      <path d={tri} fill="#FF5F46" mask={`url(#${id}-nc)`}/>
     </svg>
   );
 }
@@ -539,60 +337,11 @@ export function SDPBrandIcon(props: IconProps) {
 
 // ML / MLOps official orange product icons (line-art, self-colored #FF5F46,
 // 0 0 150 150 canvas) — brand icons, do NOT recolor.
-export function MLModelBrandIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <path d="M118.592 66.9658C114.888 66.9658 111.889 69.6116 111.272 73.1392H89.0477V75.785H111.184C111.801 79.3126 114.888 81.9584 118.504 81.9584C122.649 81.9584 126 78.6071 126 74.4621C126 70.3171 122.737 66.9658 118.592 66.9658ZM118.592 79.2245C115.946 79.2245 113.741 77.0197 113.741 74.3739C113.741 71.7282 115.946 69.5234 118.592 69.5234C121.238 69.5234 123.442 71.7282 123.442 74.3739C123.442 77.0197 121.238 79.2245 118.592 79.2245Z" fill="#FF5F46"/>
-      <path d="M34.8982 74.4621C34.8982 78.6071 38.2495 81.9584 42.3945 81.9584C46.0985 81.9584 49.097 79.3126 49.7144 75.785H54.6531V73.1392H49.7144C49.097 69.6116 46.0103 66.9658 42.3945 66.9658C38.2495 66.9658 34.8982 70.3171 34.8982 74.4621ZM47.245 74.4621C47.245 77.1079 45.0402 79.3126 42.3945 79.3126C39.7487 79.3126 37.5439 77.1079 37.5439 74.4621C37.5439 71.8164 39.7487 69.6116 42.3945 69.6116C45.0402 69.6116 47.245 71.7282 47.245 74.4621Z" fill="#FF5F46"/>
-      <path d="M70.0861 51.1807L68.8514 48.7995C67.1758 49.6814 65.3238 50.1224 63.3835 50.1224C57.7393 50.1224 52.8887 46.1537 51.7423 40.5977L49.1847 41.1268C50.5958 47.8294 56.5928 52.7681 63.4717 52.7681C65.6765 52.7681 67.9695 52.239 70.0861 51.1807Z" fill="#FF5F46"/>
-      <path d="M58.974 56.8236C57.6512 58.2346 56.0637 59.2048 54.2999 59.9103C52.3597 58.3228 49.9785 57 47.5091 56.2944L46.8036 58.852C51.7423 60.2631 55.7991 63.9671 57.563 68.7295L60.0323 67.7593C59.2386 65.5546 58.0039 63.6143 56.4165 61.8505C58.0921 61.0568 59.5914 59.9985 60.9143 58.5874L58.974 56.8236Z" fill="#FF5F46"/>
-      <path d="M91.693 114.325C90.7229 114.325 89.841 114.501 89.0472 114.854L83.5794 105.947L81.2864 107.358L86.7543 116.265C85.1668 117.676 84.1967 119.616 84.1967 121.909C84.1967 126.054 87.548 129.406 91.693 129.406C95.838 129.406 99.1893 126.054 99.1893 121.909C99.1893 117.764 95.838 114.325 91.693 114.325ZM91.693 126.584C89.0472 126.584 86.8424 124.379 86.8424 121.733C86.8424 119.087 89.0472 116.883 91.693 116.883C94.3387 116.883 96.5435 119.087 96.5435 121.733C96.5435 124.379 94.3387 126.584 91.693 126.584Z" fill="#FF5F46"/>
-      <path d="M74.4077 96.5991C74.4077 103.302 68.9398 108.681 62.3254 108.681C61.3553 108.681 60.4734 108.593 59.5915 108.329L58.9741 110.886C60.0324 111.151 61.1789 111.239 62.3254 111.239C67.3523 111.239 71.7619 108.77 74.4077 104.889V114.414C74.4077 121.116 68.9398 126.496 62.3254 126.496C55.6229 126.496 50.2432 121.028 50.2432 114.414C50.2432 111.063 51.566 107.976 54.0354 105.683L52.1834 103.743C49.9786 105.859 48.4793 108.505 47.9502 111.415C39.3074 111.415 31.1938 102.861 31.1938 93.777C31.1938 91.5722 31.6347 89.3674 32.5166 87.339L32.7812 86.9862C28.7244 84.0759 26.4314 79.4017 26.4314 74.463C26.4314 66.3494 32.5166 59.4704 40.6303 58.5885L40.2775 55.3254C36.838 51.6214 35.6915 45.8889 37.1026 40.5092C38.1609 36.5406 40.7185 33.2775 44.4225 31.2491C47.862 29.3089 51.8306 28.6915 55.3583 29.6616C60.5616 31.0727 64.1774 35.9233 64.7066 41.9203L67.6169 41.6557C67.176 36.276 64.5302 31.6901 60.5616 28.9561C60.8262 25.3403 63.8247 22.4299 67.5287 22.4299C71.4092 22.4299 74.4959 25.6048 74.4959 29.3971V70.4062H77.1416V29.3971C77.1416 24.1056 72.8202 19.7842 67.5287 19.7842C62.8546 19.7842 58.9741 23.1355 58.0922 27.545C57.4749 27.2805 56.7693 27.0159 56.0638 26.8395C51.8306 25.693 47.0683 26.3986 42.9233 28.6915C38.6019 31.1609 35.5152 35.0413 34.2805 39.6273C32.693 45.4479 33.7513 51.5332 37.0144 55.9428C28.9008 58.3239 23.1683 65.732 23.1683 74.463C23.1683 79.5781 25.1967 84.4287 28.7244 87.9563C28.1071 89.8965 27.7543 91.8367 27.7543 93.8652C27.7543 104.713 37.1908 114.59 47.5092 114.767C47.6856 122.792 54.2118 129.23 62.2372 129.23C70.3509 129.23 76.9652 122.616 76.9652 114.502V78.4316H74.3195V96.5991H74.4077Z" fill="#FF5F46"/>
-      <path d="M105.275 50.5613C106.509 51.4432 107.92 51.8842 109.508 51.8842C113.653 51.8842 117.004 48.5329 117.004 44.3879C117.004 40.2429 113.653 36.8916 109.508 36.8916C105.363 36.8916 102.012 40.2429 102.012 44.3879C102.012 45.9753 102.541 47.4746 103.334 48.6211L92.2223 59.9096H80.8456V62.5554H93.3688L105.275 50.5613ZM109.596 39.5374C112.242 39.5374 114.447 41.7421 114.447 44.3879C114.447 47.0336 112.242 49.2384 109.596 49.2384C106.95 49.2384 104.746 47.0336 104.746 44.3879C104.746 41.7421 106.862 39.5374 109.596 39.5374Z" fill="#FF5F46"/>
-      <path d="M86.4014 73.1387H81.1099V75.7844H86.4014V73.1387Z" fill="#FF5F46"/>
-      <path d="M78.4645 73.1387H73.173V75.7844H78.4645V73.1387Z" fill="#FF5F46"/>
-      <path d="M70.5275 73.1387H65.236V75.7844H70.5275V73.1387Z" fill="#FF5F46"/>
-      <path d="M62.5897 73.1387H57.2982V75.7844H62.5897V73.1387Z" fill="#FF5F46"/>
-      <path d="M83.5794 42.9776L88.959 34.2466C89.841 34.5994 90.7229 34.7758 91.693 34.7758C95.838 34.7758 99.1893 31.4245 99.1893 27.2795C99.1893 23.1345 95.838 19.7832 91.693 19.7832C87.548 19.7832 84.1967 23.1345 84.1967 27.2795C84.1967 29.4843 85.1668 31.5127 86.6661 32.8356L81.2864 41.5665L83.5794 42.9776ZM91.693 22.429C94.3387 22.429 96.5435 24.6337 96.5435 27.2795C96.5435 29.9252 94.3387 32.13 91.693 32.13C89.0472 32.13 86.8424 29.9252 86.8424 27.2795C86.8424 24.6337 89.0472 22.429 91.693 22.429Z" fill="#FF5F46"/>
-      <path d="M109.596 97.0384C108.009 97.0384 106.509 97.5675 105.363 98.3612L93.2806 86.3672H80.8456V89.0129H92.2223L103.423 100.213C102.541 101.448 102.1 102.859 102.1 104.446C102.1 108.591 105.451 111.943 109.596 111.943C113.741 111.943 117.092 108.591 117.092 104.446C117.092 100.301 113.653 97.0384 109.596 97.0384ZM109.596 109.297C106.95 109.297 104.746 107.092 104.746 104.446C104.746 101.801 106.95 99.5959 109.596 99.5959C112.242 99.5959 114.447 101.801 114.447 104.446C114.447 107.092 112.242 109.297 109.596 109.297Z" fill="#FF5F46"/>
-      <path d="M62.3251 96.1575C62.4133 95.6284 62.5015 95.1874 62.5015 94.6583C62.5015 90.9542 59.8557 87.9557 56.328 87.3383C57.9155 85.5745 59.2384 83.4579 60.1203 81.0767L57.6509 80.1948C56.4162 83.6343 54.0351 86.4564 51.0365 88.3966C50.9484 88.4848 50.8602 88.4848 50.8602 88.4848C48.3026 90.0723 45.3923 90.9542 42.3056 90.9542C41.7764 90.9542 41.1591 90.9542 40.6299 90.866L40.3654 93.5118C40.9827 93.6 41.6882 93.6 42.3056 93.6C46.0096 93.6 49.5373 92.5417 52.4476 90.6014C53.2413 90.1605 54.0351 89.8959 55.0052 89.8959C57.6509 89.8959 59.8557 92.1007 59.8557 94.7464C59.8557 95.0992 59.8557 95.3638 59.7675 95.7166L62.3251 96.1575Z" fill="#FF5F46"/>
-    </svg>
-  );
-}
+export const MLModelBrandIcon = aliased("mlModelBrand");
 
-export function MLOpsBrandIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <path d="M130.1 46.06L127.45 47.46C131.95 56 134.24 65.27 134.24 75C134.24 107.67 107.66 134.24 75 134.24C42.34 134.24 15.77 107.66 15.77 75C15.77 42.34 42.34 15.77 75 15.77C88.63 15.77 101.69 20.43 112.21 28.93H103.95V31.93H117.77V18.11H114.77V27.13C103.61 17.84 89.62 12.76 75.01 12.76C40.7 12.76 12.78 40.68 12.78 74.99C12.78 109.31 40.7 137.23 75.01 137.23C109.33 137.23 137.25 109.31 137.25 74.99C137.23 64.77 134.83 55.03 130.1 46.06Z" fill="#FF5F46"/>
-      <path d="M110.18 45.25L77.35 45.26L70.28 52.8C68.73 51.61 66.79 50.89 64.69 50.89C60.14 50.89 56.36 54.22 55.64 58.58L35.18 58.57C41.63 42.98 56.92 32.37 73.85 31.94H74.32C74.43 31.94 74.54 31.93 74.65 31.93L91.26 31.94V28.94H77.65H75.77C75.24 28.92 74.67 28.92 74.26 28.94H73.81C54.9 29.42 37.93 41.73 31.58 59.57L30.87 61.57L55.64 61.5801C56.36 65.93 60.14 69.27 64.69 69.27C69.75 69.27 73.87 65.1501 73.87 60.08C73.87 58.2001 73.3 56.46 72.33 55L78.65 48.27L108.75 48.26C112.15 52.54 114.66 57.33 116.23 62.53L89.62 62.57L74.52 77.6601H56.64C55.92 73.3101 52.14 69.9801 47.59 69.9801C43.04 69.9801 39.26 73.3101 38.54 77.6601H28.98L29.13 79.3001C31.34 103.11 51.05 121.07 74.99 121.07C97.04 121.07 116.06 105.38 120.21 83.77L120.55 81.99H108.27C107.55 77.64 103.77 74.3001 99.22 74.3001C94.16 74.3001 90.04 78.42 90.04 83.49C90.04 85.48 90.68 87.3201 91.77 88.8301L82.59 98H76.59C75.87 93.65 72.09 90.32 67.54 90.32C62.48 90.32 58.36 94.44 58.36 99.5C58.36 104.56 62.48 108.69 67.54 108.69C72.09 108.69 75.87 105.36 76.59 101H83.83L93.9 90.9401C95.41 92.0201 97.25 92.6601 99.24 92.6601C103.79 92.6601 107.57 89.3301 108.29 84.9801H116.9C112.34 104.26 95.01 118.06 75 118.06C53.17 118.06 35.1 102.09 32.31 80.6501H38.55C39.27 85 43.05 88.34 47.6 88.34C52.15 88.34 55.93 85.0101 56.65 80.6501H75.77L90.87 65.56L120.13 65.52L119.66 63.6501C117.99 57.0601 114.95 51.06 110.64 45.8L110.18 45.25ZM64.69 66.2601C61.28 66.2601 58.5 63.49 58.5 60.07C58.5 56.66 61.27 53.89 64.69 53.89C68.1 53.89 70.87 56.66 70.87 60.07C70.88 63.48 68.1 66.2601 64.69 66.2601ZM67.53 105.69C64.12 105.69 61.35 102.92 61.35 99.5C61.35 96.09 64.12 93.32 67.53 93.32C70.94 93.32 73.72 96.09 73.72 99.5C73.72 102.92 70.94 105.69 67.53 105.69ZM99.23 89.6601C95.82 89.6601 93.05 86.8901 93.05 83.4801C93.05 80.0701 95.82 77.2901 99.23 77.2901C102.64 77.2901 105.42 80.0601 105.42 83.4801C105.42 86.8901 102.64 89.6601 99.23 89.6601ZM47.59 85.34C44.18 85.34 41.41 82.5701 41.41 79.1601C41.41 75.7501 44.18 72.9701 47.59 72.9701C51 72.9701 53.78 75.7401 53.78 79.1601C53.78 82.5701 51 85.34 47.59 85.34Z" fill="#FF5F46"/>
-    </svg>
-  );
-}
+export const MLOpsBrandIcon = aliased("mlopsBrand");
 
-export function ModelRegistryBrandIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 150 150" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
-      <g clipPath="url(#mrClip)">
-        <path d="M75 85.2999C78.993 85.2999 82.23 82.0629 82.23 78.0698C82.23 74.0768 78.993 70.8398 75 70.8398C71.007 70.8398 67.77 74.0768 67.77 78.0698C67.77 82.0629 71.007 85.2999 75 85.2999Z" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M22.1 93.1802C26.093 93.1802 29.33 89.9432 29.33 85.9502C29.33 81.9572 26.093 78.7202 22.1 78.7202C18.107 78.7202 14.87 81.9572 14.87 85.9502C14.87 89.9432 18.107 93.1802 22.1 93.1802Z" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M94.63 35.5498C98.623 35.5498 101.86 32.3129 101.86 28.3198C101.86 24.3268 98.623 21.0898 94.63 21.0898C90.637 21.0898 87.4 24.3268 87.4 28.3198C87.4 32.3129 90.637 35.5498 94.63 35.5498Z" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M108.28 127.17C112.273 127.17 115.51 123.933 115.51 119.94C115.51 115.947 112.273 112.71 108.28 112.71C104.287 112.71 101.05 115.947 101.05 119.94C101.05 123.933 104.287 127.17 108.28 127.17Z" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M91.97 35.04L77.65 71.35" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M79.5 83.73L103.78 114.29" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M67.85 79.1401L29.25 84.8901" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M21.52 78.7201C21.52 78.5001 21.52 78.2901 21.52 78.0701C21.52 48.5301 45.47 24.5801 75.01 24.5801" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M102.33 124.06C94.3301 128.82 84.9901 131.56 75.0001 131.56C55.2101 131.56 37.9201 120.81 28.6801 104.83" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M101.16 31.4102C117.47 40.5702 128.48 58.0302 128.48 78.0702C128.48 87.8102 125.88 96.9502 121.32 104.81" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M65.04 32.0701L76.12 24.5901L65.04 17.1001" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M119.82 92.4502L120.76 105.79L132.78 99.9302" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-        <path d="M40.1401 109.69L28.1101 103.84L27.1801 117.18" stroke="#FF5F46" strokeWidth="3" strokeMiterlimit="3" strokeLinecap="square"/>
-      </g>
-      <defs>
-        <clipPath id="mrClip"><rect width="150" height="150" fill="white"/></clipPath>
-      </defs>
-    </svg>
-  );
-}
+export const ModelRegistryBrandIcon = aliased("modelRegistryBrand");
 
 export function FeatureStoreBrandIcon(props: IconProps) {
   return (
@@ -834,16 +583,7 @@ export function DatabricksAppsBrandIcon(props: IconProps) {
 
 // MCP (Model Context Protocol) — the tool/connector layer. Rendered as a plug
 // connecting into a socket, a clear "tools the agent can call" glyph.
-export function McpIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M12 22v-5" />
-      <rect x="8" y="9" width="8" height="8" rx="1.5" />
-      <path d="M10 9V5a2 2 0 1 1 4 0v4" />
-      <path d="M3 12h2M19 12h2M5 12a7 7 0 0 0 14 0" />
-    </svg>
-  );
-}
+export const McpIcon = aliased("mcp");
 
 // Export an icon map for easy lookup
 export const DATABRICKS_ICONS = {
@@ -945,9 +685,6 @@ export const BRAND_ICONS = new Set<DatabricksIconName>([
   "goldLayer",
   "mlflowBrand",
   "databricksMetastore",
-  "dbCatalog",
-  "dbSchema",
-  "dbTable",
   "shopifyLogo",
   "zendeskLogo",
   "sapLogo",

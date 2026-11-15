@@ -50,7 +50,7 @@ function AboutPage() {
         number="01"
         eyebrow="The unit of work"
         title="A solution is a bundle of context — not a repo."
-        body="Industries, story patterns, and capabilities — captured as small Markdown blocks. The agent composes them into a tailored spec. We maintain the context; the artifacts regenerate."
+        body="Databricks capabilities and product know-how — captured as small Markdown blocks. The agent composes them into a tailored spec. We maintain the context; the artifacts regenerate."
         visual={<BlocksVisual />}
         align="left"
       />
@@ -405,7 +405,7 @@ function BlocksVisual() {
   );
 }
 
-const TERMINAL_LINE = "$ vibe solution gen";
+const TERMINAL_LINE = "$ solution-builder gen";
 
 function TwoSurfacesVisual() {
   const reduce = useReducedMotion();

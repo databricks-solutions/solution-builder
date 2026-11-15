@@ -12,13 +12,13 @@
         "  SELECT fiscal_month,\n",
         "         SUM(COALESCE(actual_opex_usd, forecast_opex_usd) - budget_opex_usd)\n",
         "           OVER (ORDER BY fiscal_month) AS full_year_variance_usd\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast\n",
+        "  FROM gold_opex_forecast\n",
         "),\n",
         "mm AS (\n",
         "  SELECT r.fiscal_month, r.net_patient_revenue_usd - o.opex_usd AS monthly_margin_usd\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue r\n",
+        "  FROM gold_revenue r\n",
         "  JOIN (SELECT fiscal_month, COALESCE(actual_opex_usd, forecast_opex_usd) AS opex_usd\n",
-        "        FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast) o USING (fiscal_month)\n",
+        "        FROM gold_opex_forecast) o USING (fiscal_month)\n",
         "),\n",
         "m AS (\n",
         "  SELECT fiscal_month,\n",
@@ -29,11 +29,11 @@
         "  SELECT fiscal_month,\n",
         "         SUM(net_patient_revenue_usd) OVER (ORDER BY fiscal_month)\n",
         "           / NULLIF(SUM(prior_year_revenue_usd) OVER (ORDER BY fiscal_month), 0) - 1 AS revenue_yoy_pct\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "  FROM gold_revenue\n",
         "),\n",
         "am AS (\n",
         "  SELECT fiscal_month, SUM(total_labor_cost_usd) AS monthly_agency_usd\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_staffing_summary\n",
+        "  FROM gold_staffing_summary\n",
         "  WHERE worker_type = 'Agency' GROUP BY fiscal_month\n",
         "),\n",
         "a AS (\n",
@@ -57,9 +57,9 @@
       "name": "ds_revenue",
       "displayName": "Revenue vs prior year",
       "queryLines": [
-        "SELECT fiscal_month, 'This year' AS series, net_patient_revenue_usd AS revenue_usd FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "SELECT fiscal_month, 'This year' AS series, net_patient_revenue_usd AS revenue_usd FROM gold_revenue\n",
         "UNION ALL\n",
-        "SELECT fiscal_month, 'Prior year' AS series, prior_year_revenue_usd AS revenue_usd FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_revenue\n",
+        "SELECT fiscal_month, 'Prior year' AS series, prior_year_revenue_usd AS revenue_usd FROM gold_revenue\n",
         "ORDER BY fiscal_month, series"
       ]
     },
@@ -67,14 +67,14 @@
       "name": "ds_forecast",
       "displayName": "Opex forecast vs budget",
       "queryLines": [
-        "-- WIDE format off the pre-built dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast, one row per\n",
+        "-- WIDE format off the pre-built gold_opex_forecast, one row per\n",
         "-- fiscal_month, so the native forecast-line widget can plot the actual line, the\n",
         "-- projected line and its confidence band (opex_upper/opex_lower) with no manual\n",
         "-- series. Elapsed months carry actual (band null); the last actual month is a bridge\n",
         "-- row (forecast = actual, band collapsed to the point) so the projected line connects;\n",
         "-- future months carry the projection + band. Budget is a flat reference annotation on\n",
         "-- the widget, not a series here.\n",
-        "WITH f AS (SELECT * FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast),\n",
+        "WITH f AS (SELECT * FROM gold_opex_forecast),\n",
         "last_actual AS (SELECT MAX(fiscal_month) AS max_d FROM f WHERE series_type = 'actual')\n",
         "-- Actual months (excluding the bridge month)\n",
         "SELECT fiscal_month,\n",
@@ -103,7 +103,7 @@
         "SELECT fiscal_month, series_type,\n",
         "       SUM(COALESCE(actual_opex_usd, forecast_opex_usd)) OVER (ORDER BY fiscal_month)\n",
         "       - SUM(budget_opex_usd) OVER (ORDER BY fiscal_month) AS cumulative_variance_usd\n",
-        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_opex_forecast"
+        "FROM gold_opex_forecast"
       ]
     },
     {
@@ -123,7 +123,7 @@
         "  SELECT department, expense_category,\n",
         "         SUM(variance_usd) AS variance_usd,\n",
         "         SUM(variance_usd) / NULLIF(SUM(budget_ytd_usd), 0) AS variance_pct\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_budget_variance\n",
+        "  FROM gold_budget_variance\n",
         "  GROUP BY department, expense_category\n",
         ")"
       ]
@@ -142,7 +142,7 @@
         "         SUM(total_hours) AS total_hours,\n",
         "         SUM(total_labor_cost_usd) AS total_labor_cost_usd,\n",
         "         SUM(total_labor_cost_usd) / NULLIF(SUM(total_hours),0) AS avg_hourly_cost_usd\n",
-        "  FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_staffing_summary\n",
+        "  FROM gold_staffing_summary\n",
         "  GROUP BY fiscal_month, department, worker_type\n",
         ")\n",
         "SELECT fiscal_month, department, worker_type,\n",
@@ -164,7 +164,7 @@
       "queryLines": [
         "SELECT vendor_name, department, SUM(spend_ytd_usd) AS spend_ytd_usd,\n",
         "       MAX(yoy_multiple) AS yoy_multiple\n",
-        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_vendor_spend GROUP BY vendor_name, department ORDER BY spend_ytd_usd DESC"
+        "FROM gold_vendor_spend GROUP BY vendor_name, department ORDER BY spend_ytd_usd DESC"
       ]
     },
     {
@@ -173,7 +173,7 @@
       "queryLines": [
         "SELECT facility_name, city, latitude, longitude,\n",
         "       total_variance_usd, nursing_contract_labor_variance_usd\n",
-        "FROM dbdemos_templates.aibi_cfo_health_budget_variance.gold_facility_variance"
+        "FROM gold_facility_variance"
       ]
     }
   ],
@@ -803,7 +803,8 @@
             "height": 7
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
     },
     {
       "name": "drill_down",
@@ -1189,12 +1190,12 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
     },
     {
       "name": "global_filters",
       "displayName": "Filters",
-      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
       "layout": [
         {
           "widget": {
@@ -1390,12 +1391,42 @@
             "height": 1
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS"
     }
   ],
   "uiSettings": {
     "theme": {
-      "widgetHeaderAlignment": "ALIGNMENT_UNSET"
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#D1495B",
+        "#5ADBFF",
+        "#2E8B6F",
+        "#9AA5B1",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
     }
   }
 }

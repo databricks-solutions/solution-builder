@@ -151,14 +151,11 @@ export type WorkspaceResources = {
   pipeline:      ResourceEntry;
   warehouse:     ResourceEntry;
   lakebase:      ResourceEntry;
-  mas:           ResourceEntry;
-  ka:            ResourceEntry;
   gateway:       ResourceEntry;
   databricksOne: ResourceEntry;
-  agentBricks:   ResourceEntry;
   catalog:       ResourceEntry;
   model:         ResourceEntry;
-  volume:        ResourceEntry;
+  documents:     ResourceEntry;
   app:           ResourceEntry;
 };
 

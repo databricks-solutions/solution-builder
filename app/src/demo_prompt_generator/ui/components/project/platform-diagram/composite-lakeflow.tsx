@@ -58,18 +58,23 @@ function StackedFiles() {
 
 /** An ingest "zone" flush against the block's left edge — icon on top + a
  *  single line of VERTICAL text reading downward. Tinted band fill, no rounded
- *  pill, so it reads as part of the block's left side (zones), not a tile. */
-function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: DatabricksIconName; iconEl?: React.ReactNode; label: string; bandColor: string; first?: boolean }) {
+ *  pill, so it reads as part of the block's left side (zones), not a tile.
+/*  The zone renders the SAME in slide as technical (icon + vertical port label);
+ *  slide changes only the OUTER composite (flat card / stronger lines) and
+ *  suppresses descriptions — the box stays its natural size, so the internals
+ *  must fit it exactly as technical does. Tight right padding (`pl-1 pr-0`) keeps
+ *  the rail narrow so the SDP/medallion panel keeps its width. */
+function IngestBox({ icon, iconEl, label, bandColor, first, slide }: { icon?: DatabricksIconName; iconEl?: React.ReactNode; label: string; bandColor: string; first?: boolean; slide?: boolean }) {
   const Icon = icon ? DATABRICKS_ICONS[icon] || DATABRICKS_ICONS.data : null;
   return (
     <div
-      className={`flex flex-1 flex-row items-center justify-center gap-1 px-1 py-2 ${first ? "" : "border-t"}`}
+      className={`flex flex-1 flex-row items-center justify-center gap-0.5 pl-1 pr-0 py-2 ${first ? "" : "border-t"}`}
       style={{ borderColor: `${bandColor}33`, background: `${bandColor}12` }}
     >
       {label && (
         <span
-          className="text-[7.5px] font-bold uppercase tracking-[0.08em] leading-none text-foreground/80"
-          style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
+          className="font-bold uppercase tracking-[0.08em] leading-none text-foreground/80"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed", fontSize: slide ? 10 : 7.5 }}
         >
           {label}
         </span>
@@ -82,8 +87,10 @@ function IngestBox({ icon, iconEl, label, bandColor, first }: { icon?: Databrick
 /** A DATABASE glyph for a medallion layer: the classic cylinder ("tube") DB
  *  shape — top ellipse, body, two stacked "data band" ellipses — filled in the
  *  layer color, with the layer name underneath and an optional short caption
- *  (from a `*_desc` param) below that. */
-export function DbTable({ label, color, desc }: { label: string; color: string; desc?: string }) {
+ *  (from a `*_desc` param) below that.
+ *  Slide keeps the SAME cylinder + label size as technical (they fit the natural
+ *  box); slide only SUPPRESSES the desc caption. */
+export function DbTable({ label, color, desc, slide }: { label: string; color: string; desc?: string; slide?: boolean }) {
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center gap-[2px]">
       {/* Grows with the block, but capped so the cylinders don't get so tall
@@ -98,10 +105,10 @@ export function DbTable({ label, color, desc }: { label: string; color: string; 
         {/* top ellipse (rim) */}
         <ellipse cx="12" cy="5" rx="10" ry="4" fill={`${color}40`} stroke={color} strokeWidth="1.4" />
       </svg>
-      <span className="text-[7.5px] font-bold uppercase tracking-wide leading-none" style={{ color }}>
+      <span className="font-bold uppercase tracking-wide leading-none" style={{ color, fontSize: slide ? 10 : 7.5 }}>
         {label}
       </span>
-      {desc && (
+      {!slide && desc && (
         <span
           className="mt-[1px] max-w-[72px] text-center text-[6.5px] leading-tight text-muted-foreground"
           style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
@@ -117,13 +124,15 @@ export function DbTable({ label, color, desc }: { label: string; color: string; 
 /** The bronze → silver → gold cylinders with a thin light connector bar between
  *  each (the medallion flow). Spacing WIDENS when any layer has a `*_desc` param
  *  so the captions get room. `params` carries the optional `bronze_desc` /
- *  `silver_desc` / `gold_desc` captions. */
-export function MedallionRow({ params }: { params?: Record<string, boolean | string> } = {}) {
+ *  `silver_desc` / `gold_desc` captions.
+ *  Slide passes through desc-suppression to DbTable; sizing is theme-invariant. */
+export function MedallionRow({ params, slide }: { params?: Record<string, boolean | string>; slide?: boolean } = {}) {
   const descOf = (k: string): string | undefined => {
     const v = params?.[`${k}_desc`];
     return typeof v === "string" && v.trim() ? v : undefined;
   };
-  const hasDesc = !!(descOf("bronze") || descOf("silver") || descOf("gold"));
+  // Slide hides descs, so treat the row as desc-less for spacing regardless.
+  const hasDesc = !slide && !!(descOf("bronze") || descOf("silver") || descOf("gold"));
   return (
     <div className={`flex min-h-0 flex-1 items-stretch justify-center ${hasDesc ? "gap-3" : "gap-2"}`}>
       {MEDALLION.map((m, i) => (
@@ -131,7 +140,7 @@ export function MedallionRow({ params }: { params?: Record<string, boolean | str
           {/* Connector bar — wider than before so the layers read as spaced-out
               stages, not crammed together. */}
           {i > 0 && <span className="my-auto h-[2px] w-6 shrink-0 rounded-full bg-muted-foreground/25" />}
-          <DbTable label={m.label} color={m.color} desc={descOf(m.key)} />
+          <DbTable label={m.label} color={m.color} desc={descOf(m.key)} slide={slide} />
         </Fragment>
       ))}
     </div>
@@ -142,7 +151,7 @@ export const LakeflowBlock = memo(function LakeflowBlock({ data, selected }: Nod
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component, d.params);
+  const nat = baseSize(d.component, d.params, d.theme);
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   return (
     <RotatableCard
@@ -258,11 +267,16 @@ export function LakeflowHeader({ d, mask }: { d: NodeData; mask: string }) {
           />
         ) : isDefault ? (
           <>
-            <span className="shrink-0 text-[12px] font-bold leading-none text-foreground">Lakeflow:</span>
-            <span className="whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground">Data ingestion and processing</span>
+            {/* Slide drops the trailing tagline, so drop the colon too — a bare
+                "Lakeflow" reads as a title, "Lakeflow:" with nothing after it
+                dangles. Technical keeps "Lakeflow:" + the tagline. Slide bumps the
+                title to 15px (a slide-visual change, not a box-size one — the
+                header strip fits ≤15px); technical stays 12px. */}
+            <span className={`shrink-0 font-bold leading-none text-foreground ${d.theme === "slide" ? "text-[15px]" : "text-[12px]"}`}>{d.theme === "slide" ? "Lakeflow" : "Lakeflow:"}</span>
+            {d.theme !== "slide" && <span className="whitespace-nowrap text-[9px] font-medium leading-none text-muted-foreground">Data ingestion and processing</span>}
           </>
         ) : (
-          <span className="truncate text-[12px] font-bold leading-none text-foreground">{title}</span>
+          <span className={`truncate font-bold leading-none text-foreground ${d.theme === "slide" ? "text-[15px]" : "text-[12px]"}`}>{title}</span>
         )}
       </div>
     </div>
@@ -273,19 +287,23 @@ export function LakeflowHeader({ d, mask }: { d: NodeData; mask: string }) {
  *  card chrome — so it can be embedded standalone or stacked above Genie Code
  *  in the combined block. An optional `footer` renders inside the RIGHT column,
  *  below the SDP/Open-Format panel — so it aligns under that panel and the
- *  full-height ingest rail stays on its left (not spanned by the footer). */
+ *  full-height ingest rail stays on its left (not spanned by the footer).
+ *  Geometry is THEME-INVARIANT (same box as technical): slide only suppresses
+ *  descriptions + the open-format marks and flattens the outer card. */
 export function LakeflowBody({ d, footer }: { d: NodeData; footer?: ReactNode }) {
+  const slide = d.theme === "slide";
   return (
     <>
       {/* LEFT: ingest zones stacked vertically, flush against the block edge
           — Connect (top), Zerobus (middle), files (bottom = direct port).
-          Each zone aligns with its left-edge input port. */}
+          Each zone aligns with its left-edge input port. Narrow rail (w-9) in
+          both themes so the SDP/medallion panel keeps its width. */}
       <div className="flex w-9 shrink-0 flex-col border-r" style={{ borderColor: `${d.bandColor}33` }}>
-        <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first />
-        <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} />
+        <IngestBox icon="lakeflowConnectBrand" label="Connect" bandColor={d.bandColor} first slide={slide} />
+        <IngestBox icon="zerobus" label="Zerobus" bandColor={d.bandColor} slide={slide} />
         {/* bottom zone = "direct" port — agnostic data files (CSV/Parquet),
             icon only, no label. */}
-        <IngestBox iconEl={<StackedFiles />} label="" bandColor={d.bandColor} />
+        <IngestBox iconEl={<StackedFiles />} label="" bandColor={d.bandColor} slide={slide} />
       </div>
 
       {/* RIGHT: SDP panel. The block TITLE is a legend on the card's top border
@@ -296,17 +314,20 @@ export function LakeflowBody({ d, footer }: { d: NodeData; footer?: ReactNode })
               RIGHT end of this row, aligned with the "Spark Declarative Pipelines"
               title (replaces the old "Open Format" footer). */}
           <div className="mb-1.5 flex shrink-0 items-center gap-1.5">
-            {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className="h-4 w-4 shrink-0" />; })()}
+            {(() => { const I = DATABRICKS_ICONS.sdpBrand; return <I className={`shrink-0 ${slide ? "h-5 w-5" : "h-4 w-4"}`} />; })()}
             {/* Title shrinks (min-w-0 + truncate) so the open-format logos on the
-                right always stay inside the panel, even in the narrow block. */}
-            <span className="min-w-0 flex-1 truncate text-[9.5px] font-bold leading-tight text-foreground">Spark Declarative Pipelines</span>
-            <span className="flex shrink-0 items-center gap-1">
-              {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
-              {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
-            </span>
+                right always stay inside the panel, even in the narrow block.
+                Slide bumps it to 13px (still truncates → never overflows). */}
+            <span className={`min-w-0 flex-1 truncate font-bold leading-tight text-foreground ${slide ? "text-[13px]" : "text-[11px]"}`}>Spark Declarative Pipelines</span>
+            {!slide && (
+              <span className="flex shrink-0 items-center gap-1">
+                {(() => { const I = DATABRICKS_ICONS.deltaLakeLogo; return <I className="h-3.5 w-3.5" />; })()}
+                {(() => { const I = DATABRICKS_ICONS.icebergLogo; return <I className="h-3.5 w-3.5" />; })()}
+              </span>
+            )}
           </div>
           {/* Medallion grows to absorb extra height on resize. */}
-          <MedallionRow params={d.params} />
+          <MedallionRow params={d.params} slide={slide} />
         </div>
         {/* Optional footer (e.g. the Genie strip) — under the SDP panel, within
             the right column, so it doesn't span under the ingest rail. */}

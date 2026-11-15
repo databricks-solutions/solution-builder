@@ -1,0 +1,636 @@
+key	tier	set	flags	aliases	concepts
+file:cloud/aws/analytics/athena	T1	cloud			athena
+file:cloud/aws/analytics/emr	T1	cloud			emr
+file:cloud/aws/analytics/glue	T1	cloud			glue
+file:cloud/aws/analytics/lake-formation	T1	cloud			lake, formation
+file:cloud/aws/analytics/msk	T1	cloud			msk
+file:cloud/aws/analytics/opensearch	T1	cloud			opensearch
+file:cloud/aws/analytics/quicksight	T1	cloud			quicksight, amazon quicksight, amazon quick, bi, dashboards
+file:cloud/aws/analytics/redshift	T1	cloud			redshift
+file:cloud/aws/aws	T1	cloud			aws
+file:cloud/aws/compute/ec2	T1	cloud			ec2
+file:cloud/aws/compute/ec2-instance	T1	cloud			ec2, instance, ec2 instance, virtual machine, vm, proxy instance
+file:cloud/aws/compute/ec2-instances	T1	cloud			ec2, instances, ec2 instances, fleet
+file:cloud/aws/compute/lambda	T1	cloud			lambda
+file:cloud/aws/database/aurora	T1	cloud			aurora
+file:cloud/aws/database/dynamodb	T1	cloud			dynamodb
+file:cloud/aws/database/elasticache	T1	cloud			elasticache
+file:cloud/aws/database/rds	T1	cloud			rds
+file:cloud/aws/general/account	T1	cloud			account, aws account
+file:cloud/aws/general/auto-scaling-group	T1	cloud			auto, scaling, group, auto scaling group, asg
+file:cloud/aws/general/aws-cloud	T1	cloud			aws, cloud, aws cloud group, aws cloud
+file:cloud/aws/general/corporate-data-center	T1	cloud			corporate, data, center, corporate data center, on-premises, on-prem data center, datacenter
+file:cloud/aws/general/private-subnet	T1	cloud			private, subnet, aws private subnet, private subnet
+file:cloud/aws/general/public-subnet	T1	cloud			public, subnet, aws public subnet, public subnet
+file:cloud/aws/general/region	T1	cloud			region, aws region
+file:cloud/aws/general/vpc-group	T1	cloud			vpc, group, vpc group, vpc container
+file:cloud/aws/integration/appflow	T1	cloud			appflow, saas connector, saas ingestion, amazon appflow
+file:cloud/aws/iot/iot-core	T1	cloud			iot, core, mqtt, devices, aws iot core
+file:cloud/aws/management/cloudtrail	T1	cloud			cloudtrail, audit, api logging, trail
+file:cloud/aws/management/cloudwatch	T1	cloud			cloudwatch, cloud watch, logs, metrics, monitoring, alarms
+file:cloud/aws/migration/dms	T1	cloud			dms, database migration, migration service, cdc, amazon dms
+file:cloud/aws/ml/bedrock	T1	cloud			bedrock
+file:cloud/aws/ml/bedrock-agentcore	T1	cloud			bedrock, agentcore
+file:cloud/aws/ml/q	T1	cloud			q
+file:cloud/aws/ml/sagemaker	T1	cloud			sagemaker
+file:cloud/aws/networking/api-gateway	T1	cloud			api, gateway
+file:cloud/aws/networking/application-load-balancer	T1	cloud			application, load, balancer, alb, application load balancer, layer 7 load balancer
+file:cloud/aws/networking/client-vpn	T1	cloud			client, vpn, client vpn, remote access vpn, user vpn
+file:cloud/aws/networking/cloud-wan	T1	cloud			cloud, wan, cloud wan, global network
+file:cloud/aws/networking/cloudfront	T1	cloud			cloudfront
+file:cloud/aws/networking/customer-gateway	T1	cloud			customer, gateway, customer gateway, cgw, on-prem router, on-premises vpn device
+file:cloud/aws/networking/direct-connect	T1	cloud			direct, connect, dx, direct connect, private connection, on-premises link
+file:cloud/aws/networking/direct-connect-gateway	T1	cloud			direct, connect, gateway, direct connect gateway, dxgw, dx gateway
+file:cloud/aws/networking/elastic-network-interface	T1	cloud			elastic, network, interface, eni, elastic network interface, network interface, nic, managed interface
+file:cloud/aws/networking/elb	T1	cloud			elb
+file:cloud/aws/networking/flow-logs	T1	cloud			flow, logs, vpc flow logs, flow logs
+file:cloud/aws/networking/gateway-load-balancer	T1	cloud			gateway, load, balancer, gwlb, gateway load balancer, appliance load balancer
+file:cloud/aws/networking/global-accelerator	T1	cloud			global, accelerator, global accelerator, anycast
+file:cloud/aws/networking/internet-gateway	T1	cloud			internet, gateway, igw
+file:cloud/aws/networking/nat-gateway	T1	cloud			nat, gateway, egress gateway
+file:cloud/aws/networking/network-acl	T1	cloud			network, acl, nacl, network acl, network access control list
+file:cloud/aws/networking/network-load-balancer	T1	cloud			network, load, balancer, nlb, network load balancer, layer 4 load balancer
+file:cloud/aws/networking/peering-connection	T1	cloud			peering, connection, vpc peering, peering connection
+file:cloud/aws/networking/privatelink	T1	cloud			privatelink, private link, aws privatelink
+file:cloud/aws/networking/route-table	T1	cloud			route, table, route table, vpc route table, routes
+file:cloud/aws/networking/route53	T1	cloud			route53
+file:cloud/aws/networking/route53-hosted-zone	T1	cloud			route53, hosted, zone, hosted zone, private hosted zone, dns zone
+file:cloud/aws/networking/route53-resolver	T1	cloud			route53, resolver, route 53 resolver, dns resolver, resolver endpoint, hybrid dns
+file:cloud/aws/networking/router	T1	cloud			router, vpc router
+file:cloud/aws/networking/site-to-site-vpn	T1	cloud			site, to, vpn, site-to-site vpn, s2s vpn, aws vpn, ipsec vpn, vpn tunnel
+file:cloud/aws/networking/transit-gateway	T1	cloud			transit, gateway, tgw, transit gateway, hub
+file:cloud/aws/networking/transit-gateway-attachment	T1	cloud			transit, gateway, attachment, tgw attachment, transit gateway attachment
+file:cloud/aws/networking/vpc	T1	cloud			vpc
+file:cloud/aws/networking/vpc-endpoint	T1	cloud			vpc, endpoint, vpc endpoint, private endpoint
+file:cloud/aws/networking/vpc-lattice	T1	cloud			vpc, lattice, vpc lattice, service network
+file:cloud/aws/networking/vpn-connection	T1	cloud			vpn, connection, vpn connection, ipsec tunnel
+file:cloud/aws/networking/vpn-gateway	T1	cloud			vpn, gateway, virtual private gateway, vgw, vpn gateway
+file:cloud/aws/security/iam	T1	cloud			iam, identity and access management, policies
+file:cloud/aws/security/iam-identity-center	T1	cloud			iam, identity, center, sso, single sign-on, workforce identity
+file:cloud/aws/security/iam-role	T1	cloud			iam, role, cross-account role, iam role
+file:cloud/aws/security/kms	T1	cloud			kms, key management, encryption key, kms key, customer managed key
+file:cloud/aws/security/network-firewall	T1	cloud			network, firewall, aws network firewall, network firewall, egress firewall
+file:cloud/aws/security/network-firewall-endpoint	T1	cloud			network, firewall, endpoint, firewall endpoint, network firewall endpoint
+file:cloud/aws/security/secrets-manager	T1	cloud			secrets, manager, credentials vault
+file:cloud/aws/security/shield	T1	cloud			shield, aws shield, ddos protection
+file:cloud/aws/security/sts	T1	cloud			sts, security token service, assume role, temporary credentials
+file:cloud/aws/security/waf	T1	cloud			waf, aws waf, web application firewall
+file:cloud/aws/storage/s3	T1	cloud			s3, s3 bucket, bucket
+file:cloud/aws/streaming/kinesis	T1	cloud			kinesis
+file:cloud/azure/analytics/ai-search	T1	cloud			ai, search
+file:cloud/azure/analytics/data-factory	T1	cloud			data, factory
+file:cloud/azure/analytics/synapse	T1	cloud			synapse
+file:cloud/azure/azure	T1	cloud			azure
+file:cloud/azure/compute/functions	T1	cloud			functions
+file:cloud/azure/compute/virtual-machines	T1	cloud			virtual, machines
+file:cloud/azure/database/cosmos-db	T1	cloud			cosmos, db
+file:cloud/azure/database/redis	T1	cloud			redis
+file:cloud/azure/database/sql-database	T1	cloud			sql, database
+file:cloud/azure/devops/azure-devops	T1	cloud			azure, devops
+file:cloud/azure/general/subscription	T1	cloud			subscription, azure subscription
+file:cloud/azure/identity/entra-managed-identities	T1	cloud			entra, managed, identities
+file:cloud/azure/ml/ai-foundry	T1	cloud			ai, foundry
+file:cloud/azure/ml/machine-learning	T1	cloud			machine, learning
+file:cloud/azure/ml/machine-learning-foundry	T1	cloud			machine, learning, foundry
+file:cloud/azure/ml/openai	T1	cloud			openai
+file:cloud/azure/monitor/application-insights	T1	cloud			application, insights
+file:cloud/azure/monitor/log-analytics	T1	cloud			log, analytics
+file:cloud/azure/monitor/monitor	T1	cloud			monitor
+file:cloud/azure/networking/api-management	T1	cloud			api, management
+file:cloud/azure/networking/application-gateway	T1	cloud			application, gateway, application gateway, app gateway, azure application gateway, layer 7 load balancer, waf
+file:cloud/azure/networking/bastion	T1	cloud			bastion, azure bastion, jump host, remote access
+file:cloud/azure/networking/connection	T1	cloud			connection, azure connection, vpn connection, expressroute connection
+file:cloud/azure/networking/ddos-protection	T1	cloud			ddos, protection, azure ddos protection
+file:cloud/azure/networking/dns-private-resolver	T1	cloud			dns, private, resolver, dns resolver, private dns, dns forwarding
+file:cloud/azure/networking/dns-zone	T1	cloud			dns, zone, azure dns, private dns zone, dns zone
+file:cloud/azure/networking/expressroute	T1	cloud			expressroute, dedicated connection, private connection, on-premises link
+file:cloud/azure/networking/firewall	T1	cloud			firewall, azure firewall, egress firewall
+file:cloud/azure/networking/firewall-manager	T1	cloud			firewall, manager, firewall manager, firewall policy
+file:cloud/azure/networking/front-door	T1	cloud			front, door
+file:cloud/azure/networking/ip-groups	T1	cloud			ip, groups, ip groups
+file:cloud/azure/networking/load-balancer	T1	cloud			load, balancer
+file:cloud/azure/networking/local-network-gateway	T1	cloud			local, network, gateway, local network gateway, on-premises gateway
+file:cloud/azure/networking/nat-gateway	T1	cloud			nat, gateway, nat gateway, egress
+file:cloud/azure/networking/network-interface	T1	cloud			network, interface, nic, network interface, managed nic
+file:cloud/azure/networking/network-security-group	T1	cloud			network, security, group, nsg, network security group
+file:cloud/azure/networking/network-watcher	T1	cloud			network, watcher, network watcher
+file:cloud/azure/networking/on-premises-data-gateway	T1	cloud			on, premises, data, gateway, on-premises data gateway, data gateway
+file:cloud/azure/networking/private-endpoint	T1	cloud			private, endpoint, private endpoint, private link, azure private link
+file:cloud/azure/networking/private-link	T1	cloud			private, link, azure private link, private link
+file:cloud/azure/networking/private-link-service	T1	cloud			private, link, service, private link service, pls, azure private link service, expose a service privately
+file:cloud/azure/networking/public-ip	T1	cloud			public, ip, azure public ip, public ip address
+file:cloud/azure/networking/route-filter	T1	cloud			route, filter, route filter
+file:cloud/azure/networking/route-table	T1	cloud			route, table, route table, udr, user-defined route
+file:cloud/azure/networking/service-endpoint-policy	T1	cloud			service, endpoint, policy, service endpoint, service endpoint policy
+file:cloud/azure/networking/subnet	T1	cloud			subnet, delegated subnet
+file:cloud/azure/networking/traffic-manager	T1	cloud			traffic, manager, traffic manager, dns load balancing
+file:cloud/azure/networking/virtual-network	T1	cloud			virtual, network, vnet, virtual network, hub vnet, spoke vnet
+file:cloud/azure/networking/virtual-router	T1	cloud			virtual, router, route server, virtual router
+file:cloud/azure/networking/virtual-wan	T1	cloud			virtual, wan, virtual wan, vwan
+file:cloud/azure/networking/virtual-wan-hub	T1	cloud			virtual, wan, hub, virtual wan hub, vwan hub, virtual hub
+file:cloud/azure/networking/vpn-gateway	T1	cloud			vpn, gateway, vpn gateway, virtual network gateway, azure gateway, site-to-site vpn, s2s vpn, expressroute gateway
+file:cloud/azure/networking/waf-policy	T1	cloud			waf, policy, azure waf, waf policy, web application firewall
+file:cloud/azure/security/key-vault	T1	cloud			key, vault
+file:cloud/azure/storage/blob-storage	T1	cloud			blob, storage
+file:cloud/azure/storage/storage-account	T1	cloud			storage, account, storage account, adls, adls gen2, azure data lake storage, data lake storage
+file:cloud/azure/streaming/event-hubs	T1	cloud			event, hubs
+file:cloud/gcp/analytics/bigquery	T1	cloud			bigquery
+file:cloud/gcp/analytics/dataflow	T1	cloud			dataflow
+file:cloud/gcp/analytics/dataproc	T1	cloud			dataproc
+file:cloud/gcp/compute/cloud-functions	T1	cloud			cloud, functions
+file:cloud/gcp/compute/compute-engine	T1	cloud			compute, engine
+file:cloud/gcp/database/bigtable	T1	cloud			bigtable
+file:cloud/gcp/database/cloud-sql	T1	cloud			cloud, sql
+file:cloud/gcp/database/memorystore	T1	cloud			memorystore
+file:cloud/gcp/gcp	T1	cloud			gcp
+file:cloud/gcp/general/project	T1	cloud			project, gcp project
+file:cloud/gcp/ml/vertex-ai	T1	cloud			vertex, ai
+file:cloud/gcp/networking/api-gateway	T1	cloud			api, gateway
+file:cloud/gcp/networking/cloud-armor	T1	cloud			cloud, armor, cloud armor, gcp waf, ddos protection
+file:cloud/gcp/networking/cloud-cdn	T1	cloud			cloud, cdn
+file:cloud/gcp/networking/cloud-dns	T1	cloud			cloud, dns, cloud dns, gcp dns, private zone
+file:cloud/gcp/networking/cloud-ids	T1	cloud			cloud, ids, cloud ids, intrusion detection
+file:cloud/gcp/networking/cloud-interconnect	T1	cloud			cloud, interconnect, cloud interconnect, dedicated interconnect, partner interconnect
+file:cloud/gcp/networking/cloud-nat	T1	cloud			cloud, nat, cloud nat, gcp nat, egress nat
+file:cloud/gcp/networking/cloud-router	T1	cloud			cloud, router, cloud router, gcp router, bgp, dynamic routing
+file:cloud/gcp/networking/cloud-routes	T1	cloud			cloud, routes, cloud routes, gcp routes, route table
+file:cloud/gcp/networking/cloud-service-mesh	T1	cloud			cloud, service, mesh, cloud service mesh, service mesh, envoy, anthos service mesh
+file:cloud/gcp/networking/cloud-vpn	T1	cloud			cloud, vpn, cloud vpn, gcp vpn, ha vpn, site-to-site vpn, s2s vpn
+file:cloud/gcp/networking/external-ip	T1	cloud			external, ip, external ip, public ip, gcp ip address
+file:cloud/gcp/networking/firewall-rules	T1	cloud			firewall, rules, gcp firewall, firewall rules, vpc firewall
+file:cloud/gcp/networking/identity-aware-proxy	T1	cloud			identity, aware, proxy, identity-aware proxy, iap
+file:cloud/gcp/networking/load-balancing	T1	cloud			load, balancing
+file:cloud/gcp/networking/network-connectivity-center	T1	cloud			network, connectivity, center, network connectivity center, ncc hub, gcp hub
+file:cloud/gcp/networking/network-security	T1	cloud			network, security, gcp network security
+file:cloud/gcp/networking/partner-interconnect	T1	cloud			partner, interconnect, partner interconnect
+file:cloud/gcp/networking/private-service-connect	T1	cloud			private, service, connect, private service connect, psc, service attachment, gcp private endpoint
+file:cloud/gcp/networking/traffic-director	T1	cloud			traffic, director, traffic director, envoy, proxy, envoy proxy
+file:cloud/gcp/networking/vpc	T1	cloud			vpc
+file:cloud/gcp/security/iam	T1	cloud			iam, gcp iam, cloud iam, google service account
+file:cloud/gcp/storage/cloud-storage	T1	cloud			cloud, storage, gcs bucket, gcs
+file:cloud/gcp/streaming/pubsub	T1	cloud			pubsub
+file:vendor/adyen	T1	vendor	remote		adyen
+file:vendor/airbyte	T1	vendor			airbyte
+file:vendor/airtable	T1	vendor	remote		airtable
+file:vendor/amplitude	T1	vendor	remote		amplitude
+file:vendor/anthropic	T1	vendor	remote		anthropic
+file:vendor/apache-airflow	T1	vendor			apache, airflow
+file:vendor/apache-couchdb	T1	vendor			apache, couchdb
+file:vendor/apache-flink	T1	vendor			apache, flink
+file:vendor/apache-hbase	T1	vendor			apache, hbase
+file:vendor/apache-nifi	T1	vendor			apache, nifi
+file:vendor/apache-spark	T1	vendor			apache, spark
+file:vendor/ascender	T1	vendor	remote		ascender
+file:vendor/atlassian	T1	vendor	remote		atlassian
+file:vendor/aws-redshift	T1	vendor	remote		aws, redshift
+file:vendor/bigcommerce	T1	vendor	remote		bigcommerce
+file:vendor/box	T1	vendor	remote		box
+file:vendor/braze	T1	vendor	remote		braze
+file:vendor/brevo	T1	vendor	remote		brevo
+file:vendor/canvas	T1	vendor	remote		canvas
+file:vendor/cassandra	T1	vendor			cassandra
+file:vendor/chroma	T1	vendor	remote		chroma
+file:vendor/clickhouse	T1	vendor			clickhouse
+file:vendor/cloudflare	T1	vendor	remote		cloudflare
+file:vendor/cockroachdb	T1	vendor			cockroachdb
+file:vendor/concur	T1	vendor	remote		concur
+file:vendor/confluence	T1	vendor	remote		confluence
+file:vendor/couchbase	T1	vendor			couchbase
+file:vendor/csv	T1	vendor			csv
+file:vendor/dbt	T1	vendor			dbt
+file:vendor/docker	T1	vendor	remote		docker
+file:vendor/dropbox	T1	vendor	remote		dropbox
+file:vendor/duckdb	T1	vendor			duckdb
+file:vendor/elasticsearch	T1	vendor			elasticsearch
+file:vendor/fastapi	T1	vendor	remote		fastapi
+file:vendor/gemini	T1	vendor	remote		gemini
+file:vendor/github	T1	vendor	remote		github
+file:vendor/gitlab	T1	vendor	remote		gitlab
+file:vendor/glean	T1	vendor	remote		glean
+file:vendor/google-ads	T1	vendor	remote		google, ads
+file:vendor/google-analytics	T1	vendor	remote		google, analytics
+file:vendor/google-docs	T1	vendor	remote		google, docs
+file:vendor/google-drive	T1	vendor	remote		google, drive
+file:vendor/google-sheets	T1	vendor	remote		google, sheets
+file:vendor/gradio	T1	vendor	remote		gradio
+file:vendor/grafana	T1	vendor			grafana
+file:vendor/grok	T1	vendor	remote		grok
+file:vendor/hootsuite	T1	vendor	remote		hootsuite
+file:vendor/hubspot	T1	vendor	remote		hubspot
+file:vendor/hugging-face	T1	vendor	remote		hugging, face
+file:vendor/ibm	T1	vendor	remote		ibm
+file:vendor/influxdb	T1	vendor			influxdb
+file:vendor/informatica	T1	vendor	remote		informatica
+file:vendor/intercom	T1	vendor	remote		intercom
+file:vendor/jira	T1	vendor	remote		jira
+file:vendor/kafka	T1	vendor			kafka
+file:vendor/kimi	T1	vendor	remote		kimi
+file:vendor/klarna	T1	vendor	remote		klarna
+file:vendor/kubernetes	T1	vendor	remote		kubernetes
+file:vendor/langchain	T1	vendor	remote		langchain
+file:vendor/langchain-wordmark	T1	vendor	remote		langchain, wordmark
+file:vendor/looker	T1	vendor	remote		looker
+file:vendor/mailchimp	T1	vendor	remote		mailchimp
+file:vendor/mariadb	T1	vendor			mariadb
+file:vendor/marketo	T1	vendor	remote		marketo
+file:vendor/mastercard	T1	vendor	remote		mastercard
+file:vendor/mcp	T1	vendor	remote		mcp
+file:vendor/meta	T1	vendor	remote		meta
+file:vendor/metabase	T1	vendor			metabase
+file:vendor/microsoft	T1	vendor	remote		microsoft
+file:vendor/microsoft-sql-server	T1	vendor	remote		microsoft, sql, server
+file:vendor/milvus	T1	vendor	remote		milvus
+file:vendor/mistral	T1	vendor	remote		mistral
+file:vendor/mixpanel	T1	vendor	remote		mixpanel
+file:vendor/mongodb	T1	vendor			mongodb
+file:vendor/mqtt	T1	vendor			mqtt
+file:vendor/mulesoft	T1	vendor	remote		mulesoft
+file:vendor/mysql	T1	vendor			mysql
+file:vendor/neo4j	T1	vendor			neo4j
+file:vendor/netlify	T1	vendor	remote		netlify
+file:vendor/nextjs	T1	vendor	remote		nextjs
+file:vendor/node-red	T1	vendor			node, red
+file:vendor/nodejs	T1	vendor	remote		nodejs
+file:vendor/notion	T1	vendor	remote		notion
+file:vendor/openai	T1	vendor	remote		openai
+file:vendor/oracle	T1	vendor	remote		oracle
+file:vendor/parquet	T1	vendor			parquet
+file:vendor/paypal	T1	vendor	remote		paypal
+file:vendor/peoplesoft	T1	vendor	remote		peoplesoft
+file:vendor/perplexity	T1	vendor	remote		perplexity
+file:vendor/pinecone	T1	vendor	remote		pinecone
+file:vendor/planetscale	T1	vendor	remote		planetscale
+file:vendor/postgresql	T1	vendor			postgresql
+file:vendor/power-bi	T1	vendor	remote		power, bi
+file:vendor/prestashop	T1	vendor	remote		prestashop
+file:vendor/presto	T1	vendor			presto
+file:vendor/pulsar	T1	vendor			pulsar
+file:vendor/python	T1	vendor	remote		python
+file:vendor/qdrant	T1	vendor	remote		qdrant
+file:vendor/qlik	T1	vendor	remote		qlik
+file:vendor/quickbooks	T1	vendor	remote		quickbooks
+file:vendor/rabbitmq	T1	vendor			rabbitmq
+file:vendor/react	T1	vendor	remote		react
+file:vendor/redis	T1	vendor			redis
+file:vendor/sailpoint	T1	vendor	remote		sailpoint
+file:vendor/salesforce	T1	vendor	remote		salesforce
+file:vendor/sap	T1	vendor	remote	sapLogo	sap
+file:vendor/scylladb	T1	vendor			scylladb
+file:vendor/segment	T1	vendor	remote		segment
+file:vendor/sendgrid	T1	vendor	remote		sendgrid
+file:vendor/shopify	T1	vendor	remote	shopifyLogo	shopify
+file:vendor/shopware	T1	vendor	remote		shopware
+file:vendor/siemens	T1	vendor	remote		siemens
+file:vendor/singlestore	T1	vendor	remote		singlestore
+file:vendor/slack	T1	vendor	remote		slack
+file:vendor/snapchat	T1	vendor	remote		snapchat
+file:vendor/snowflake	T1	vendor	remote		snowflake
+file:vendor/sqlite	T1	vendor			sqlite
+file:vendor/square	T1	vendor	remote		square
+file:vendor/streamlit	T1	vendor	remote		streamlit
+file:vendor/stripe	T1	vendor	remote		stripe
+file:vendor/supabase	T1	vendor	remote		supabase
+file:vendor/superset	T1	vendor			superset
+file:vendor/tableau	T1	vendor	remote		tableau
+file:vendor/talend	T1	vendor	remote		talend
+file:vendor/teradata	T1	vendor	remote		teradata
+file:vendor/terraform	T1	vendor	remote		terraform
+file:vendor/tiktok	T1	vendor	remote		tiktok
+file:vendor/trino	T1	vendor			trino
+file:vendor/twilio	T1	vendor	remote		twilio
+file:vendor/vercel	T1	vendor	remote		vercel
+file:vendor/visa	T1	vendor	remote		visa
+file:vendor/woocommerce	T1	vendor	remote		woocommerce
+file:vendor/workday	T1	vendor	remote		workday
+file:vendor/xero	T1	vendor	remote		xero
+file:vendor/youtube	T1	vendor	remote		youtube
+file:vendor/zapier	T1	vendor	remote		zapier
+file:vendor/zendesk	T1	vendor	remote	zendeskLogo	zendesk
+file:vendor/zeroops	T1	vendor			zeroops
+file:vendor/zoho	T1	vendor	remote		zoho
+file:databricks-line/3-people	T2	line			3, people
+file:databricks-line/access-connector	T2	line			access, connector, access connector, managed identity, azure storage credential
+file:databricks-line/ai	T2	line			ai
+file:databricks-line/apps-services	T2	line		databricksApps,file:db/app,file:db/custom-app	apps, services, databricks apps, app, web app
+file:databricks-line/asset-bundle	T2	line		file:databricks/asset-bundles	asset, bundle, asset bundle, dab, declarative automation bundle, ci/cd deploy
+file:databricks-line/authentication-service	T2	line			authentication, service
+file:databricks-line/automation	T2	line			automation
+file:databricks-line/autosize-clusters	T2	line			autosize, clusters
+file:databricks-line/brand-portal	T2	line			brand, portal
+file:databricks-line/business-decision-maker-persona	T2	line			business, decision, maker, persona
+file:databricks-line/catalog-store	T2	line		databricksMetastore	catalog, store, metastore, unity catalog metastore
+file:databricks-line/chat	T2	line			chat
+file:databricks-line/cloud-storage	T2	line			cloud, storage, cloud storage, object storage, bucket, storage account, managed storage, external location, workspace storage
+file:databricks-line/collaborate	T2	line			collaborate
+file:databricks-line/compliance	T2	line			compliance
+file:databricks-line/connectors	T2	line			connectors
+file:databricks-line/context-enrichment	T2	line			context, enrichment
+file:databricks-line/cost	T2	line			cost
+file:databricks-line/dashboards	T2	line		dashboard,file:db/dashboard	dashboards
+file:databricks-line/data-analyst-persona	T2	line			data, analyst, persona
+file:databricks-line/data-engineer-persona	T2	line			data, engineer, persona
+file:databricks-line/data-lake	T2	line			data, lake
+file:databricks-line/data-lakehouse-heavy	T2	line			data, lakehouse, heavy
+file:databricks-line/data-lineage	T2	line		file:databricks/data-lineage	data, lineage
+file:databricks-line/data-parser-normalizer-etl-elt	T2	line			data, parser, normalizer, etl, elt
+file:databricks-line/data-pipelines	T2	line		jobsPipelines,file:db/jobs-and-pipelines	data, pipelines
+file:databricks-line/data-product	T2	line			data, product
+file:databricks-line/data-quality-1	T2	line		file:databricks/data-quality-monitoring	data, quality, 1
+file:databricks-line/data-science	T2	line			data, science
+file:databricks-line/data-scientist-persona-1	T2	line			data, scientist, persona, 1
+file:databricks-line/data-sharing	T2	line		deltaSharing,file:databricks/clean-rooms	data, sharing
+file:databricks-line/data-source-apis	T2	line			data, source, apis
+file:databricks-line/data-warehouse	T2	line		sqlWarehouse,file:db/sql-warehouses	data, warehouse, sql warehouse, sql endpoint
+file:databricks-line/databricks-workspace	T2	line			databricks, workspace, databricks workspace, workspaces
+file:databricks-line/deep-learning-neural-networks	T2	line			deep, learning, neural, networks
+file:databricks-line/delta-engine	T2	line			delta, engine
+file:databricks-line/delta-lake	T2	line		deltaLake	delta, lake
+file:databricks-line/delta-lakehouse	T2	line			delta, lakehouse
+file:databricks-line/delta-live-tables	T2	line		sdpPipeline,file:db/etl-pipeline,file:db/pipeline	delta, live, tables
+file:databricks-line/delta-table	T2	line		deltaTable	delta, table
+file:databricks-line/deploy	T2	line			deploy
+file:databricks-line/endpoint	T2	line			endpoint
+file:databricks-line/enterprise-security	T2	line			enterprise, security
+file:databricks-line/feature-store	T2	line		file:databricks/feature-store	feature, store
+file:databricks-line/full-lifecycle-machine-learning	T2	line		file:databricks/mlflow	full, lifecycle, machine, learning
+file:databricks-line/governance	T2	line			governance
+file:databricks-line/hive-metastore-execution	T2	line			hive, metastore, execution
+file:databricks-line/identity	T2	line			identity, identity provider, idp, sso, scim, entra id, okta
+file:databricks-line/innovation	T2	line			innovation
+file:databricks-line/input-ingest	T2	line			input, ingest
+file:databricks-line/knowledge-base	T2	line		knowledgeAssistant	knowledge, base, knowledge assistant, rag, documents
+file:databricks-line/lakeflow-connect	T2	line		lakeflowConnect,file:db/data-ingestion	lakeflow, connect
+file:databricks-line/lakehouse	T2	line			lakehouse
+file:databricks-line/low-code-no-code	T2	line			low, code, no
+file:databricks-line/machine-learning	T2	line		mlModel,mlModelBrand,file:databricks/automl	machine, learning, ml model, model, ai model
+file:databricks-line/machine-learning-runtime	T2	line			machine, learning, runtime
+file:databricks-line/magnify-analytics	T2	line			magnify, analytics
+file:databricks-line/ml-engineer-persona	T2	line			ml, engineer, persona
+file:databricks-line/mlops	T2	line		mlopsBrand	mlops
+file:databricks-line/model-registry	T2	line		modelRegistryBrand	model, registry
+file:databricks-line/model-training	T2	line		file:databricks/model-training	model, training
+file:databricks-line/model-tuning	T2	line			model, tuning
+file:databricks-line/mosaic-ai-orange	T2	line			mosaic, ai, orange
+file:databricks-line/network-data-sources	T2	line			network, data, sources
+file:databricks-line/notebook	T2	line		notebooks,file:db/notebook,file:db/workspace,file:databricks/notebooks,file:databricks/workspace	notebook
+file:databricks-line/observable-metrics	T2	line			observable, metrics
+file:databricks-line/output	T2	line			output
+file:databricks-line/performance	T2	line			performance
+file:databricks-line/predict	T2	line			predict
+file:databricks-line/predictive-analytics	T2	line			predictive, analytics
+file:databricks-line/production-ready	T2	line			production, ready
+file:databricks-line/productionize	T2	line			productionize
+file:databricks-line/recommendation-engine	T2	line			recommendation, engine
+file:databricks-line/repos	T2	line			repos
+file:databricks-line/runtime	T2	line			runtime
+file:databricks-line/scheduled-jobs	T2	line			scheduled, jobs
+file:databricks-line/semi-structured-silver	T2	line			semi, structured, silver
+file:databricks-line/server	T2	line			server
+file:databricks-line/serverless	T2	line		file:databricks/serverless-compute	serverless, serverless compute, serverless compute plane
+file:databricks-line/spark-cluster	T2	line		file:databricks/compute-clusters	spark, cluster
+file:databricks-line/spark-streaming-job	T2	line			spark, streaming, job
+file:databricks-line/speed	T2	line			speed
+file:databricks-line/strategy	T2	line			strategy
+file:databricks-line/streaming	T2	line		file:databricks/structured-streaming	streaming
+file:databricks-line/structured-gold	T2	line			structured, gold
+file:databricks-line/training	T2	line			training
+file:databricks-line/unity-catalog	T2	line		unityCatalog	unity, catalog
+file:databricks-line/unstructured-bronze	T2	line			unstructured, bronze
+file:databricks-line/users	T2	line			users, users and groups, groups, account users
+file:databricks-line/webhook	T2	line			webhook
+file:databricks-line/workflows-1	T2	line			workflows, 1
+file:databricks-line/workflows-2	T2	line			workflows, 2
+file:db/add-or-upload-data	T3	db	16px		add, or, upload, data
+file:db/agents	T3	db	16px	multiAgentSupervisor,agents,file:db/user-sparkle	agents
+file:db/ai-gateway	T3	db	16px	aiGateway,file:db/workspaces,file:databricks/unity-ai-gateway	ai, gateway, llm gateway, model gateway
+file:db/alert	T3	db	16px	file:db/notification	alert
+file:db/assistant	T3	db	16px		assistant
+file:db/bar-chart	T3	db	16px		bar, chart
+file:db/bar-grouped	T3	db	16px		bar, grouped
+file:db/binary	T3	db	16px		binary
+file:db/book	T3	db	16px		book
+file:db/brackets-check	T3	db	16px		brackets, check
+file:db/brackets-curly	T3	db	16px		brackets, curly
+file:db/brackets-error	T3	db	16px		brackets, error
+file:db/brackets-square	T3	db	16px		brackets, square
+file:db/brackets-x	T3	db	16px		brackets, x
+file:db/branch	T3	db	16px		branch
+file:db/briefcase	T3	db	16px		briefcase
+file:db/bug	T3	db	16px		bug
+file:db/calendar	T3	db	16px		calendar
+file:db/calendar-clock	T3	db	16px		calendar, clock
+file:db/calendar-event	T3	db	16px		calendar, event
+file:db/calendar-range	T3	db	16px		calendar, range
+file:db/camera	T3	db	16px		camera
+file:db/catalog	T3	db	16px	dbCatalog,file:db/data	catalog, unity catalog
+file:db/catalog-gear	T3	db	16px		catalog, gear
+file:db/catalog-home	T3	db	16px		catalog, home
+file:db/catalog-off	T3	db	16px		catalog, off
+file:db/catalog-shared	T3	db	16px		catalog, shared, shared catalog, delta sharing recipient, catalog from a share
+file:db/catalog-user-home	T3	db	16px		catalog, user, home
+file:db/cdp-entities	T3	db	16px		cdp, entities
+file:db/certified	T3	db	16px		certified
+file:db/certified-fill	T3	db	16px		certified, fill
+file:db/chain	T3	db	16px		chain
+file:db/chart-line	T3	db	16px		chart, line
+file:db/checkbox	T3	db	16px		checkbox
+file:db/checklist	T3	db	16px		checklist
+file:db/chip	T3	db	16px		chip
+file:db/clipboard	T3	db	16px		clipboard
+file:db/clock	T3	db	16px		clock
+file:db/cloud-database	T3	db	16px		cloud, database
+file:db/cloud-key	T3	db	16px		cloud, key, storage credential, credential, service credential
+file:db/cloud-off	T3	db	16px		cloud, off
+file:db/compass	T3	db	16px		compass
+file:db/compute	T3	db	16px	file:db/cloud	compute
+file:db/connect	T3	db	16px		connect, connection, uc connection, federation connection
+file:db/database	T3	db	16px	data,dbSchema,file:db/schema	database, data, dataset
+file:db/deprecated	T3	db	16px		deprecated
+file:db/dollar	T3	db	16px		dollar
+file:db/experiment	T3	db	16px	file:db/beaker	experiment, mlflow, experiment tracking, experiments
+file:db/features	T3	db	16px	file:db/layer	features
+file:db/file	T3	db	16px		file
+file:db/file-cube	T3	db	16px		file, cube
+file:db/file-document	T3	db	16px	unstructuredData,file:databricks/document-intelligence	file, document, unstructured, pdf
+file:db/file-image	T3	db	16px		file, image
+file:db/file-model	T3	db	16px		file, model
+file:db/file-pipeline	T3	db	16px		file, pipeline
+file:db/flows	T3	db	16px		flows
+file:db/folder	T3	db	16px		folder
+file:db/folder-branch	T3	db	16px		folder, branch
+file:db/folder-branch-fill	T3	db	16px		folder, branch, fill
+file:db/folder-cloud	T3	db	16px	file:db/volume	folder, cloud, volume, uc volume, files, cloud folder
+file:db/folder-cube	T3	db	16px		folder, cube
+file:db/folder-fill	T3	db	16px		folder, fill
+file:db/folder-new	T3	db	16px		folder, new
+file:db/folder-open	T3	db	16px		folder, open
+file:db/folder-open-cube	T3	db	16px		folder, open, cube
+file:db/folder-open-pipeline	T3	db	16px		folder, open, pipeline
+file:db/folder-solid-pipeline	T3	db	16px		folder, solid, pipeline
+file:db/fork	T3	db	16px		fork
+file:db/function	T3	db	16px	aiFunctions,file:databricks/ai-functions	function, udf, user defined function, ai function
+file:db/genie-agent	T3	db	16px	genie,file:db/sparkle-rectangle,file:databricks/genie-agents,file:databricks/genie-deep-research	genie, agent, genie space, natural language analytics
+file:db/genie-code	T3	db	16px		genie, code
+file:db/globe	T3	db	16px		globe
+file:db/home	T3	db	16px		home
+file:db/image	T3	db	16px		image
+file:db/info-book	T3	db	16px		info, book
+file:db/ingestion	T3	db	16px	file:databricks/auto-loader	ingestion
+file:db/job	T3	db	16px	file:db/workflows	job
+file:db/key	T3	db	16px		key
+file:db/lakebase	T3	db	16px	lakebase	lakebase, postgres, oltp, operational database
+file:db/lakeflow-designer	T3	db	16px	file:db/visual-data-prep,file:databricks/lakeflow-designer	lakeflow, designer
+file:db/lakewatch	T3	db	16px		lakewatch
+file:db/lakewatch-alert	T3	db	16px		lakewatch, alert
+file:db/lakewatch-datasource	T3	db	16px		lakewatch, datasource
+file:db/lakewatch-detection-rule	T3	db	16px		lakewatch, detection, rule
+file:db/lakewatch-parser	T3	db	16px		lakewatch, parser
+file:db/layer-graph	T3	db	16px	file:db/feature-spec,file:db/feature-function	layer, graph, feature spec, feature function, feature
+file:db/lightning	T3	db	16px		lightning
+file:db/lock	T3	db	16px		lock
+file:db/lock-fill	T3	db	16px		lock, fill
+file:db/lock-share	T3	db	16px		lock, share
+file:db/lock-unlocked	T3	db	16px		lock, unlocked
+file:db/mail	T3	db	16px		mail
+file:db/marketplace	T3	db	16px	file:db/storefront,file:databricks/marketplace	marketplace
+file:db/mcp	T3	db	16px	mcp	mcp, mcp server, model context protocol
+file:db/megaphone	T3	db	16px		megaphone
+file:db/migration-project	T3	db	16px	file:db/database-import,file:databricks/lakebridge	migration, project
+file:db/models	T3	db	16px	file:db/registered-model,file:db/model	models, registered model, uc model, model registry
+file:db/neon-project	T3	db	16px		neon, project
+file:db/new-chat	T3	db	16px		new, chat
+file:db/notebook-pipeline	T3	db	16px		notebook, pipeline
+file:db/office	T3	db	16px		office
+file:db/ontology	T3	db	16px		ontology
+file:db/operator	T3	db	16px		operator
+file:db/pass-fail-checklist	T3	db	16px		pass, fail, checklist
+file:db/pipeline-cube	T3	db	16px		pipeline, cube
+file:db/playground	T3	db	16px	file:db/sparkle-double	playground
+file:db/plug	T3	db	16px		plug
+file:db/query	T3	db	16px		query
+file:db/query-history	T3	db	16px	file:db/history	query, history
+file:db/robot	T3	db	16px		robot
+file:db/rocket	T3	db	16px		rocket
+file:db/run	T3	db	16px		run
+file:db/running	T3	db	16px		running
+file:db/school	T3	db	16px		school
+file:db/search-data	T3	db	16px	file:databricks/ai-search	search, data
+file:db/send	T3	db	16px		send
+file:db/serving	T3	db	16px	modelServing,file:db/cloud-model,file:databricks/model-serving	serving
+file:db/share	T3	db	16px		share, delta sharing
+file:db/shield	T3	db	16px		shield
+file:db/shield-check	T3	db	16px		shield, check
+file:db/sparkle	T3	db	16px		sparkle
+file:db/sparkle-double-fill	T3	db	16px		sparkle, double, fill
+file:db/sparkle-fill	T3	db	16px		sparkle, fill
+file:db/speech-bubble	T3	db	16px		speech, bubble
+file:db/speech-bubble-plus	T3	db	16px		speech, bubble, plus
+file:db/speech-bubble-star	T3	db	16px		speech, bubble, star
+file:db/speedometer	T3	db	16px		speedometer
+file:db/sql-editor	T3	db	16px	file:db/query-editor,file:databricks/databricks-sql	sql, editor
+file:db/stored-procedure	T3	db	16px		stored, procedure
+file:db/sync-to-file	T3	db	16px		sync, to, file
+file:db/table	T3	db	16px	inputData,dbTable,file:databricks/system-tables	table, tables, uc table
+file:db/table-glasses	T3	db	16px		table, glasses
+file:db/table-globe	T3	db	16px	file:db/foreign-table	table, globe, foreign table, federated table, lakehouse federation
+file:db/table-lightning	T3	db	16px	file:db/materialized-view	table, lightning, materialized view, mv
+file:db/table-measure	T3	db	16px	metricViews,file:db/metric-view	table, measure, metric view, metric views, semantic layer
+file:db/table-stream	T3	db	16px	streaming,file:db/streaming-table	table, stream, streaming table
+file:db/table-vector	T3	db	16px	vectorSearch,file:db/vector-index	table, vector, vector index, vector search index, embeddings
+file:db/table-view	T3	db	16px	file:db/view	table, view, uc view
+file:db/tag	T3	db	16px		tag
+file:db/target	T3	db	16px		target
+file:db/terminal	T3	db	16px		terminal
+file:db/tree	T3	db	16px		tree
+file:db/trending	T3	db	16px		trending
+file:db/trending-fill	T3	db	16px		trending, fill
+file:db/user	T3	db	16px	businessUser	user
+file:db/user-badge	T3	db	16px		user, badge, service principal, service account (databricks)
+file:db/user-circle	T3	db	16px		user, circle
+file:db/user-group	T3	db	16px		user, group
+file:db/user-group-fill	T3	db	16px		user, group, fill
+file:db/workflow-cube	T3	db	16px		workflow, cube
+file:db/wrench	T3	db	16px		wrench
+aibiBrand	T4	builtin			aibi, brand
+aiGatewayBrand	T4	builtin			ai, gateway, brand
+bronzeLayer	T4	builtin			bronze, layer
+customerLakeBrand	T4	builtin			customer, lake, brand, customerlake, cdp, marketing
+databricksAppsBrand	T4	builtin			databricks, apps, brand
+deltaLakeLogo	T4	builtin			delta, lake, logo
+featureStoreBrand	T4	builtin			feature, store, brand
+file:brand/agent-bricks	T4	brand		file:vendor/agent-bricks	agent, bricks
+file:brand/databricks	T4	brand		file:vendor/databricks	databricks
+file:brand/databricks-admin	T4	brand		file:vendor/databricks-admin	databricks, admin
+file:brand/databricks-wordmark	T4	brand		file:vendor/databricks-wordmark	databricks, wordmark
+file:brand/genie-ontology	T4	brand		file:vendor/genie-ontology	genie, ontology
+file:persona/user	T4	persona			user, person, customer, avatar
+genieBrand	T4	builtin			genie, brand
+genieCodeBrand	T4	builtin			genie, code, brand
+genieOneBrand	T4	builtin			genie, one, brand
+goldLayer	T4	builtin			gold, layer
+icebergLogo	T4	builtin			iceberg, logo
+lakebaseBrand	T4	builtin			lakebase, brand
+lakeflowConnectBrand	T4	builtin			lakeflow, connect, brand
+lakeflowJobsBrand	T4	builtin			lakeflow, jobs, brand
+lakehouseBrand	T4	builtin			lakehouse, brand
+lakeWatchBrand	T4	builtin			lake, watch, brand, lakewatch, siem, security
+mlflowBrand	T4	builtin			mlflow, brand
+pdfLogo	T4	builtin			pdf, logo
+sdpBrand	T4	builtin			sdp, brand
+sensorSource	T4	builtin			sensor, source
+silverLayer	T4	builtin			silver, layer
+unityCatalogBrand	T4	builtin			unity, catalog, brand
+vectorSearchBrand	T4	builtin			vector, search, brand
+volume	T4	builtin			volume
+zerobus	T4	builtin			zerobus
+lucide:activity	T5	lucide	mono		activity
+lucide:alert-triangle	T5	lucide	mono		alert, triangle
+lucide:bar-chart-3	T5	lucide	mono		bar, chart, 3
+lucide:bell	T5	lucide	mono		bell
+lucide:bot	T5	lucide	mono		bot
+lucide:box	T5	lucide	mono		box
+lucide:brain	T5	lucide	prefer file:databricks-line/machine-learning		brain
+lucide:building-2	T5	lucide	mono		building, 2
+lucide:calendar	T5	lucide	prefer file:databricks-line/scheduled-jobs		calendar
+lucide:check-circle	T5	lucide	mono		check, circle
+lucide:clock	T5	lucide	mono		clock
+lucide:cloud	T5	lucide	mono		cloud
+lucide:code	T5	lucide	mono		code
+lucide:cpu	T5	lucide	mono		cpu
+lucide:database	T5	lucide	mono		database
+lucide:file	T5	lucide	mono		file
+lucide:file-text	T5	lucide	mono		file, text
+lucide:filter	T5	lucide	mono		filter
+lucide:folder	T5	lucide	mono		folder
+lucide:gauge	T5	lucide	prefer file:databricks-line/observable-metrics		gauge
+lucide:git-branch	T5	lucide	mono		git, branch
+lucide:globe	T5	lucide	mono		globe
+lucide:hard-drive	T5	lucide	mono		hard, drive
+lucide:key	T5	lucide	mono		key
+lucide:layers	T5	lucide	mono		layers
+lucide:line-chart	T5	lucide	mono		line, chart
+lucide:list-checks	T5	lucide	mono		list, checks
+lucide:lock	T5	lucide	prefer file:databricks-line/enterprise-security		lock
+lucide:mail	T5	lucide	mono		mail
+lucide:message-square	T5	lucide	prefer file:databricks-line/chat		message, square
+lucide:monitor	T5	lucide	mono		monitor
+lucide:network	T5	lucide	mono		network
+lucide:package	T5	lucide	mono		package
+lucide:pie-chart	T5	lucide	mono		pie, chart
+lucide:radio	T5	lucide	mono		radio
+lucide:rocket	T5	lucide	mono		rocket
+lucide:scale	T5	lucide	mono		scale
+lucide:search	T5	lucide	mono		search
+lucide:server	T5	lucide	prefer file:databricks-line/server		server
+lucide:settings	T5	lucide	mono		settings
+lucide:shield	T5	lucide	mono		shield
+lucide:smartphone	T5	lucide	mono		smartphone
+lucide:sparkles	T5	lucide	mono		sparkles
+lucide:table	T5	lucide	prefer file:databricks-line/delta-table		table
+lucide:terminal	T5	lucide	mono		terminal
+lucide:user	T5	lucide	mono		user
+lucide:users	T5	lucide	prefer file:databricks-line/3-people		users
+lucide:webhook	T5	lucide	prefer file:databricks-line/webhook		webhook
+lucide:workflow	T5	lucide	mono		workflow
+lucide:zap	T5	lucide	prefer file:databricks-line/speed		zap
+file:vendor/custom-source	T6	placeholder			custom, source

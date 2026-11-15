@@ -1,9 +1,9 @@
 # Databricks notebook source
 """
 Export the resolved demo resource IDs as the job's exit value — reference
-script for the FINAL task of a full DAB setup job (app + KA + MAS demos).
+script for the FINAL task of a full DAB setup job (demos with an app or a Genie agent documents volume).
 
-This AI/BI demo has no app / pipeline / KA / MAS, so it is NOT wired into
+This AI/BI demo has no app / pipeline / documents volume, so it is NOT wired into
 databricks.yml (the setup job ends after deploy_genie). It is kept here as the
 reference pattern for demos that DO need to collect SDK-created IDs and emit
 them as a single JSON via dbutils.notebook.exit() — which the local

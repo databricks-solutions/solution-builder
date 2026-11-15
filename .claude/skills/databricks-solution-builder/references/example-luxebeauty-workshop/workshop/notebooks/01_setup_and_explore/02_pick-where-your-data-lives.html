@@ -1,0 +1,42 @@
+<h2>1/ Pick where your data lives</h2>
+<div class="uc-tree">
+  <div class="uc-node"><span class="pill"><i data-icon="metastore"></i>Metastore</span><span class="uc-tag">one per region</span></div>
+  <div class="uc-children">
+    <div class="uc-branch uc-cat">
+      <div class="uc-node"><span class="pill"><i data-icon="catalog"></i>Catalog</span></div>
+      <div class="uc-children">
+        <div class="uc-branch uc-sch">
+          <div class="uc-node"><span class="pill"><i data-icon="schema"></i>Schema</span></div>
+          <div class="uc-tables">
+            <div class="uc-branch"><span class="uc-tbl"><i data-icon="table"></i>returns</span></div>
+            <div class="uc-branch"><span class="uc-tbl"><i data-icon="table"></i>orders</span></div>
+            <div class="uc-branch"><span class="uc-tbl vol"><i data-icon="volume"></i>raw_data</span> <span style="font-size:11px; color:#8a95a1;">volume — raw files</span></div>
+            <div class="uc-branch"><span class="uc-tbl">…</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p>On Databricks, data lives in <strong>Unity Catalog</strong> — the governance layer over everything. At the top is your <strong>metastore</strong> (one per region), and inside it data nests in three levels:</p>
+<ul style="margin:8px 0;">
+  <li><strong>Catalog</strong> — the top-level container, like a drive.</li>
+  <li><strong>Schema</strong> — a folder of tables. <em>Your</em> project lives here.</li>
+  <li><strong>Table</strong> — the data itself.</li>
+</ul>
+<p>Everything you build in this workshop lands under one <code>catalog.schema</code> that you choose — a table's full name is <code>catalog.schema.table</code>. Browse everything you can see in <strong><i data-icon="catalog-explorer"></i> Catalog Explorer</strong> in the left sidebar.</p>
+<p style="clear:both;"><strong>You need a catalog before you can start.</strong> This workshop creates a <em>schema</em>, but it cannot create the catalog above it — so you need one existing catalog where you hold the <code>CREATE SCHEMA</code> privilege. If you're not sure which one that is, ask first and let Genie Code find out:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Which catalogs can I create a new schema in? List them with the privileges I have, so I can pick one.</p>
+</blockquote>
+<p>Then pick one and have Genie Code set up your workspace inside it:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Build this project in catalog <code>&lt;your-catalog&gt;</code>, schema <code>&lt;your-schema&gt;</code>. Create that schema if it doesn't exist, and make it the default for this notebook so everything I build lands there.</p>
+</blockquote>
+<blockquote class="note"><p>💡 <strong>Name both explicitly.</strong> If you just say "the catalog we agreed on," the Assistant may fall back to the workspace's <em>default</em> catalog and build your whole project somewhere you didn't intend. Spell out <code>catalog.schema</code> once, here.</p></blockquote>
+<blockquote class="note"><p>💡 Genie Code will write and run the <code>CREATE SCHEMA</code> / <code>USE</code> SQL for you and define <code>CATALOG</code> / <code>SCHEMA</code> — the next cells reuse those.</p></blockquote>
+<p><span class="check">✅ Confirm:</span> <code>SELECT current_catalog(), current_schema()</code> returns what you asked for. Everything downstream assumes it.</p>

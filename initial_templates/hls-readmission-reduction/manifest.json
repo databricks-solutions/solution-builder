@@ -1,0 +1,10 @@
+{
+  "id": "hls-readmission-reduction",
+  "name": "Readmission Copilot — Hospital Care Transitions & Readmission Reduction",
+  "customer": "Larkspur Health",
+  "industry": "Healthcare & Life Sciences",
+  "narrative": "Maya Okafor, RN, runs care transitions for Larkspur Health's three hospitals. Heart-failure readmissions on Larkspur Regional's 4 West cardiac step-down unit have jumped from 17% to 26% in six months while every other unit stayed flat, and heart failure is now the largest line of the hospital's estimated $1.07M CMS HRRP penalty. The weekly readmission report shows the rate but not the reason.\n\nThe aha: the patients coming back are 4 West heart-failure patients discharged Friday to Sunday. Since the unit lost its weekend discharge navigator and the HF clinic dropped its Saturday session, only 1 in 5 of them leaves with a booked 7-day follow-up; the notes say \"patient to call the clinic Monday\". Patients without that visit readmit at 31.5% vs 17.2%. AI Functions read every discharge note and surface transportation barriers the EHR never captures (35% vs 21% readmitted). A UC-registered risk model ranks this week's discharges, the copilot builds each patient's transition plan from Larkspur's care-pathway documents (searched by the Genie agent), and the coordinator approves it. The approval writes the outreach tasks back to Lakebase.",
+  "dbdemos_tracker": {
+    "app_id": "hls-readmission-reduction"
+  }
+}

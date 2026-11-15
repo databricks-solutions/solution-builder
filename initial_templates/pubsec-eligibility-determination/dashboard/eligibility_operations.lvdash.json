@@ -1,0 +1,1059 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "Kpis",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(100 * AVG(CASE WHEN is_determined AND program = 'SNAP' AND determination_date >= add_months(current_date(), -3) THEN CAST(met_timeliness AS INT) END), 1) AS snap_on_time_pct,\n",
+        "  ROUND(100 * AVG(CASE WHEN is_determined AND program = 'SNAP' AND county_name = 'Tamarack' AND determination_date >= add_months(current_date(), -3) THEN CAST(met_timeliness AS INT) END), 1) AS tamarack_on_time_pct,\n",
+        "  COUNT_IF(is_open) AS open_backlog,\n",
+        "  COUNT_IF(is_overdue) AS overdue_cases,\n",
+        "  COUNT_IF(is_open AND expedited_screening AND days_open > 7) AS expedited_late\n",
+        "FROM gold_applications\n"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "monthly",
+      "displayName": "Monthly",
+      "queryLines": [
+        "SELECT determination_month, county_name,\n",
+        "  ROUND(100 * AVG(CAST(met_timeliness AS INT)), 1) AS on_time_pct, COUNT(*) AS determinations\n",
+        "FROM gold_applications\n",
+        "WHERE is_determined AND program = 'SNAP'\n",
+        "  AND determination_month >= add_months(date_trunc('MONTH', current_date()), -11)\n",
+        "  AND determination_month < date_trunc('MONTH', current_date())\n",
+        "GROUP BY ALL\n"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "scorecard",
+      "displayName": "Scorecard",
+      "queryLines": [
+        "WITH r AS (\n",
+        "  SELECT county_name,\n",
+        "    ROUND(AVG(CASE WHEN program = 'SNAP' THEN CAST(met_timeliness AS INT) END), 3) AS snap_on_time_rate,\n",
+        "    CAST(PERCENTILE(processing_days, 0.5) AS BIGINT) AS median_days,\n",
+        "    ROUND(COUNT_IF(is_procedural_denial) / COUNT(*), 3) AS procedural_denial_rate,\n",
+        "    ROUND(100 * COUNT_IF(is_procedural_denial) / COUNT(*), 1) AS procedural_denial_pct,\n",
+        "    ROUND(100 * COUNT_IF(determination = 'APPROVED') / NULLIF(COUNT_IF(determination IN ('APPROVED','DENIED')), 0), 1) AS approval_pct,\n",
+        "    ROUND(COUNT_IF(determination = 'APPROVED') / NULLIF(COUNT_IF(determination IN ('APPROVED','DENIED')), 0), 3) AS approval_rate\n",
+        "  FROM gold_applications WHERE is_determined AND determination_date >= add_months(current_date(), -3) GROUP BY county_name)\n",
+        "SELECT b.county_name, CASE WHEN b.county_name = 'Tamarack' THEN 'Tamarack' ELSE 'Rest of state' END AS source, b.region_type,\n",
+        "  r.snap_on_time_rate, r.median_days, r.procedural_denial_rate, r.procedural_denial_pct, r.approval_pct, r.approval_rate,\n",
+        "  CAST(b.open_cases AS BIGINT) AS open_cases, CAST(b.overdue_cases AS BIGINT) AS overdue_cases,\n",
+        "  b.caseworker_fte, b.caseworker_fte_prior_year, b.open_cases_per_worker\n",
+        "FROM gold_county_backlog b JOIN r USING (county_name)"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "equity_race",
+      "displayName": "Equity Race",
+      "queryLines": [
+        "SELECT race_ethnicity,\n",
+        "  ROUND(100 * COUNT_IF(determination = 'APPROVED') / NULLIF(COUNT_IF(determination IN ('APPROVED','DENIED')), 0), 1) AS approval_pct,\n",
+        "  ROUND(100 * COUNT_IF(is_procedural_denial) / NULLIF(COUNT_IF(is_determined), 0), 1) AS procedural_denial_pct,\n",
+        "  COUNT(*) AS applications\n",
+        "FROM gold_applications GROUP BY race_ethnicity\n"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "channel_mix",
+      "displayName": "Channel Mix",
+      "queryLines": [
+        "SELECT region_type, CONCAT(UPPER(SUBSTRING(REPLACE(channel, '_', ' '), 1, 1)), SUBSTRING(REPLACE(channel, '_', ' '), 2)) AS channel,\n",
+        "  COUNT(*) AS applications, ROUND(AVG(CASE WHEN is_determined THEN processing_days END), 1) AS avg_processing_days\n",
+        "FROM gold_applications GROUP BY ALL"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "denials",
+      "displayName": "Denials",
+      "queryLines": [
+        "SELECT county_name, CONCAT(UPPER(SUBSTRING(REPLACE(denial_reason, '_', ' '), 1, 1)), SUBSTRING(REPLACE(denial_reason, '_', ' '), 2)) AS denial_reason, COUNT(*) AS denials\n",
+        "FROM gold_applications WHERE determination = 'DENIED' AND determination_date >= add_months(current_date(), -6) GROUP BY ALL"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "extraction",
+      "displayName": "Extraction",
+      "queryLines": [
+        "SELECT CONCAT(UPPER(SUBSTRING(REPLACE(doc_type, '_', ' '), 1, 1)), SUBSTRING(REPLACE(doc_type, '_', ' '), 2)) AS doc_type,\n",
+        "  COUNT(*) AS documents, ROUND(100 * AVG(extraction_confidence), 1) AS avg_confidence_pct,\n",
+        "  COUNT_IF(extraction_confidence < 0.9) AS low_confidence_docs\n",
+        "FROM document_extractions GROUP BY doc_type"
+      ],
+      "catalog": "public_sector",
+      "schema": "eligibility_determination"
+    },
+    {
+      "name": "snap_monthly",
+      "displayName": "SNAP on time by month (statewide, Tamarack)",
+      "queryLines": [
+        "SELECT determination_month,\n",
+        "  ROUND(AVG(CAST(met_timeliness AS INT)), 3) AS statewide_on_time,\n",
+        "  ROUND(AVG(CASE WHEN county_name = 'Tamarack' THEN CAST(met_timeliness AS INT) END), 3) AS tamarack_on_time\n",
+        "FROM gold_applications\n",
+        "WHERE is_determined AND program = 'SNAP'\n",
+        "  AND determination_month >= add_months(date_trunc('MONTH', current_date()), -11)\n",
+        "  AND determination_month < date_trunc('MONTH', current_date())\n",
+        "GROUP BY determination_month ORDER BY determination_month"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "timeliness",
+      "displayName": "Timeliness & backlog",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Westbrook DHS - Eligibility Timeliness & Equity\n",
+                "\n",
+                "**The event** — federal law gives SNAP **30 days** to decide (7 if expedited), Medicaid 45. Statewide Westbrook hits ~84%. **Tamarack County** lost its paper mill and 3 of 7 caseworkers — its on-time rate has collapsed to under 30% over the last 3 months.\n",
+                "\n",
+                "**What to see** — Tamarack's line (red) falls away from every other county after May · its open cases per worker (red) dwarf the rest of the state · the equity gap is **geographic**, not demographic (page 2)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "snap_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(statewide_on_time)",
+                      "expression": "SUM(`statewide_on_time`)"
+                    },
+                    {
+                      "name": "monthly(determination_month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `determination_month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(statewide_on_time)",
+                  "displayName": "SNAP on time, statewide (last full month)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(determination_month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SNAP on time, statewide (last full month)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 2,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "snap_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(tamarack_on_time)",
+                      "expression": "SUM(`tamarack_on_time`)"
+                    },
+                    {
+                      "name": "monthly(determination_month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `determination_month`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(tamarack_on_time)",
+                  "displayName": "SNAP on time, Tamarack (last full month)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(determination_month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SNAP on time, Tamarack (last full month)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "open_backlog",
+                      "expression": "`open_backlog`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_backlog",
+                  "displayName": "Open applications"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open applications"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "overdue_cases",
+                      "expression": "`overdue_cases`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "overdue_cases",
+                  "displayName": "Past federal deadline"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Past federal deadline"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "expedited_late",
+                      "expression": "`expedited_late`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "expedited_late",
+                  "displayName": "Expedited, past 7 days"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Expedited, past 7 days"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "monthly",
+                  "fields": [
+                    {
+                      "name": "determination_month",
+                      "expression": "`determination_month`"
+                    },
+                    {
+                      "name": "on_time_pct",
+                      "expression": "`on_time_pct`"
+                    },
+                    {
+                      "name": "county_name",
+                      "expression": "`county_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "determination_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Determination month"
+                },
+                "y": {
+                  "fieldName": "on_time_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "On-time (%)"
+                },
+                "color": {
+                  "fieldName": "county_name",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Tamarack",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Maple Grove",
+                        "color": "#AEB6BF"
+                      },
+                      {
+                        "value": "Cedar Falls",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "Lakeview",
+                        "color": "#9AA7B2"
+                      },
+                      {
+                        "value": "Capitol",
+                        "color": "#8795A1"
+                      },
+                      {
+                        "value": "Riverbend",
+                        "color": "#B8C2CC"
+                      },
+                      {
+                        "value": "Pine Ridge",
+                        "color": "#A3AEB9"
+                      },
+                      {
+                        "value": "Harbor",
+                        "color": "#D0D6DC"
+                      }
+                    ]
+                  },
+                  "displayName": "County"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SNAP on-time % by county, monthly (Tamarack in red)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "scorecard",
+                  "fields": [
+                    {
+                      "name": "county_name",
+                      "expression": "`county_name`"
+                    },
+                    {
+                      "name": "open_cases_per_worker",
+                      "expression": "`open_cases_per_worker`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "open_cases_per_worker",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Open cases per worker"
+                },
+                "y": {
+                  "fieldName": "county_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "County"
+                },
+                "color": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Tamarack",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Rest of state",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "source"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open cases per eligibility worker (Tamarack in red)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 7,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "scorecard",
+                  "fields": [
+                    {
+                      "name": "county_name",
+                      "expression": "`county_name`"
+                    },
+                    {
+                      "name": "region_type",
+                      "expression": "`region_type`"
+                    },
+                    {
+                      "name": "snap_on_time_rate",
+                      "expression": "`snap_on_time_rate`"
+                    },
+                    {
+                      "name": "median_days",
+                      "expression": "`median_days`"
+                    },
+                    {
+                      "name": "procedural_denial_rate",
+                      "expression": "`procedural_denial_rate`"
+                    },
+                    {
+                      "name": "open_cases",
+                      "expression": "`open_cases`"
+                    },
+                    {
+                      "name": "overdue_cases",
+                      "expression": "`overdue_cases`"
+                    },
+                    {
+                      "name": "caseworker_fte",
+                      "expression": "`caseworker_fte`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "county_name",
+                    "displayName": "County"
+                  },
+                  {
+                    "fieldName": "region_type",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "snap_on_time_rate",
+                    "displayName": "SNAP on time",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "median_days",
+                    "displayName": "Median days"
+                  },
+                  {
+                    "fieldName": "procedural_denial_rate",
+                    "displayName": "Procedural denial",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "open_cases",
+                    "displayName": "Open cases"
+                  },
+                  {
+                    "fieldName": "overdue_cases",
+                    "displayName": "Overdue"
+                  },
+                  {
+                    "fieldName": "caseworker_fte",
+                    "displayName": "Caseworkers"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "County scorecard (determinations last 3 months, backlog today)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "equity",
+      "displayName": "Equity & access",
+      "layout": [
+        {
+          "widget": {
+            "name": "w10",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Equity & Access\n",
+                "\n",
+                "Approval rates are flat across race/ethnicity — the equity gap is **geographic**. Rural counties apply by mail and wait longer; Tamarack's procedural-denial rate (eligible families denied on missing paperwork) towers over every other county.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "equity_race",
+                  "fields": [
+                    {
+                      "name": "race_ethnicity",
+                      "expression": "`race_ethnicity`"
+                    },
+                    {
+                      "name": "approval_pct",
+                      "expression": "`approval_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "approval_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Approval rate (%)"
+                },
+                "y": {
+                  "fieldName": "race_ethnicity",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Race / ethnicity"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Approval rate by race / ethnicity (%): flat across groups"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "scorecard",
+                  "fields": [
+                    {
+                      "name": "county_name",
+                      "expression": "`county_name`"
+                    },
+                    {
+                      "name": "procedural_denial_pct",
+                      "expression": "`procedural_denial_pct`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "procedural_denial_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Procedural denial rate (%)"
+                },
+                "y": {
+                  "fieldName": "county_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "County"
+                },
+                "color": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Tamarack",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Rest of state",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Source"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Procedural denial rate by county, last 3 months (Tamarack in red)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "channel_mix",
+                  "fields": [
+                    {
+                      "name": "region_type",
+                      "expression": "`region_type`"
+                    },
+                    {
+                      "name": "applications",
+                      "expression": "`applications`"
+                    },
+                    {
+                      "name": "channel",
+                      "expression": "`channel`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region type"
+                },
+                "y": {
+                  "fieldName": "applications",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Applications"
+                },
+                "color": {
+                  "fieldName": "channel",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Channel"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Application channel by region type"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "channel_mix",
+                  "fields": [
+                    {
+                      "name": "channel",
+                      "expression": "`channel`"
+                    },
+                    {
+                      "name": "avg_processing_days",
+                      "expression": "`avg_processing_days`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "channel",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Channel"
+                },
+                "y": {
+                  "fieldName": "avg_processing_days",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Average processing days"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Average processing days by channel"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 7,
+            "width": 3,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "denials",
+                  "fields": [
+                    {
+                      "name": "county_name",
+                      "expression": "`county_name`"
+                    },
+                    {
+                      "name": "denials",
+                      "expression": "`denials`"
+                    },
+                    {
+                      "name": "denial_reason",
+                      "expression": "`denial_reason`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "denials",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Denials"
+                },
+                "y": {
+                  "fieldName": "county_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "County"
+                },
+                "color": {
+                  "fieldName": "denial_reason",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Denial reason"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Denial reasons by county (last 6 months)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "extraction",
+                  "fields": [
+                    {
+                      "name": "doc_type",
+                      "expression": "`doc_type`"
+                    },
+                    {
+                      "name": "documents",
+                      "expression": "`documents`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "documents",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Documents read"
+                },
+                "y": {
+                  "fieldName": "doc_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Document type"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Documents read by ai_extract (open cases)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 12,
+            "width": 2,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

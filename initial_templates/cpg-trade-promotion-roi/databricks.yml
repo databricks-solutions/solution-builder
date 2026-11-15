@@ -1,0 +1,245 @@
+# Crestwood Snacks Co. — Trade Promo Copilot (post-event ROI + promo planner) — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable). Nothing is created
+# or wired by hand: the bundle owns the dashboard, the app (config + env), the agent-traces experiment, the setup
+# ids to <catalog>.<schema>.demo_resources, which the app reads at boot.
+#
+#   databricks bundle deploy
+#   databricks bundle run trade_promo_setup
+#       generate_data (schema + synthetic POS / shipments / promo events / next-quarter plan)
+#       → train_baseline_model (GBR baseline demand, UC model @champion → baseline_forecast)
+#       → build_gold (post-event ROI, tactic response, plan forecast + re-plan scenarios, metric view)
+#       upload_trade_docs (policy docs → trade_policy_docs volume)
+#       → deploy_genie (Genie agent over the gold tables + that volume; waits for the documents index)
+#       → grant_app (UC + Genie for the app SP)
+#       → export_resources (demo_resources table the app reads at boot + exit JSON)
+#   databricks bundle run trade_promo_app   → deploys the app source and starts it
+#
+# See dab_instructions.md.
+bundle:
+  name: cpg_trade_promotion_roi
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the demo data
+    default: retail_consumer_goods
+  schema:
+    description: Schema for the demo tables, the UC model and the policy-docs volume
+    default: trade_promotion_roi
+  warehouse_id:
+    description: Serverless SQL warehouse (dashboard, Genie, app analytics) — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard, Genie space and MLflow experiment
+    default: /Workspace/Users/${workspace.current_user.userName}/cpg-trade-promotion-roi
+  app_name:
+    description: Databricks App name (unique per workspace, <= 30 chars)
+    default: trade-promo-copilot
+  lakebase_project_slug:
+    description: Existing Lakebase (autoscaling) project the app database is created in
+  lakebase_branch_id:
+    default: production
+  lakebase_database_id:
+    description: Lakebase database resource id (db- + database name, underscores → hyphens)
+  lakebase_database:
+    description: Postgres database name (created by the bundle's postgres_databases resource)
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the bundle-created database. Non-personal: a group role, not a personal one.
+
+workspace:
+  root_path: ${var.workspace_folder}/.bundle/${bundle.target}
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "src/**"
+    - "genie/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+    - "app/package.json"        # the repo-root .gitignore ignores package*.json — the Apps
+    - "app/package-lock.json"   # container needs both to npm install
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/playwright-report/**"
+    - "app/test-results/**"
+    - "app/tests/**"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. The bundle creates the app's Lakebase database in an EXISTING Lakebase project (defaults:
+  # project `<project>`, owner role `admins` — override with --var). See dab_instructions.md.
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var lakebase_project_slug=… --var lakebase_owner_role=…]
+  default:
+    default: true
+    resources:
+      postgres_databases:
+        trade_promo_db:
+          parent: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+          database_id: ${var.lakebase_database_id}
+          postgres_database: ${var.lakebase_database}
+          role: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/roles/${var.lakebase_owner_role}
+      apps:
+        trade_promo_app:
+          resources:
+            - name: postgres
+              postgres:
+                branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+                database: ${resources.postgres_databases.trade_promo_db.name}
+                permission: CAN_CONNECT_AND_CREATE
+
+resources:
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  dashboards:
+    trade_promo_dashboard:
+      display_name: "Crestwood - Trade Spend & Promotion ROI"
+      file_path: ./dashboard/trade_promotion_roi.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  apps:
+    trade_promo_app:
+      name: ${var.app_name}
+      description: "Crestwood Trade Promo Copilot — ML-baseline post-event ROI, next-quarter promo plan forecast, and a promo-planner agent that re-plans money-losing events and writes the approved plan to Lakebase"
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.trade_promo_dashboard.id}
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_slug}
+          # GENIE_SPACE_ID is NOT set here: the setup job creates the Genie agent and writes its id to
+          # <catalog>.<schema>.demo_resources, which the app reads at boot (server/services/resources.ts).
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT
+
+  jobs:
+    trade_promo_setup:
+      name: "[CPG] Trade Promo Copilot - Setup"
+      description: "Synthetic POS + shipments + promo calendar → ML baseline (UC @champion) → post-event ROI gold + plan scenarios + metric view → Genie agent over the gold tables + policy docs → app grants"
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+        - task_key: train_baseline_model
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/ml/train_baseline_model.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--experiment", "${var.workspace_folder}/trade_promo_baseline_experiment"]
+          environment_key: ml
+        - task_key: build_gold
+          depends_on: [{task_key: train_baseline_model}]
+          spark_python_task:
+            python_file: ./src/gold/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+        - task_key: upload_trade_docs
+          depends_on: [{task_key: generate_data}]
+          notebook_task:
+            notebook_path: ./src/deploy/upload_trade_docs.py
+            base_parameters: {catalog: "${var.catalog}", schema: "${var.schema}"}
+          environment_key: default
+        - task_key: deploy_genie
+          depends_on: [{task_key: build_gold}, {task_key: upload_trade_docs}]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              warehouse_id: "${var.warehouse_id}"
+              parent_path: "${var.workspace_folder}"
+          environment_key: sdk_latest
+        - task_key: grant_app
+          depends_on: [{task_key: build_gold}, {task_key: deploy_genie}]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_uc.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk_latest
+        - task_key: export_resources
+          depends_on: [{task_key: grant_app}]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              dashboard_id: "${resources.dashboards.trade_promo_dashboard.id}"
+              warehouse_id: "${var.warehouse_id}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+              agent_mlflow_experiment_path: "${resources.experiments.agent_traces.name}"
+          environment_key: sdk_latest
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+            dependencies: ["numpy", "pandas"]
+        - environment_key: ml
+          spec:
+            client: "4"
+            dependencies: ["numpy", "pandas", "scikit-learn>=1.4", "mlflow[databricks]>=3.1"]
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

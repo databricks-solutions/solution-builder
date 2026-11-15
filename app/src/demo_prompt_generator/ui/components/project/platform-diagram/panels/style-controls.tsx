@@ -5,8 +5,12 @@
  * SINGLE source of truth shared by both the floating edge/legacy context menu
  * (menus/context-menu.tsx) and the docked right-side edit panel (edit-panel.tsx).
  */
-import { type AnnotationData } from "@/lib/platform-architecture";
+import { type AnnotationData, BOX_TITLE_POSITIONS, type BoxTitlePos } from "@/lib/platform-architecture";
+import { sanitizeDiagramHtml } from "@/lib/card-body";
+import { DBX_ICON_ORANGE } from "@/lib/icon-aliases";
 import { shadowLevel, type StylePatch } from "../shared";
+import { SHAPE_KINDS, SHAPE_LABEL, shapePath } from "../shape-geometry";
+import { useState } from "react";
 import {
   Trash2,
   RotateCw,
@@ -32,6 +36,126 @@ export type MenuItemFn = (p: {
   hint?: string;
 }) => React.ReactElement;
 
+/** A labelled single-line field that commits on every change (like the box title). */
+function TextRow({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (v: string) => void }) {
+  return (
+    <div className="px-2 py-1.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">{label}</div>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-primary"
+      />
+    </div>
+  );
+}
+
+/** A diagram HTML body (a card's body, an html block): a textarea that commits on blur
+ *  (one history step per edit), and a live preview rendered through the SAME sanitizer
+ *  the canvas uses. Keydown is stopped so Backspace / arrows edit the text rather than the
+ *  canvas. */
+function CardBodyEditor({ value, onCommit, label = "Body", placeholder = "<p>Summary…</p><ul><li>point</li></ul>", rows = 5 }: {
+  value: string;
+  onCommit: (v: string) => void;
+  label?: string;
+  placeholder?: string;
+  rows?: number;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? value;
+  return (
+    <div className="px-2 py-1.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Type className="h-3.5 w-3.5" /> {label}
+        <span className="ml-auto text-[10px] opacity-70">HTML</span>
+      </div>
+      <textarea
+        rows={rows}
+        value={shown}
+        placeholder={placeholder}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Escape") { setDraft(null); e.currentTarget.blur(); } }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => { const v = e.target.value; setDraft(null); if (v !== value) onCommit(v); }}
+        className="w-full resize-y rounded border border-border bg-background px-2 py-1 font-mono text-[11px] outline-none focus:border-primary"
+      />
+      <div className="mt-1 text-[10px] text-muted-foreground">Preview</div>
+      <div
+        className="mt-0.5 max-h-40 overflow-auto rounded border border-dashed border-border bg-white p-2 text-[12px] leading-snug text-slate-900 [&_ol]:m-0 [&_ol]:pl-4 [&_p]:m-0 [&_table]:border-collapse [&_ul]:m-0 [&_ul]:pl-4"
+        dangerouslySetInnerHTML={{ __html: sanitizeDiagramHtml(shown) }}
+      />
+    </div>
+  );
+}
+
+/** Card-only fields: title, icon (IconPicker via onPickLogo), badge, accent colour and the
+ *  HTML body. Icon colour is the shared "Icon color" row in StyleControls. */
+function CardFields({ a, Item, onAnno, onPickLogo }: { a: AnnotationData; Item: MenuItemFn; onAnno: (patch: Partial<AnnotationData>) => void; onPickLogo: () => void }) {
+  return (
+    <>
+      <TextRow label="Title" value={a.title ?? ""} placeholder="Card title…" onChange={(v) => onAnno({ title: v })} />
+      <div className="flex items-center">
+        <div className="min-w-0 flex-1">
+          <Item icon={<Shapes className="h-3.5 w-3.5" />} label={a.icon ? "Change icon…" : "Pick icon…"} onClick={onPickLogo} />
+        </div>
+        {a.icon && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onAnno({ icon: undefined }); }} title="Remove icon"
+            className="mr-1 grid h-6 w-6 shrink-0 cursor-pointer place-items-center rounded text-muted-foreground hover:bg-muted hover:text-destructive">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      <TextRow label="Badge" value={a.badge ?? ""} placeholder="e.g. PROPOSED" onChange={(v) => onAnno({ badge: v.trim() ? v : undefined })} />
+      <div className="flex items-center gap-2 px-2 py-1">
+        <span className="mr-auto text-[11px] text-muted-foreground">Accent</span>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onAnno({ accent: undefined }); }}
+          className={`cursor-pointer rounded px-1.5 py-0.5 text-[10px] ${a.accent ? "border border-border hover:bg-muted" : "bg-primary text-primary-foreground"}`}
+          title="Neutral border and header">None</button>
+        <input type="color" value={a.accent || DBX_ICON_ORANGE} onChange={(e) => onAnno({ accent: e.target.value })}
+          onClick={(e) => e.stopPropagation()} className="h-5 w-7 cursor-pointer rounded border border-border bg-transparent p-0" title="Accent colour (border + header tint)" />
+      </div>
+      <CardBodyEditor value={a.body ?? ""} onCommit={(v) => onAnno({ body: v })} />
+    </>
+  );
+}
+
+/** html-block fields: the HTML (textarea + live sanitized preview) and the frame padding.
+ *  The frame itself (border / fill / radius / shadow) and the size and rotation are the
+ *  shared StyleControls + geometry rows of the edit panel. */
+function HtmlFields({ a, onAnno }: { a: AnnotationData; onAnno: (patch: Partial<AnnotationData>) => void }) {
+  return (
+    <>
+      <CardBodyEditor
+        label="HTML"
+        rows={8}
+        value={a.html ?? ""}
+        placeholder={'<div style="font-weight:700">Anything HTML</div>'}
+        onCommit={(v) => onAnno({ html: v })}
+      />
+      <div className="flex items-center gap-2 px-2 py-1">
+        <span className="mr-auto text-[11px] text-muted-foreground">Frame padding (px)</span>
+        <input
+          type="number"
+          min={0}
+          max={48}
+          value={a.padding ?? 0}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const v = Math.max(0, Math.min(48, Math.round(Number(e.target.value) || 0)));
+            onAnno({ padding: v > 0 ? v : undefined });
+          }}
+          className="w-16 rounded border border-border bg-background px-2 py-1 text-[11px] outline-none focus:border-primary"
+        />
+      </div>
+    </>
+  );
+}
+
 /** The right-click menu body for a free-form annotation node — varies by
  *  variant (text/box: font + border + alignment; logo: pick; image: set URL). */
 export function AnnotationMenu({
@@ -49,12 +173,60 @@ export function AnnotationMenu({
   onRotate: () => void;
   onRemove: () => void;
 }) {
-  const isTextual = a.variant === "text" || a.variant === "box";
+  // A shape carries a text label too, so it gets the font/bold/align controls.
+  const isTextual = a.variant === "text" || a.variant === "box" || a.variant === "shape";
   const fontSize = a.fontSize ?? 14;
   // Mirror the render default: plain text is left-aligned, a box is centered.
   const hAlign = a.hAlign ?? (a.variant === "text" ? "left" : "center");
   return (
     <>
+      {a.variant === "card" && <CardFields a={a} Item={Item} onAnno={onAnno} onPickLogo={onPickLogo} />}
+      {a.variant === "html" && <HtmlFields a={a} onAnno={onAnno} />}
+      {/* Box extras: subtitle line, corner badge, and where the title sits. */}
+      {a.variant === "box" && (
+        <>
+          <TextRow label="Subtitle" value={a.subtitle ?? ""} placeholder="Optional line under the title" onChange={(v) => onAnno({ subtitle: v.trim() ? v : undefined })} />
+          <TextRow label="Badge" value={a.badge ?? ""} placeholder="e.g. NEW" onChange={(v) => onAnno({ badge: v.trim() ? v : undefined })} />
+          <div className="flex items-center gap-1 px-2 py-1.5">
+            <span className="mr-auto text-[11px] text-muted-foreground">Title at</span>
+            {BOX_TITLE_POSITIONS.map((p: BoxTitlePos) => (
+              <button key={p} type="button" onClick={(e) => { e.stopPropagation(); onAnno({ titlePos: p }); }}
+                title={`Title ${p}`}
+                className={`cursor-pointer rounded px-1 py-0.5 text-[9px] ${(a.titlePos ?? "border") === p ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                {p === "border" ? "edge" : p}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {/* Shape kind — swap the symbol in place (a decision that turns out to be
+          a process step shouldn't need deleting + redrawing, which would lose its
+          edges). Grid of glyphs drawn from the same `shapePath` as the canvas. */}
+      {a.variant === "shape" && (
+        <div className="px-2 py-1.5">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Shapes className="h-3.5 w-3.5" /> Shape
+          </div>
+          <div className="grid grid-cols-3 gap-1">
+            {SHAPE_KINDS.map((k) => {
+              const active = (a.shape ?? "rounded") === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onAnno({ shape: k }); }}
+                  title={`${SHAPE_LABEL[k]} (${k})`}
+                  className={`grid h-8 cursor-pointer place-items-center rounded border ${active ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
+                >
+                  <svg width={20} height={14} viewBox="0 0 20 14" style={{ display: "block", overflow: "visible" }} aria-hidden>
+                    <path d={shapePath(k, { w: 20, h: 14, stroke: 1.5 })} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+                  </svg>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {/* Box title — the legend on the top border. Editable here OR by
           double-clicking the box's top edge. Empty clears the legend. */}
       {a.variant === "box" && (
@@ -260,7 +432,7 @@ export function AnnotationMenu({
  *  A color swatch with a reset (×) that clears the override (back to default). */
 // Swatch palette for the "Icon color" recolor — the unified accent first, then
 // a spread of common diagram colors. "None" resets to the icon's own default.
-const ICON_SWATCHES = ["#FF5F46", "#5266A6", "#111827", "#64748B", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
+const ICON_SWATCHES = [DBX_ICON_ORANGE, "#5266A6", "#111827", "#64748B", "#0EA5E9", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"];
 
 export function StyleControls({
   style,
@@ -315,14 +487,26 @@ export function StyleControls({
                 style={{ background: c }}
               />
             ))}
-            {/* Custom color */}
+            {/* Custom colour: a picker, and a hex box for an exact value. */}
             <input
               type="color"
-              value={style?.iconColor || "#FF5F46"}
+              value={style?.iconColor || DBX_ICON_ORANGE}
               onChange={(e) => onStyle({ iconColor: e.target.value })}
               onClick={(e) => e.stopPropagation()}
               className="h-5 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
               title="Custom icon color"
+            />
+            <input
+              key={style?.iconColor ?? "none"}
+              type="text"
+              defaultValue={style?.iconColor ?? ""}
+              placeholder="#hex"
+              maxLength={7}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); }}
+              onBlur={(e) => { const v = e.target.value.trim(); if (/^#[0-9a-fA-F]{6}$/.test(v) && v !== style?.iconColor) onStyle({ iconColor: v }); }}
+              className="w-[68px] rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] outline-none focus:border-primary"
+              title="Icon colour as #RRGGBB"
             />
           </div>
         </div>

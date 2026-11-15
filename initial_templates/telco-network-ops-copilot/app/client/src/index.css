@@ -1,0 +1,380 @@
+@import "@databricks/appkit-ui/styles.css";
+/* Leaflet base CSS — imported here (not in CityMap.tsx) so tile sizing is
+ * correct on first paint and HMR doesn't race the component import. */
+
+@plugin "@tailwindcss/typography";
+
+/* Google Fonts (Barlow Condensed + Geist + Geist Mono) are loaded via <link>
+ * tags in index.html so the PostCSS `@import must precede all other
+ * statements` warning doesn't fire against Tailwind v4's ordering. */
+
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  /* ========================================================================
+   * NOC WALL PALETTE — a dark control-room surface with signal colours.
+   * Modelled on a carrier NOC video wall: near-black panels, cyan as the
+   * "system is live" signal, red reserved for customer-impacting alarms.
+   * Every semantic token below derives from these stops; component code
+   * never hardcodes hex (except intentionally decorative SVG).
+   * ====================================================================== */
+  --brand-1: #060B10;   /* wall black — canvas */
+  --brand-2: #0C141C;   /* panel — cards, tiles */
+  --brand-3: #3CD7F0;   /* signal cyan — live / selected / primary */
+  --brand-4: #FFB020;   /* amber — degraded, warning */
+  --brand-5: #FF4D5E;   /* alarm red — customer impact, root cause */
+
+  /* Surfaces */
+  --brand-canvas: #060B10;
+  --brand-surface: #0C141C;
+  --brand-ink: #DDE7EF;
+  --brand-selection: #3CD7F0;
+
+  /* ========================================================================
+   * SEMANTIC TOKENS — what components actually consume.
+   * ====================================================================== */
+
+  --radius: 0.375rem;
+
+  --background: var(--brand-canvas);
+  --foreground: var(--brand-ink);
+  --card: var(--brand-surface);
+  --card-foreground: var(--brand-ink);
+  --popover: #101A24;
+  --popover-foreground: var(--brand-ink);
+  --muted: #121D27;
+  --muted-foreground: #7D8FA0;
+  --border: #1F2D39;
+  --input: #1F2D39;
+  --ring: var(--brand-selection);
+  --overlay: rgb(0 0 0 / 0.6);
+
+  /* Brand — primary = signal cyan with dark ink (readable on the wall) */
+  --primary: var(--brand-3);
+  --primary-foreground: #03141B;
+  --primary-light: #8BE9FA;
+  --on-primary-hover: rgb(0 0 0 / 0.12);
+
+  --secondary: var(--muted);
+  --secondary-foreground: var(--foreground);
+
+  --accent: var(--brand-5);
+  --accent-foreground: #FFFFFF;
+
+  /* Status colours */
+  --destructive: var(--brand-5);
+  --destructive-foreground: #FFFFFF;
+  --success: #3DDC97;
+  --success-foreground: #03150E;
+  --warning: var(--brand-4);
+  --warning-foreground: #1F1400;
+
+  /* Subtle status tints (dark tint + light ink for badges, pills) */
+  --success-subtle: #0E2A21;
+  --success-subtle-foreground: #7BF0C0;
+  --warning-subtle: #2E230A;
+  --warning-subtle-foreground: #FFD27A;
+  --info-subtle: #0C2834;
+  --info-subtle-foreground: #8BE9FA;
+
+  /* Tier badges (domain-specific) */
+  --tier-gold: #2E230A;
+  --tier-gold-foreground: #FFD27A;
+  --tier-silver: #1A2430;
+  --tier-silver-foreground: #B8C6D3;
+  --tier-bronze: #2E1C10;
+  --tier-bronze-foreground: #F0B27A;
+  --tier-platinum: #241838;
+  --tier-platinum-foreground: #C9B3FF;
+
+  /* Status indicator dots */
+  --status-running: var(--success);
+  --status-idle: var(--brand-4);
+
+  /* Severity text colours on dark */
+  --severity-warning: #FFB020;
+  --severity-danger:  var(--brand-5);
+
+  /* Charts — the wall's signal palette, in canonical order */
+  --chart-1: var(--brand-3);
+  --chart-2: var(--brand-4);
+  --chart-3: var(--brand-5);
+  --chart-4: #3DDC97;
+  --chart-5: #A98BFF;
+
+  /* Sidebar — darkest surface, one step below the canvas */
+  --sidebar: #040709;
+  --sidebar-foreground: #B8C6D3;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #0F1A23;
+  --sidebar-accent-foreground: #FFFFFF;
+  --sidebar-border: #17242E;
+  --sidebar-ring: var(--ring);
+
+  /* ========================================================================
+   * SCENE-LEVEL DECORATIONS (PlatformView) — kept on the same palette.
+   * ====================================================================== */
+  --platform-source-saas:     var(--brand-3);
+  --platform-source-erp:      #A98BFF;
+  --platform-source-streams:  #3DDC97;
+  --platform-source-object:   var(--brand-4);
+  --platform-source-db:       var(--brand-5);
+
+  --medal-bronze: #C98A4B;
+  --medal-silver: #B8C6D3;
+  --medal-gold:   #FFD060;
+
+  --trafficlight-red:    #FF4D5E;
+  --trafficlight-yellow: #FFB020;
+  --trafficlight-green:  #3DDC97;
+
+  /* Databricks brand red — used by the sidebar "Data + AI" pitch glow. */
+  --databricks-red: #EE3D2C;
+
+  /* NOC-only tokens */
+  --noc-grid: rgb(120 150 170 / 0.08);
+  --noc-glow: rgb(60 215 240 / 0.12);
+}
+
+/* The wall is always dark — this is a control-room surface, not a document. */
+:root,
+html {
+  color-scheme: dark;
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Every interactive control — buttons, links, role=button, checkboxes, etc. —
+   gets a pointer cursor. Disabled controls fall back to not-allowed. */
+button:not(:disabled),
+a[href],
+[role="button"]:not([aria-disabled="true"]),
+summary,
+label[for],
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+/* Indeterminate top-line progress bar used on data tables while reloading. */
+@keyframes loadingBar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+/* -------- "What just changed" pulse — `usePulseOnChange` hook ----------- */
+
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0   color-mix(in oklch, var(--primary) 55%, transparent); }
+  60%  { box-shadow: 0 0 0 12px color-mix(in oklch, var(--primary) 0%,  transparent); }
+  100% { box-shadow: 0 0 0 0   color-mix(in oklch, var(--primary) 0%,  transparent); }
+}
+.animate-pulse-ring { animation: pulseRing 1.5s ease-out 1; }
+
+@keyframes pulseRow {
+  0%   { background-color: color-mix(in oklch, var(--primary) 18%, transparent); }
+  100% { background-color: transparent; }
+}
+.animate-pulse-row { animation: pulseRow 1.5s ease-out 1; }
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Chat dock trigger — slide-up entrance + synced sparkle & colour breathe. */
+@property --dock-tint {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #3CD7F0;
+}
+:root {
+  --dock-tint: var(--primary);
+  --dock-gradient: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--dock-tint) 82%, white) 0%,
+    var(--dock-tint) 55%,
+    color-mix(in oklch, var(--dock-tint) 88%, black) 100%
+  );
+}
+
+@keyframes dockEnter {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 1;   transform: rotate(0deg)  scale(1); }
+  50%      { opacity: 0.4; transform: rotate(20deg) scale(1.15); }
+}
+@keyframes dockBreathe {
+  0%, 100% {
+    --dock-tint: var(--primary);
+    box-shadow: 0 4px 14px oklch(from var(--primary) l c h / 0.3);
+  }
+  50% {
+    --dock-tint: var(--primary-light);
+    box-shadow: 0 4px 20px oklch(from var(--primary-light) l c h / 0.45);
+  }
+}
+.animate-dock-enter  { animation: dockEnter 0.4s ease-out, dockBreathe 3s ease-in-out 1s infinite; }
+.animate-sparkle     { animation: sparkle 3s ease-in-out infinite 1s; }
+
+/* -------- Sidebar pitch box (Databricks Data + AI) -------- */
+
+.dx-sidebar-pitch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--accent) 18%, var(--sidebar)) 0%,
+    color-mix(in oklch, var(--accent) 9%, var(--sidebar)) 100%
+  );
+  border: 1px solid color-mix(in oklch, var(--accent) 42%, var(--sidebar-border));
+  text-decoration: none;
+  color: var(--sidebar-foreground);
+  overflow: hidden;
+  transition:
+    transform 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.dx-sidebar-pitch:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in oklch, var(--accent) 60%, var(--sidebar-border));
+}
+
+.dx-sidebar-pitch-glow {
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 100px;
+  height: 100px;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--accent) 35%, transparent) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: dx-sidebar-pitch-pulse 3.5s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+.dx-sidebar-pitch-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid color-mix(in oklch, var(--databricks-red) 30%, var(--sidebar-border));
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 50%, transparent);
+  animation: dx-sidebar-pitch-icon-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes dx-sidebar-pitch-icon-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--databricks-red) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in oklch, var(--databricks-red) 0%, transparent); }
+}
+
+.dx-sidebar-pitch-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.dx-sidebar-pitch-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  line-height: 1.2;
+}
+
+.dx-sidebar-pitch-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+}
+
+/* Constrain Leaflet's stacking context so its panes never float over the chat dock. */
+.leaflet-container {
+  z-index: 0;
+  isolation: isolate;
+  background: var(--brand-canvas);
+}
+
+/* Dark wall map: keyless OSM tiles, inverted + desaturated into the NOC palette.
+ * Markers and labels are NOT filtered (they sit in other panes). */
+.noc-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(0.95) saturate(0.55);
+}
+.noc-map .leaflet-control-attribution {
+  background: rgb(6 11 16 / 0.7) !important;
+  color: #7D8FA0 !important;
+}
+.noc-map .leaflet-control-attribution a {
+  color: #8BE9FA !important;
+}
+.noc-map .leaflet-control-zoom a {
+  background: #0C141C !important;
+  color: #DDE7EF !important;
+  border-color: #1F2D39 !important;
+}
+
+/* Scanline + grid texture for the wall panels. */
+.noc-grid {
+  background-image:
+    linear-gradient(var(--noc-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--noc-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Live pulse dot for "system live" indicators. */
+@keyframes nocPing {
+  0% { box-shadow: 0 0 0 0 rgb(60 215 240 / 0.7); }
+  100% { box-shadow: 0 0 0 8px rgb(60 215 240 / 0); }
+}
+.noc-live-dot {
+  animation: nocPing 1.8s ease-out infinite;
+}

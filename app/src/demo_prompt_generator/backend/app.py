@@ -1,3 +1,5 @@
+import faulthandler
+import signal
 import sys
 from contextlib import asynccontextmanager
 
@@ -22,9 +24,11 @@ if (_v.major, _v.minor) < _MIN or (_v.major, _v.minor) >= _MAX_EXCLUSIVE:
 from fastapi import APIRouter, FastAPI  # noqa: E402
 
 from .core import create_app  # noqa: E402
-from .core.observability import init_system_metrics  # noqa: E402
+from .core._config import logger  # noqa: E402
+from .core.observability import init_app_metrics, init_system_metrics  # noqa: E402
 from .preview import register_routes as _register_preview_routes  # noqa: E402
 from .router import router  # noqa: E402
+from .services.cpu_pool import shutdown_cpu_pool  # noqa: E402
 from .services.skills_manager import get_project_directory  # noqa: E402
 
 
@@ -33,6 +37,14 @@ def _build_app() -> FastAPI:
     # FastAPI request spans + logs are auto-wired by `opentelemetry-instrument`
     # (start.sh); system metrics must be started explicitly — see observability.py.
     init_system_metrics()
+    # `kill -USR1 <pid>` → every thread's Python stack in the app logs. For when the
+    # event loop is frozen and not even /api/health/threads can answer.
+    if hasattr(signal, "SIGUSR1"):
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    # Also export our OWN runtime metrics (the /internal page numbers) to OTEL —
+    # observable gauges/counters bound to the same auto-configured meter provider
+    # (no-op when telemetry is off). Land in the app's `otel_metrics` UC table.
+    init_app_metrics()
     # --- Preview feature (isolated; see backend/preview/README.md) ----------
     # Build an unprefixed router; the preview module owns both `/api/preview/*`
     # and `/preview/*` paths and we need them at the app root (not under /api).
@@ -57,7 +69,17 @@ def _build_app() -> FastAPI:
             async with _orig_lifespan(app):
                 yield
         finally:
+            # The lakebase teardown already stopped previews before its DB work
+            # (it runs inside _orig_lifespan). This call is the idempotent fallback.
             await preview_registry.shutdown()
+            try:
+                from .preview.proxy import close_shared_client
+
+                await close_shared_client()
+            except Exception as e:  # noqa: BLE001 — teardown must never raise
+                logger.warning(f"[shutdown] preview proxy client close failed: {e!r}")
+            # CPU-pool workers (services/cpu_pool.py): non-blocking, never raises.
+            shutdown_cpu_pool()
 
     built.router.lifespan_context = _with_preview
     return built

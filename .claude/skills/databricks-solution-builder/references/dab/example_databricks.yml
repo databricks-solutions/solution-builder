@@ -3,13 +3,14 @@
 # This is a GENERIC reference distilled from a proven end-to-end deploy. Copy
 # it to your project root as `databricks.yml`, rename `demo` → your demo's
 # short name throughout, and point the task paths at your `src/` files. Drop
-# any resource your demo doesn't ship (App, Lakebase, KA/MAS, ML…).
+# any resource your demo doesn't ship (App, Lakebase, ML…).
 #
 # What it provisions (all parametrized via --var — no hardcoded IDs):
 #   schema + volumes + SDP pipeline + AI/BI dashboard + Databricks App shells,
 #   created by `bundle deploy`; then a setup job fills them in on `bundle run`:
 #     generate_data → run_pipeline → deploy_metric_view + train_score_ml
-#     + upload_pdfs → deploy_genie/deploy_ka/deploy_mas → grant_app_uc
+#     + upload_pdfs → deploy_genie (tables + documents volume, waits for index)
+#     → grant_app_uc
 #     → export_resources (exits a JSON manifest of every resolved ID).
 #
 # ── 5-command deploy (the user runs these; the skill does NOT bundle-deploy) ─
@@ -19,8 +20,8 @@
 #   4. ./app/scripts/lakebase_grant_app_credential.sh --app-name … --project-id … --db-name …
 #   5. ./app/scripts/finalize_app.sh            # harvest export_resources JSON → app.yaml env → deploy app
 #
-# Why the app env is finalized OUTSIDE the bundle (steps 3+5): the Genie / KA /
-# MAS endpoint IDs only exist AFTER the setup job's SDK tasks run, so the bundle
+# Why the app env is finalized OUTSIDE the bundle (steps 3+5): the Genie agent
+# ID only exists AFTER the setup job's SDK tasks run, so the bundle
 # can't know them at `deploy` time. The setup job's last task (export_resources)
 # exits a JSON with every ID; finalize_app.sh reads it back and writes app.yaml's
 # env. This keeps a bare `bundle deploy` from ever shipping a half-configured
@@ -46,8 +47,14 @@ variables:
   app_name:
     description: "Workspace app name (must be unique per workspace)"
     default: "dbgen-demo"
-  lakebase_project_id:
-    description: "Lakebase project — reused if it already exists"
+  lakebase_project_slug:
+    description: |
+      Lakebase project SLUG (the human name, NOT the UUID) — used in resource
+      PATHS `projects/<slug>/branches/...`, which resolve by slug. Reused if it
+      already exists. NOTE: this is deliberately the SLUG, distinct from
+      resources.json's `lakebase_project_id`, which holds the project UUID for
+      the workspace UI link (`/lakebase/projects/<uuid>`). Different values,
+      different purposes — see app/app.md.
     default: "dbdemos-asset-generator"
   lakebase_branch_id:
     description: "Lakebase branch within the project"
@@ -64,7 +71,7 @@ variables:
 
   # NOTE: the app's runtime env vars are NOT defined here. They're assembled by
   # app/scripts/finalize_app.sh after the setup job runs (it harvests the
-  # export_resources task's exit JSON — Genie/KA/MAS IDs the bundle can't know
+  # export_resources task's exit JSON — the Genie agent ID the bundle can't know
   # at deploy time — and writes app.yaml's env). One source of truth for app env.
   #
   # Why not the bundle's apps `config.env`? It's silently dropped during
@@ -138,13 +145,13 @@ resources:
       schema_name: ${var.schema}
       name: "raw_data"
       volume_type: "MANAGED"
-    # Add more volumes as the demo needs (e.g. a docs volume for KA PDFs).
+    # Add more volumes as the demo needs (e.g. a docs volume for Genie PDFs).
     docs:
       catalog_name: ${var.catalog}
       schema_name: ${var.schema}
       name: "docs"
       volume_type: "MANAGED"
-      comment: "PDFs for the Knowledge Assistant"
+      comment: "PDFs attached to the Genie agent (documents volume — PDFs only)"
 
   # ──────────────────────────────────────────────────────────────────────────
   # SDP pipeline — point libraries at your bronze/silver/gold SQL (or Python).
@@ -218,8 +225,8 @@ resources:
             permission: CAN_USE
         - name: postgres
           postgres:
-            branch: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}
-            database: projects/${var.lakebase_project_id}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
             permission: CAN_CONNECT_AND_CREATE
       # Plain-value env (catalog/schema/IDs) is NOT here — finalize_app.sh
       # writes it into app.yaml after the setup job. The binding-derived vars
@@ -235,7 +242,7 @@ resources:
   jobs:
     demo_setup:
       name: "[${bundle.target}] Demo Setup"
-      description: "data → pipeline → metric view + ML → genie/ka/mas → grants → export IDs"
+      description: "data → pipeline → metric view + ML → upload PDFs → genie (+ index wait) → grants → export IDs"
       tasks:
         - task_key: generate_data
           notebook_task:
@@ -271,7 +278,7 @@ resources:
           environment_key: ml
 
         # Copy pre-rendered PDFs (run html_to_pdf.py locally first) to the docs
-        # volume so the KA can index them. Don't render in-job — the PDF lib
+        # volume that the Genie agent indexes. Don't render in-job — the PDF lib
         # OOMs the smallest serverless client at import.
         - task_key: upload_pdfs
           notebook_task:
@@ -281,8 +288,10 @@ resources:
               schema:  ${resources.schemas.demo_schema.name}
           environment_key: sdk_default
 
+        # Creates/updates the Genie agent (tables + the docs volume), then waits
+        # for the volume index to be SUCCEEDED.
         - task_key: deploy_genie
-          depends_on: [{ task_key: run_pipeline }]
+          depends_on: [{ task_key: run_pipeline }, { task_key: upload_pdfs }]
           notebook_task:
             notebook_path: ./src/deploy/deploy_genie.py
             base_parameters:
@@ -291,45 +300,26 @@ resources:
               warehouse_id: ${var.warehouse_id}
           environment_key: sdk_latest
 
-        - task_key: deploy_ka
-          depends_on: [{ task_key: upload_pdfs }]
-          notebook_task:
-            notebook_path: ./src/deploy/deploy_ka.py
-            base_parameters:
-              catalog: ${resources.schemas.demo_schema.catalog_name}
-              schema:  ${resources.schemas.demo_schema.name}
-          environment_key: sdk_latest
-
-        - task_key: deploy_mas
-          depends_on: [{ task_key: deploy_genie }, { task_key: deploy_ka }]
-          notebook_task:
-            notebook_path: ./src/deploy/deploy_mas.py
-            base_parameters:
-              catalog:          ${resources.schemas.demo_schema.catalog_name}
-              schema:           ${resources.schemas.demo_schema.name}
-              genie_space_id:   "{{tasks.deploy_genie.values.genie_space_id}}"
-              ka_endpoint_name: "{{tasks.deploy_ka.values.ka_endpoint_name}}"
-          environment_key: sdk_latest
-
         # Grant the app SP UC read privileges (USE_CATALOG/SCHEMA, SELECT,
         # READ_VOLUME, EXECUTE on the model). Without these the app's first
         # /api/config hits INSUFFICIENT_PERMISSIONS. (Distinct from
         # lakebase_grant_app_credential.sh, which grants on the Postgres plane.)
         - task_key: grant_app_uc
-          depends_on: [{ task_key: train_score_ml }]
+          depends_on: [{ task_key: train_score_ml }, { task_key: deploy_genie }]
           notebook_task:
             notebook_path: ./src/deploy/grant_app_uc.py
             base_parameters:
-              catalog:  ${resources.schemas.demo_schema.catalog_name}
-              schema:   ${resources.schemas.demo_schema.name}
-              app_name: ${var.app_name}
+              catalog:        ${resources.schemas.demo_schema.catalog_name}
+              schema:         ${resources.schemas.demo_schema.name}
+              app_name:       ${var.app_name}
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
           environment_key: sdk_latest
 
         # Final task: exit a JSON manifest of every resolved ID. finalize_app.sh
         # reads it back via get-run-output (the notebook exit value IS
         # retrievable post-run; task-values are NOT).
         - task_key: export_resources
-          depends_on: [{ task_key: deploy_mas }, { task_key: grant_app_uc }]
+          depends_on: [{ task_key: grant_app_uc }]
           notebook_task:
             notebook_path: ./src/deploy/export_resources.py
             base_parameters:
@@ -340,12 +330,11 @@ resources:
               pipeline_id:       ${resources.pipelines.demo_pipeline.id}
               warehouse_id:      ${var.warehouse_id}
               genie_space_id:    "{{tasks.deploy_genie.values.genie_space_id}}"
-              ka_endpoint_name:  "{{tasks.deploy_ka.values.ka_endpoint_name}}"
-              mas_endpoint_name: "{{tasks.deploy_mas.values.mas_endpoint_name}}"
+              documents_volume:  "{{tasks.deploy_genie.values.documents_volume}}"
           environment_key: sdk_latest
 
       # Serverless environments. `client: "4"` is the standard tier. The
-      # agent-bricks APIs (Genie/KA/MAS) need databricks-sdk>=0.114.0.
+      # Genie agent APIs need databricks-sdk>=0.114.0.
       environments:
         - environment_key: sdk_default
           spec:

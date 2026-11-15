@@ -1,0 +1,61 @@
+// =============================================================================
+// STYLE: TECHNICAL — the engineering view. Read reference/style-technical.md first.
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. The renderer parses plain JSON only.
+//
+// WHAT IT SHOWS: a proposed ingest → medallion → serving path with the named
+// objects an engineer needs (table names, keys, write modes, schedules), next to
+// the CURRENT path it replaces (dashed grey, the nightly export). Every component
+// is a `card`: title + icon, and a `body` of HTML (a bold lead line, a grey line,
+// key/value rows, tag pills). Proposed edges are Databricks orange; the current
+// path is dashed grey and labelled "today".
+//
+// TRAPS THIS SHAPE SURVIVED:
+//   • `theme:"technical"` is written explicitly (an omitted theme is technical,
+//     but a reader of this file should see the choice).
+//   • Cards grow with their text, so a tall card pushes its column down. Keep the cards in
+//     one column about the same height, so the tracks line up across columns.
+//   • The medallion is a titled `box` wrapping three cards; the box is the
+//     Unity Catalog schema, the cards are the tables. Edges run card → card.
+//   • No container-to-container edges (compose.md, nesting traps: wire leaf to leaf).
+// =============================================================================
+[
+  {
+    "name": "Orders pipeline — technical",
+    "story": "Proposed: CDC from the orders database into a Lakeflow pipeline, medallion tables in Unity Catalog, then one dashboard and one Genie space. Today's nightly CSV export and the Excel pivots it feeds are shown dashed for comparison and are being retired.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Orders revenue — proposed vs current","subtitle":"CDC → medallion → dashboard + Genie"},
+    "options": {"trademarkLogos":false,"edgeLabelSize":11},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "src-orders", "type": "card", "title": "Orders DB", "icon": "file:vendor/postgresql", "body": "<p><b>PostgreSQL · public.orders</b></p><p>Transactional orders, ~2M rows / day</p><p><b>Capture</b> logical replication</p><p><b>Lag</b> under 5 min</p>", "accent": "#0B2F4D", "track": "line-src-orders"},
+      {"id": "col-ingest", "type": "group", "layout": "column", "gap": 60, "align": "center", "children": [
+        {"id": "ingest", "type": "card", "title": "Lakeflow Connect", "icon": "file:databricks-line/lakeflow-connect", "body": "<p><b>orders_cdc · managed CDC</b></p><p>Serverless gateway, incremental reads</p><p><b>Target</b> bronze.orders_raw</p><p><b>Schedule</b> every 5 min</p><p><span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">replaces nightly CSV</span></p>", "badge": "NEW", "accent": "#FF5F46", "ai_reasoning": "Proposed path. The source's edge names the @in-lakeflow-connect port (database CDC)."},
+        {"id": "csv-current", "type": "card", "title": "Nightly CSV export", "icon": "file:databricks-line/scheduled-jobs", "body": "<p><b>cron job · SELECT * dump</b></p><p>02:00 dump, feeds Excel pivots by hand</p><p><span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">retiring</span></p>", "style": {"borderStyle": "dashed", "borderColor": "#9CA3AF"}, "accent": "#9CA3AF", "ai_reasoning": "Current path (dashed). Shown so the reader sees what the proposed path replaces."}
+      ] },
+      {"id": "lakehouse-box", "type": "box", "title": "Unity Catalog · prod.sales", "titleIcon": "file:databricks-line/unity-catalog", "ai_reasoning": "The UC schema is the containment; the tables are the cards inside it.", "layout": "column", "gap": 60, "align": "center", "children": [
+        {"id": "bronze", "type": "card", "title": "bronze.orders_raw", "icon": "file:databricks-line/delta-table", "body": "<p><b>Append-only change feed</b></p><p><b>Keys</b> order_id, op_ts</p><p><b>Ops</b> I / U / D</p><p><span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">APPEND</span></p>", "accent": "#CD7F32"},
+        {"id": "silver", "type": "card", "title": "silver.orders", "icon": "file:databricks-line/delta-table", "body": "<p><b>Current state, one row per order</b></p><p><b>PK</b> order_id</p><p><b>Rules</b> 3 expectations</p><p><span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">MERGE</span> <span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">SCD1</span></p>", "accent": "#8A9BB0", "track": "line-src-orders"},
+        {"id": "gold", "type": "card", "title": "gold.daily_revenue", "icon": "file:databricks-line/delta-table", "body": "<p><b>Revenue per day × region</b></p><p><b>Grain</b> day, region</p><p><b>Measures</b> gross, net, orders</p><p><span style=\"border:1px solid #CBD5E1;border-radius:999px;padding:1px 7px;font-size:10px;font-weight:700\">metric view</span></p>", "accent": "#D4A017"}
+      ] },
+      {"id": "col-dash", "type": "group", "layout": "column", "gap": 60, "align": "center", "children": [
+        {"id": "dash", "type": "card", "title": "Revenue dashboard", "icon": "file:databricks-line/dashboards", "body": "<p><b>AI/BI · 6 tiles</b></p><p><b>Refresh</b> hourly</p><p><b>Data</b> gold.daily_revenue</p>", "accent": "#094074"},
+        {"id": "genie", "type": "card", "title": "Revenue Genie", "icon": "file:db/genie-agent", "body": "<p><b>Natural-language questions</b></p><p>Reads gold + silver, read-only</p><p><b>Tables</b> 3</p>", "accent": "#094074"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "src-orders", "to": "ingest", "label": "CDC", "flow": true, "color": "#FF5F46"},
+      {"id": "e2", "from": "ingest", "to": "bronze", "label": "append", "flow": true, "color": "#FF5F46"},
+      {"id": "e3", "from": "bronze", "to": "silver", "label": "MERGE on order_id", "flow": true, "color": "#FF5F46"},
+      {"id": "e4", "from": "silver", "to": "gold", "label": "aggregate", "flow": true, "color": "#FF5F46"},
+      {"id": "e5", "from": "gold", "to": "dash", "label": "dashboard feed", "color": "#FF5F46"},
+      {"id": "e6", "from": "gold", "to": "genie", "label": "Genie feed", "color": "#FF5F46"},
+      {"id": "c1", "from": "src-orders", "to": "csv-current", "label": "today", "dashed": true, "color": "#9CA3AF"}
+    ]
+  }
+]

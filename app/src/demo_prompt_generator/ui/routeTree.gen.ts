@@ -14,7 +14,9 @@ import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as ProfileRouteImport } from './routes/profile'
+import { Route as InternalRouteImport } from './routes/internal'
 import { Route as BrandRouteImport } from './routes/brand'
+import { Route as ArchitectureShowcaseRouteImport } from './routes/architecture-showcase'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectProjectIdRouteImport } from './routes/project.$projectId'
@@ -44,9 +46,19 @@ const ProfileRoute = ProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InternalRoute = InternalRouteImport.update({
+  id: '/internal',
+  path: '/internal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BrandRoute = BrandRouteImport.update({
   id: '/brand',
   path: '/brand',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArchitectureShowcaseRoute = ArchitectureShowcaseRouteImport.update({
+  id: '/architecture-showcase',
+  path: '/architecture-showcase',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -68,7 +80,9 @@ const ProjectProjectIdRoute = ProjectProjectIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/architecture-showcase': typeof ArchitectureShowcaseRoute
   '/brand': typeof BrandRoute
+  '/internal': typeof InternalRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
@@ -79,7 +93,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/architecture-showcase': typeof ArchitectureShowcaseRoute
   '/brand': typeof BrandRoute
+  '/internal': typeof InternalRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
@@ -91,7 +107,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/architecture-showcase': typeof ArchitectureShowcaseRoute
   '/brand': typeof BrandRoute
+  '/internal': typeof InternalRoute
   '/profile': typeof ProfileRoute
   '/projects': typeof ProjectsRoute
   '/setup': typeof SetupRoute
@@ -104,7 +122,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/architecture-showcase'
     | '/brand'
+    | '/internal'
     | '/profile'
     | '/projects'
     | '/setup'
@@ -115,7 +135,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/architecture-showcase'
     | '/brand'
+    | '/internal'
     | '/profile'
     | '/projects'
     | '/setup'
@@ -126,7 +148,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/architecture-showcase'
     | '/brand'
+    | '/internal'
     | '/profile'
     | '/projects'
     | '/setup'
@@ -138,7 +162,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  ArchitectureShowcaseRoute: typeof ArchitectureShowcaseRoute
   BrandRoute: typeof BrandRoute
+  InternalRoute: typeof InternalRoute
   ProfileRoute: typeof ProfileRoute
   ProjectsRoute: typeof ProjectsRoute
   SetupRoute: typeof SetupRoute
@@ -184,11 +210,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/internal': {
+      id: '/internal'
+      path: '/internal'
+      fullPath: '/internal'
+      preLoaderRoute: typeof InternalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/brand': {
       id: '/brand'
       path: '/brand'
       fullPath: '/brand'
       preLoaderRoute: typeof BrandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/architecture-showcase': {
+      id: '/architecture-showcase'
+      path: '/architecture-showcase'
+      fullPath: '/architecture-showcase'
+      preLoaderRoute: typeof ArchitectureShowcaseRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -218,7 +258,9 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  ArchitectureShowcaseRoute: ArchitectureShowcaseRoute,
   BrandRoute: BrandRoute,
+  InternalRoute: InternalRoute,
   ProfileRoute: ProfileRoute,
   ProjectsRoute: ProjectsRoute,
   SetupRoute: SetupRoute,

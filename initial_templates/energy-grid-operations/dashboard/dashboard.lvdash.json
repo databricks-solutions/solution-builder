@@ -1,0 +1,1617 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT ROUND(MAX(sys_mva), 0) FROM (SELECT forecast_for, SUM(forecast_mva) sys_mva FROM transformer_load_forecast GROUP BY forecast_for)) AS system_peak_forecast_mva,\n",
+        "  (SELECT ROUND(SUM(nameplate_mva), 0) FROM transformers) AS system_nameplate_mva,\n",
+        "  (SELECT COUNT(*) FROM transformer_health WHERE forecast_peak_pct > 100) AS transformers_over_nameplate,\n",
+        "  (SELECT SUM(customers_served) FROM transformer_health WHERE overload_risk IN ('CRITICAL','HIGH')) AS customers_at_risk,\n",
+        "  (SELECT MAX(forecast_peak_pct) FROM transformer_health) AS worst_forecast_pct,\n",
+        "  (SELECT ROUND(SUM(saidi_minutes), 1) FROM reliability_monthly WHERE month_start >= add_months((SELECT MAX(month_start) FROM reliability_monthly), -11)) AS saidi_12m,\n",
+        "  (SELECT ROUND(SUM(saifi), 3) FROM reliability_monthly WHERE month_start >= add_months((SELECT MAX(month_start) FROM reliability_monthly), -11)) AS saifi_12m,\n",
+        "  (SELECT ROUND(SUM(customer_minutes_interrupted) / SUM(customers_interrupted), 1) FROM outage_events) AS caidi_12m\n"
+      ]
+    },
+    {
+      "name": "ds_system_daily",
+      "displayName": "System peak by day (MVA)",
+      "queryLines": [
+        "WITH act AS (\n",
+        "  SELECT CAST(reading_at AS DATE) AS day, reading_at AS ts, SUM(load_mva) AS mva\n",
+        "  FROM transformer_telemetry_hourly\n",
+        "  WHERE reading_at >= (SELECT MAX(reading_at) FROM transformer_telemetry_hourly) - INTERVAL 5 DAYS\n",
+        "  GROUP BY reading_at),\n",
+        "fc AS (\n",
+        "  SELECT CAST(forecast_for AS DATE) AS day, forecast_for AS ts, SUM(forecast_mva) AS mva\n",
+        "  FROM transformer_load_forecast GROUP BY forecast_for),\n",
+        "u AS (SELECT day, mva FROM act UNION ALL SELECT day, mva FROM fc)\n",
+        "SELECT day, ROUND(MAX(mva), 0) AS system_peak_mva\n",
+        "FROM u\n",
+        "WHERE day < (SELECT MAX(CAST(forecast_for AS DATE)) FROM transformer_load_forecast)\n",
+        "GROUP BY day\n",
+        "ORDER BY day\n"
+      ]
+    },
+    {
+      "name": "ds_curve",
+      "displayName": "Most-at-risk transformer: SCADA last 5 days + 48 h forecast vs nameplate",
+      "queryLines": [
+        "WITH worst AS (SELECT transformer_id FROM transformer_health ORDER BY forecast_peak_pct DESC LIMIT 1)\n",
+        "SELECT reading_at AS ts, 'Actual (SCADA)' AS series, load_mva AS mva, transformer_id\n",
+        "FROM transformer_telemetry_hourly\n",
+        "WHERE transformer_id = (SELECT transformer_id FROM worst)\n",
+        "  AND reading_at >= (SELECT MAX(reading_at) FROM transformer_telemetry_hourly) - INTERVAL 5 DAYS\n",
+        "UNION ALL\n",
+        "SELECT forecast_for, 'Forecast', forecast_mva, transformer_id FROM transformer_load_forecast\n",
+        "WHERE transformer_id = (SELECT transformer_id FROM worst)\n",
+        "UNION ALL\n",
+        "SELECT forecast_for, 'Forecast P90', forecast_mva_p90, transformer_id FROM transformer_load_forecast\n",
+        "WHERE transformer_id = (SELECT transformer_id FROM worst)\n",
+        "UNION ALL\n",
+        "SELECT ts, 'Nameplate', nameplate_mva, t.transformer_id FROM (\n",
+        "  SELECT reading_at AS ts FROM transformer_telemetry_hourly\n",
+        "  WHERE transformer_id = (SELECT transformer_id FROM worst)\n",
+        "    AND reading_at >= (SELECT MAX(reading_at) FROM transformer_telemetry_hourly) - INTERVAL 5 DAYS\n",
+        "  UNION ALL SELECT forecast_for FROM transformer_load_forecast WHERE transformer_id = (SELECT transformer_id FROM worst)\n",
+        ") x CROSS JOIN transformers t WHERE t.transformer_id = (SELECT transformer_id FROM worst)\n"
+      ]
+    },
+    {
+      "name": "ds_health",
+      "displayName": "Transformer health + tomorrow's forecast peak",
+      "queryLines": [
+        "SELECT h.transformer_id, h.substation_name, h.nameplate_mva, h.age_years, h.health_index, h.health_tier,\n",
+        "       h.loading_now_pct, ROUND(h.forecast_peak_pct, 0) AS forecast_peak_pct, CONCAT(CAST(ROUND(h.forecast_peak_pct, 0) AS BIGINT), ' %') AS peak_label, date_format(h.forecast_peak_at, 'EEE HH:mm') AS forecast_peak_at,\n",
+        "       CAST(ROUND(h.forecast_peak_hot_spot_c) AS BIGINT) AS forecast_peak_hot_spot_c, h.forecast_hours_over_nameplate, h.dga_status, h.ethylene_ppm,\n",
+        "       h.customers_served, h.critical_facilities, h.overload_risk, h.risk_drivers,\n",
+        "       h.failure_probability_48h, h.replacement_cost_usd, s.latitude, s.longitude\n",
+        "FROM transformer_health h JOIN substations s USING (substation_id)\n",
+        "ORDER BY h.forecast_peak_pct DESC\n"
+      ]
+    },
+    {
+      "name": "ds_substation_map",
+      "displayName": "Substations: worst forecast loading",
+      "queryLines": [
+        "SELECT s.substation_id, s.substation_name, s.latitude, s.longitude,\n",
+        "       MAX(h.forecast_peak_pct) AS worst_forecast_pct, SUM(h.customers_served) AS customers_served\n",
+        "FROM substations s JOIN transformer_health h USING (substation_id)\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_options",
+      "displayName": "Relief options for at-risk transformers",
+      "queryLines": [
+        "SELECT transformer_id, recommended_rank, option_type, option_name, CONCAT(recommended_rank, '. ', option_name) AS option_label, relief_at_peak_mva, CAST(ROUND(estimated_cost_usd) AS BIGINT) AS estimated_cost_usd, concat('$', format_number(CAST(ROUND(estimated_cost_usd) AS BIGINT), 0)) AS cost_label,\n",
+        "       customers_affected, customer_impact, CONCAT(CAST(ROUND(post_peak_pct, 0) AS BIGINT), ' %') AS post_peak_label, post_hot_spot_c, clears_overload,\n",
+        "       CASE WHEN n1_redundancy LIKE 'N-1 lost%' THEN 'Lost' ELSE 'Kept' END AS n1_label, n1_redundancy, composite_risk_score\n",
+        "FROM relief_options\n",
+        "ORDER BY recommended_rank\n"
+      ]
+    },
+    {
+      "name": "ds_dga",
+      "displayName": "DGA ethylene trend",
+      "queryLines": [
+        "SELECT d.transformer_id, d.sample_date, d.ethylene_ppm, d.acetylene_ppm, d.tdcg_ppm,\n",
+        "       CASE WHEN h.health_tier = 'Poor' THEN d.transformer_id ELSE 'Fleet (other 11)' END AS series\n",
+        "FROM dga_readings d JOIN transformer_health h USING (transformer_id)\n"
+      ]
+    },
+    {
+      "name": "ds_hotspot",
+      "displayName": "Daily max hot-spot per transformer (90 days)",
+      "queryLines": [
+        "SELECT transformer_id, date_trunc('DAY', reading_at) AS day, MAX(hot_spot_c) AS max_hot_spot_c, MAX(loading_pct) AS max_loading_pct,\n",
+        "       CASE WHEN transformer_id IN (SELECT transformer_id FROM transformer_health WHERE overload_risk IN ('CRITICAL','HIGH','WATCH')) THEN transformer_id ELSE 'Other' END AS series\n",
+        "FROM transformer_telemetry_hourly\n",
+        "WHERE reading_at >= (SELECT MAX(reading_at) FROM transformer_telemetry_hourly) - INTERVAL 90 DAYS\n",
+        "GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_reliability",
+      "displayName": "Monthly SAIDI / SAIFI",
+      "queryLines": [
+        "SELECT month_start, saidi_minutes, saifi, caidi_minutes, saidi_target_minutes, outage_events, customers_interrupted\n",
+        "FROM reliability_monthly\n",
+        "WHERE month_start > (SELECT MIN(month_start) FROM reliability_monthly)\n",
+        "  AND month_start < date_trunc('MONTH', (SELECT MAX(reading_at) FROM transformer_telemetry_hourly))\n"
+      ]
+    },
+    {
+      "name": "ds_outages",
+      "displayName": "Outage events",
+      "queryLines": [
+        "SELECT o.outage_id, o.started_at, o.feeder_id, o.transformer_id, s.substation_name, o.cause, o.protective_device,\n",
+        "       o.customers_interrupted, CAST(ROUND(o.duration_minutes) AS BIGINT) AS duration_minutes, o.customer_minutes_interrupted,\n",
+        "       ROUND(o.customer_minutes_interrupted / (SELECT SUM(customers_total) FROM feeders), 2) AS saidi_contribution_min\n",
+        "FROM outage_events o JOIN substations s USING (substation_id)\n",
+        "ORDER BY customer_minutes_interrupted DESC\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "p_today",
+      "displayName": "1 · Tomorrow's peak",
+      "layout": [
+        {
+          "widget": {
+            "name": "p1_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ⚡ MREC Grid Operations — tomorrow's heat-wave peak\n",
+                "\n",
+                "Tuesday 21 July 2026, 14:00 — day two of a heat wave, **103°F forecast for Wednesday**. The temperature-aware load forecast says the system has plenty of headroom overall — but **one transformer, T-104 at North Ridge, goes over its nameplate tomorrow evening** with a winding hot-spot above the 120°C emergency limit. It is 39 years old, its dissolved-gas readings have been climbing for six months, and it serves 14,200 customers including Mercy Regional Hospital."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "k_sys",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_system_daily",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(system_peak_mva)",
+                      "expression": "AVG(`system_peak_mva`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(system_peak_mva)",
+                  "displayName": "System peak tomorrow (MVA)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "System peak tomorrow (MVA)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_cap",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "system_nameplate_mva",
+                      "expression": "`system_nameplate_mva`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "system_nameplate_mva",
+                  "displayName": "System transformer capacity (MVA)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "System transformer capacity (MVA)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_worst",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "worst_forecast_pct",
+                      "expression": "`worst_forecast_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "worst_forecast_pct",
+                  "displayName": "Worst transformer — forecast % of nameplate",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "field": "worst_forecast_pct",
+                          "operator": ">",
+                          "value": 100
+                        },
+                        "color": "#D32F2F"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Worst transformer — forecast % of nameplate"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_over",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "transformers_over_nameplate",
+                      "expression": "`transformers_over_nameplate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "transformers_over_nameplate",
+                  "displayName": "Transformers forecast over nameplate",
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "field": "transformers_over_nameplate",
+                          "operator": ">",
+                          "value": 0
+                        },
+                        "color": "#D32F2F"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Transformers forecast over nameplate"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_cust",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "customers_at_risk",
+                      "expression": "`customers_at_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "customers_at_risk",
+                  "displayName": "Customers on at-risk transformers",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Customers on at-risk transformers"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k_saidi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "saidi_12m",
+                      "expression": "`saidi_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "saidi_12m",
+                  "displayName": "SAIDI, last 12 months (min)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SAIDI, last 12 months (min)"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 4,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "curve",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_curve",
+                  "fields": [
+                    {
+                      "name": "ts",
+                      "expression": "`ts`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    },
+                    {
+                      "name": "mva",
+                      "expression": "`mva`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "ts",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Hour"
+                },
+                "y": {
+                  "fieldName": "mva",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Load (MVA)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Actual (SCADA)",
+                        "color": "#1F4E79"
+                      },
+                      {
+                        "value": "Forecast",
+                        "color": "#F57C00"
+                      },
+                      {
+                        "value": "Forecast P90",
+                        "color": "#FFCC80"
+                      },
+                      {
+                        "value": "Nameplate",
+                        "color": "#D32F2F"
+                      }
+                    ]
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "T-104 North Ridge — last 5 days of SCADA + 48 h forecast: the evening peak crosses the 25 MVA nameplate tomorrow"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 8,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "map",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_substation_map",
+                  "fields": [
+                    {
+                      "name": "latitude",
+                      "expression": "`latitude`"
+                    },
+                    {
+                      "name": "longitude",
+                      "expression": "`longitude`"
+                    },
+                    {
+                      "name": "substation_name",
+                      "expression": "`substation_name`"
+                    },
+                    {
+                      "name": "worst_forecast_pct",
+                      "expression": "`worst_forecast_pct`"
+                    },
+                    {
+                      "name": "customers_served",
+                      "expression": "`customers_served`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "symbol-map",
+              "encodings": {
+                "coordinates": {
+                  "latitude": {
+                    "fieldName": "latitude"
+                  },
+                  "longitude": {
+                    "fieldName": "longitude"
+                  }
+                },
+                "size": {
+                  "fieldName": "customers_served",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Customers"
+                },
+                "color": {
+                  "fieldName": "worst_forecast_pct",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "colors": {
+                        "start": "#FFE0B2",
+                        "end": "#B71C1C"
+                      }
+                    }
+                  },
+                  "legend": {
+                    "hide": false
+                  },
+                  "displayName": "Worst forecast % of nameplate"
+                },
+                "extra": [
+                  {
+                    "fieldName": "substation_name",
+                    "displayName": "Substation"
+                  }
+                ]
+              },
+              "mark": {
+                "opacity": 0.85
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Substations — colour = worst transformer forecast loading tomorrow"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 7,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "peak_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "transformer_id",
+                      "expression": "`transformer_id`"
+                    },
+                    {
+                      "name": "overload_risk",
+                      "expression": "`overload_risk`"
+                    },
+                    {
+                      "name": "max(forecast_peak_pct)",
+                      "expression": "MAX(`forecast_peak_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "transformer_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Transformer"
+                },
+                "y": {
+                  "fieldName": "max(forecast_peak_pct)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Forecast peak (% of nameplate)"
+                },
+                "color": {
+                  "fieldName": "overload_risk",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "CRITICAL",
+                        "color": "#D32F2F"
+                      },
+                      {
+                        "value": "HIGH",
+                        "color": "#F57C00"
+                      },
+                      {
+                        "value": "WATCH",
+                        "color": "#FBC02D"
+                      },
+                      {
+                        "value": "NORMAL",
+                        "color": "#2E7D6B"
+                      }
+                    ]
+                  },
+                  "displayName": "Risk"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "horizontal-line",
+                  "encodings": {
+                    "y": {
+                      "dataValue": 100
+                    },
+                    "label": {
+                      "value": "Nameplate 100%"
+                    },
+                    "color": {
+                      "value": "#D32F2F"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Tomorrow's forecast peak by transformer — only T-104 crosses 100%"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "transformer_id",
+                      "expression": "`transformer_id`"
+                    },
+                    {
+                      "name": "overload_risk",
+                      "expression": "`overload_risk`"
+                    },
+                    {
+                      "name": "peak_label",
+                      "expression": "`peak_label`"
+                    },
+                    {
+                      "name": "forecast_peak_hot_spot_c",
+                      "expression": "`forecast_peak_hot_spot_c`"
+                    },
+                    {
+                      "name": "customers_served",
+                      "expression": "`customers_served`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "transformer_id",
+                    "displayName": "Transformer"
+                  },
+                  {
+                    "fieldName": "overload_risk",
+                    "displayName": "Risk"
+                  },
+                  {
+                    "fieldName": "peak_label",
+                    "displayName": "Peak (% of nameplate)"
+                  },
+                  {
+                    "fieldName": "forecast_peak_hot_spot_c",
+                    "displayName": "Hot-spot (°C)"
+                  },
+                  {
+                    "fieldName": "customers_served",
+                    "displayName": "Customers"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-risk transformers — worst forecast peak first"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 14,
+            "width": 7,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "p_assets",
+      "displayName": "2 · Asset health & relief options",
+      "layout": [
+        {
+          "widget": {
+            "name": "p2_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# 🔧 Asset health — why T-104 is the one to worry about\n",
+                "\n",
+                "Loading alone doesn't fail a transformer — **heat plus a weak unit** does. T-104's ethylene and acetylene (the gases of an overheating winding) have climbed for six months into IEEE C57.104 Condition 3, and its hot-spot already brushed the 110°C design limit during this week's heat. T-109 at Riverside runs almost as hot, but it is a healthy 2014 unit — **watch, don't act.**"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "dga_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_dga",
+                  "fields": [
+                    {
+                      "name": "sample_date",
+                      "expression": "`sample_date`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    },
+                    {
+                      "name": "avg(ethylene_ppm)",
+                      "expression": "AVG(`ethylene_ppm`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "sample_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Lab sample"
+                },
+                "y": {
+                  "fieldName": "avg(ethylene_ppm)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Ethylene (ppm)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "T-104",
+                        "color": "#D32F2F"
+                      },
+                      {
+                        "value": "Fleet (other 11)",
+                        "color": "#90A4AE"
+                      }
+                    ]
+                  },
+                  "displayName": "Transformer"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Dissolved ethylene — T-104 vs the fleet average"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "hs_line",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_hotspot",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    },
+                    {
+                      "name": "max(max_hot_spot_c)",
+                      "expression": "MAX(`max_hot_spot_c`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "max(max_hot_spot_c)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Daily max hot-spot (°C)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "T-104",
+                        "color": "#D32F2F"
+                      },
+                      {
+                        "value": "T-109",
+                        "color": "#FBC02D"
+                      },
+                      {
+                        "value": "Other",
+                        "color": "#90A4AE"
+                      }
+                    ]
+                  },
+                  "displayName": "Transformer"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "horizontal-line",
+                  "encodings": {
+                    "y": {
+                      "dataValue": 110
+                    },
+                    "label": {
+                      "value": "110°C design limit"
+                    },
+                    "color": {
+                      "value": "#D32F2F"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Winding hot-spot, daily max (90 days) — heat-wave days push T-104 to the limit"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "scatter",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_health",
+                  "fields": [
+                    {
+                      "name": "health_index",
+                      "expression": "`health_index`"
+                    },
+                    {
+                      "name": "forecast_peak_pct",
+                      "expression": "`forecast_peak_pct`"
+                    },
+                    {
+                      "name": "transformer_id",
+                      "expression": "`transformer_id`"
+                    },
+                    {
+                      "name": "overload_risk",
+                      "expression": "`overload_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "scatter",
+              "encodings": {
+                "x": {
+                  "fieldName": "health_index",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Health index (0-100)"
+                },
+                "y": {
+                  "fieldName": "forecast_peak_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Forecast peak % of nameplate"
+                },
+                "color": {
+                  "fieldName": "overload_risk",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "CRITICAL",
+                        "color": "#D32F2F"
+                      },
+                      {
+                        "value": "HIGH",
+                        "color": "#F57C00"
+                      },
+                      {
+                        "value": "WATCH",
+                        "color": "#FBC02D"
+                      },
+                      {
+                        "value": "NORMAL",
+                        "color": "#2E7D6B"
+                      }
+                    ]
+                  },
+                  "displayName": "Risk"
+                },
+                "label": {
+                  "show": true
+                },
+                "extra": [
+                  {
+                    "fieldName": "transformer_id",
+                    "displayName": "Transformer"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Risk matrix — stress (forecast loading) vs condition (health index)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "opt_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_options",
+                  "fields": [
+                    {
+                      "name": "option_label",
+                      "expression": "`option_label`"
+                    },
+                    {
+                      "name": "cost_label",
+                      "expression": "`cost_label`"
+                    },
+                    {
+                      "name": "post_peak_label",
+                      "expression": "`post_peak_label`"
+                    },
+                    {
+                      "name": "n1_label",
+                      "expression": "`n1_label`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "option_label",
+                    "displayName": "Action"
+                  },
+                  {
+                    "fieldName": "cost_label",
+                    "displayName": "Cost"
+                  },
+                  {
+                    "fieldName": "post_peak_label",
+                    "displayName": "Post-action peak"
+                  },
+                  {
+                    "fieldName": "n1_label",
+                    "displayName": "N-1 kept"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Costed relief options for T-104 (rank 1 = recommended)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 8,
+            "width": 8,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "p_reliability",
+      "displayName": "3 · Reliability (SAIDI/SAIFI)",
+      "layout": [
+        {
+          "widget": {
+            "name": "p3_title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# 📉 Reliability — SAIDI / SAIFI (IEEE 1366)\n",
+                "\n",
+                "Last August's T-104 over-temperature trip (14 Aug 2025, 9,800 customers for 5+ hours) is the single largest event of the year — it alone added ~20 minutes to system SAIDI. That is what tomorrow looks like if nobody acts."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "r_saidi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "saidi_12m",
+                      "expression": "`saidi_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "saidi_12m",
+                  "displayName": "SAIDI 12 months (min)  · target 125",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "field": "saidi_12m",
+                          "operator": ">",
+                          "value": 125
+                        },
+                        "color": "#D32F2F"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SAIDI 12 months (min)  · target 125"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "r_saifi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "saifi_12m",
+                      "expression": "`saifi_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "saifi_12m",
+                  "displayName": "SAIFI 12 months · target 1.10",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "style": {
+                    "rules": [
+                      {
+                        "condition": {
+                          "field": "saifi_12m",
+                          "operator": ">",
+                          "value": 1.1
+                        },
+                        "color": "#D32F2F"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "SAIFI 12 months · target 1.10"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "r_caidi",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "caidi_12m",
+                      "expression": "`caidi_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "caidi_12m",
+                  "displayName": "CAIDI (min per interruption)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CAIDI (min per interruption)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "saidi_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_reliability",
+                  "fields": [
+                    {
+                      "name": "month_start",
+                      "expression": "`month_start`"
+                    },
+                    {
+                      "name": "sum(saidi_minutes)",
+                      "expression": "SUM(`saidi_minutes`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "sum(saidi_minutes)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "SAIDI (min)"
+                }
+              },
+              "annotations": [
+                {
+                  "type": "horizontal-line",
+                  "encodings": {
+                    "y": {
+                      "dataValue": 10.42
+                    },
+                    "label": {
+                      "value": "Monthly target 10.4 min"
+                    },
+                    "color": {
+                      "value": "#D32F2F"
+                    }
+                  }
+                }
+              ],
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly SAIDI — August's spike is the T-104 trip"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 7,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "cause_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outages",
+                  "fields": [
+                    {
+                      "name": "cause",
+                      "expression": "`cause`"
+                    },
+                    {
+                      "name": "sum(customer_minutes_interrupted)",
+                      "expression": "SUM(`customer_minutes_interrupted`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "cause",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Cause"
+                },
+                "x": {
+                  "fieldName": "sum(customer_minutes_interrupted)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Customer-minutes interrupted"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Customer-minutes by cause"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 5,
+            "width": 5,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "out_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outages",
+                  "fields": [
+                    {
+                      "name": "started_at",
+                      "expression": "`started_at`"
+                    },
+                    {
+                      "name": "outage_id",
+                      "expression": "`outage_id`"
+                    },
+                    {
+                      "name": "substation_name",
+                      "expression": "`substation_name`"
+                    },
+                    {
+                      "name": "cause",
+                      "expression": "`cause`"
+                    },
+                    {
+                      "name": "customers_interrupted",
+                      "expression": "`customers_interrupted`"
+                    },
+                    {
+                      "name": "duration_minutes",
+                      "expression": "`duration_minutes`"
+                    },
+                    {
+                      "name": "saidi_contribution_min",
+                      "expression": "`saidi_contribution_min`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "started_at",
+                    "displayName": "Start"
+                  },
+                  {
+                    "fieldName": "outage_id",
+                    "displayName": "Outage"
+                  },
+                  {
+                    "fieldName": "substation_name",
+                    "displayName": "Substation"
+                  },
+                  {
+                    "fieldName": "cause",
+                    "displayName": "Cause"
+                  },
+                  {
+                    "fieldName": "customers_interrupted",
+                    "displayName": "Customers"
+                  },
+                  {
+                    "fieldName": "duration_minutes",
+                    "displayName": "Minutes"
+                  },
+                  {
+                    "fieldName": "saidi_contribution_min",
+                    "displayName": "SAIDI min"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Outage log — biggest customer-minutes first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#094074",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#FF7E5C",
+        "#FE9000",
+        "#5ADBFF",
+        "#9AA5B1"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

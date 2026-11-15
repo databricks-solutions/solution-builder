@@ -1,0 +1,25 @@
+{
+    "short_description": "An industrial-components maker's Dayton plant is about to run out of gear-housing castings: SG-400 demand is up 46% and a Yantian port delay rolled its sole supplier's containers. An S&OP planner console (Databricks App on Lakebase) forecasts demand with AI_FORECAST, explodes the BOM, projects 13 weeks of inventory, reads supplier emails with ai_extract, prices every mitigation (inter-plant transfer of E&O stock, alternate foundry, air expedite, safety stock), and a copilot stages the cheapest plan with policy citations (the Genie agent over the documents) for the planner to book — written back to Delta for the AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "ai-forecast",
+            "unity-catalog",
+            "metric-views",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "databricks-one",
+            "mlflow-tracing",
+            "unstructured-documents"
+        ]
+    },
+    "created_resources": {}
+}

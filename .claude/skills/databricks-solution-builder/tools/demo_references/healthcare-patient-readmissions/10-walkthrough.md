@@ -13,7 +13,7 @@
 Before starting:
 - Dashboard open to Quality Command Center
 - Genie Space ready
-- KA ready
+- Documents indexed (Genie answers from them)
 - Date context: "Today is March 20, 2024"
 
 ---
@@ -64,15 +64,15 @@ Before starting:
 
 ## Act 3: Get the Full Picture (3 min)
 
-**[Open Knowledge Assistant]**
+**[Open Genie and ask about the documents]**
 
 > "The data tells us WHAT: discharge process gaps. Now Dr. Patel needs to know WHY."
 
 **[Type: "What changed in our TAVR discharge process?"]**
 
-**[Show KA response with staffing memo]**
+**[Show Genie answer with staffing memo]**
 
-> "The Knowledge Assistant searches through operational documents and finds the answer.
+> "Genie searches through operational documents and finds the answer.
 >
 > A staffing memo from February 12th: their Cardiology discharge coordinator, Maria Santos, went on extended medical leave starting February 15th.
 >

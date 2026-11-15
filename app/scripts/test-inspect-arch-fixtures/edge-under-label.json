@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Edge under label",
+    "aspect": "16:9",
+    "direction": "horizontal",
+    "nodes": [
+      { "id": "a", "type": "model-training", "at": [0, 0] },
+      { "id": "b", "type": "uc-model-registry", "at": [700, 220] },
+      { "id": "c", "type": "sql-lakehouse", "at": [0, 110] },
+      { "id": "d", "type": "genie", "at": [700, 110] }
+    ],
+    "edges": [
+      { "id": "e-register", "from": "a@r", "to": "b@l", "label": "Register", "centerX": 350 },
+      { "id": "e-through", "from": "c@r", "to": "d@l" }
+    ]
+  }
+]

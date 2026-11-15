@@ -1,0 +1,10 @@
+{
+  "id": "pubsec-cyber-threat-hunting",
+  "name": "Threat Hunting Copilot — UEBA + Agentic Investigation for a State SOC",
+  "customer": "Cascadia Security Operations Center (Department of Revenue)",
+  "industry": "Public Sector",
+  "narrative": "Maya Okafor is a tier-2 threat hunter at the Cascadia SOC, which protects the state Department of Revenue and its taxpayer files. Her SIEM produced 7,521 alerts in 90 days, 4.8% of them real, and credential compromises take 13 days on average to detect. For 19 days a password spray made 1,971 guesses against 212 accounts, never more than one per account per day, so no rule fired; the two alerts that did were closed as false positives. A UEBA model registered in Unity Catalog put field auditor Daniel Morales at the top of this morning's queue.\n\nThe aha is one click. The Threat Hunting Copilot's agent pivots from his sign-ins to the attacker's IP range, the VPN sessions from an unmanaged PC, the finance workstation it reached and that host's DNS, and finds MFA fatigue, RDP lateral movement, 4,812 taxpayer files staged and 58,000 DNS TXT lookups of exfiltration. It maps the chain to MITRE ATT&CK, asks the IR playbook (searched by the Genie agent) for severity, deadlines and containment, and Maya opens a SEV-1 incident case written back to Lakebase. The next lead, an admin at a Vancouver conference, closes as benign in a minute, with the evidence.",
+  "dbdemos_tracker": {
+    "app_id": "pubsec-cyber-threat-hunting"
+  }
+}

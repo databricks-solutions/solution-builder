@@ -25,6 +25,13 @@ import { exportDiagramImage } from "@/components/project/platform-diagram/export
 declare const __ARCH_MODE__: string | undefined;
 const MODE: "viewer" | "editor" = (typeof __ARCH_MODE__ !== "undefined" && __ARCH_MODE__ === "editor") ? "editor" : "viewer";
 
+// Ephemeral mode: disable the localStorage restore + snapshot entirely, so a
+// refresh always shows the ORIGINAL diagram (no remembered edits). Set by the eval
+// review page's "Edit & drag" copies (build-edit-pages.mjs) via a `#ephemeral` URL
+// hash — those pages are for TESTING node positions, not authoring, so persisting
+// drags across reloads is confusing. Never set on a real editor document.
+const NO_PERSIST = typeof location !== "undefined" && /(?:^|[#&])ephemeral(?:&|$)/.test(location.hash);
+
 const JSON_BLOCK_ID = "architecture";
 
 /** Read the inline architecture JSON block; returns the raw JSON string ("" if
@@ -42,6 +49,22 @@ function download(name: string, dataUrl: string) {
   a.href = dataUrl;
   a.download = name;
   a.click();
+}
+
+/**
+ * Keep the name of the HTML that is currently open when Save opens the picker.
+ * Browsers deliberately do not expose the parent directory of a file:// URL,
+ * so the File System Access API cannot be pointed at that folder without a
+ * previously granted file handle. The filename is still safe to derive here.
+ */
+function openDocumentName(): string {
+  try {
+    const path = decodeURIComponent(new URL(window.location.href).pathname);
+    const name = path.split("/").pop()?.trim();
+    return name?.toLowerCase().endsWith(".html") ? name : "architecture.html";
+  } catch {
+    return "architecture.html";
+  }
 }
 
 /** Strip an optional ```json fence and pretty-print when parseable. */
@@ -96,7 +119,7 @@ function App() {
   // agent rewrites the same file path; a stale snapshot for that href would
   // override the fresh content in the PNG it reads back).
   const stored = (() => {
-    if (MODE !== "editor") return null;
+    if (MODE !== "editor" || NO_PERSIST) return null;
     try { return localStorage.getItem(LS_KEY); } catch { return null; }
   })();
   const restoredFromStorage = !!(stored && stored.trim() && stored.trim() !== inline.trim());
@@ -142,7 +165,10 @@ function App() {
       const picker = (window as FsaWindow).showSaveFilePicker;
       if (!picker) return;
       fileHandle.current = await picker({
-        suggestedName: "architecture.html",
+        // Keep the currently-open document's name instead of always suggesting
+        // a new generic file. The browser may still choose its remembered
+        // picker folder: file:// pages cannot provide their parent directory.
+        suggestedName: openDocumentName(),
         types: [{ description: "HTML", accept: { "text/html": [".html"] } }],
       });
       await writeToFile();
@@ -155,8 +181,9 @@ function App() {
   // and by the JSON debug panel.
   const persistEdit = useCallback((md: string) => {
     // Editor only (see the restore note above) — viewer edits via the JSON
-    // debug panel are deliberately ephemeral.
-    if (MODE === "editor") {
+    // debug panel are deliberately ephemeral. NO_PERSIST (the review page's
+    // drag-test copies) also skips the snapshot so a refresh resets.
+    if (MODE === "editor" && !NO_PERSIST) {
       try { localStorage.setItem(LS_KEY, md); } catch { /* quota/file:// quirks */ }
     }
     scheduleWrite();
@@ -349,6 +376,22 @@ function App() {
         )}
       </div>
     </div>
+  );
+}
+
+// Untrusted (script-dispatched) mouse/touch events with NO `view` make d3-drag's
+// dragDisable() read `view.document` and throw "Cannot read properties of null
+// (reading 'document')" from inside the ReactFlow pane. Real user input always
+// carries a view, so drop view-less synthetic events at the window (capture
+// phase) before they reach the canvas. Trusted input and events that do carry a
+// view pass through untouched.
+for (const type of ["mousedown", "touchstart"] as const) {
+  window.addEventListener(
+    type,
+    (e) => {
+      if (!e.isTrusted && !e.view) e.stopImmediatePropagation();
+    },
+    true,
   );
 }
 

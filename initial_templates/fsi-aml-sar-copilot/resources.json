@@ -1,0 +1,21 @@
+{
+    "short_description": "An AML investigator console where an ML alert-risk model uncovers a 9-party structuring ring the rules engine buried, an agent drafts the FinCEN SAR narrative with policy citations, and every file/close/escalate decision is written back to Delta, with a compliance dashboard and Genie on top.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ml-training-serving",
+            "aibi-dashboards",
+            "genie",
+            "unstructured-documents",
+            "databricks-apps",
+            "unity-catalog"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "sdp",
+            "ai-functions",
+            "databricks-one"
+        ]
+    },
+    "created_resources": {}
+}

@@ -2,7 +2,7 @@
 
 ## Document Strategy
 
-Generate PDF documents providing clinical and operational context. The Knowledge Assistant searches these to explain WHY the discharge process broke down.
+Generate PDF documents providing clinical and operational context. The Genie agent searches these (they sit in the documents volume attached to it) to explain WHY the discharge process broke down.
 
 ## Documents to Generate
 

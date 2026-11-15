@@ -5,7 +5,7 @@
 # and appends the plain-value env vars (DEMO_CATALOG, DASHBOARD_ID,
 # GENIE_SPACE_ID, …) harvested from the setup job's export_resources output.
 # Plain values live in exactly one place (finalize_app.sh), assembled after
-# the job runs — the bundle can't know the Genie/KA/MAS IDs at deploy time.
+# the job runs — the bundle can't know the Genie space ID at deploy time.
 # Binding-derived vars (DATABRICKS_WAREHOUSE_ID, LAKEBASE_ENDPOINT) stay here.
 #
 # Lifecycle on the Apps container (in order):

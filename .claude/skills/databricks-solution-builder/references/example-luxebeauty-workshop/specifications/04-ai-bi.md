@@ -1,11 +1,9 @@
 # AI/BI — Dashboard + Genie (built live via Genie Code)
 
-> **Workshop contract.** After the SDP is built, the SA creates the AI/BI
-> dashboard + Genie space live via Genie Code prompts (see
-> `../notebooks/03_dashboard_and_genie.py`). This spec is Genie Code's context
-> for the widget layout, the datasets, and the Genie configuration. Everything
-> reads the gold tables `gold_returns` + `gold_daily_summary` and (for the
-> punchline) `silver_production_lots`.
+> **Workshop contract.** After the pipeline is built, the SA creates the AI/BI dashboard and the
+> Genie space live with Genie Code (the "Dashboard & Genie" page of `workshop.html`). Everything
+> reads the gold tables `gold_returns` + `gold_daily_summary` from `01-lakeflow.md` and, for the
+> punchline, `silver_production_lots`.
 
 ---
 
@@ -27,8 +25,8 @@
 - Orders-by-region area chart (`ds_daily`).
 - Stacked country bar of refunds (`ds_returns`).
 - Symbol map on `customer_lat`/`customer_lng` (`ds_returns`), bubble size =
-  distinct customers, color = refund $ — **Paris the largest bubble**, then
-  London / Milan.
+  distinct customers, color = refund $ — **Paris among the largest bubbles**
+  (close to London; check the actual ranking).
 - Category donut of returns $ (`ds_daily`) — **Skincare dominates**.
 
 **Page 2 — Investigation (drill to the lot):**
@@ -42,6 +40,10 @@
 
 Global filters: Date / Region / Category / Source (Source = affected vs everyday).
 
+**Story shape the widgets must show:** refunds peak **in the past** with a decay tail (never
+pinned to the right edge); Paris among the biggest map bubbles (close to London — check, don't
+assume); Skincare dominating the donut; the sankey collapsing Category → 3 SKUs → 1 lot.
+
 ---
 
 ## B. Genie space
@@ -49,14 +51,17 @@ Global filters: Date / Region / Category / Source (Source = affected vs everyday
 **Name:** `LuxeBeauty Operations Analytics`
 
 **Attach:** `gold_daily_summary`, `gold_returns`, `silver_production_lots` (for
-`incident_summary`), `products`, `customers`.
+`incident_summary`); later pages add `mv_returns` (`02-uc-governance.md`) and
+`customer_premium_predictions` (`03-ml-premium-classifier.md`).
+Do NOT attach `products` / `customers` — they are Volume files, not UC tables;
+names and geography already live in `gold_returns`.
 
 **Instruction text:**
 ```
 You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical).
-BASELINES: normal weekly returns ~$60K, normal return rate ~8%, anomaly > 20%.
+BASELINES: normal weekly returns ~$30K, normal return rate ~8%, anomaly well above that.
 INVESTIGATION FLOW for "Why so many returns?":
-  1. gold_daily_summary → SUM(returns_usd) by week → spot the 3x spike
+  1. gold_daily_summary → SUM(returns_usd) by week → spot the ~4-5x spike
   2. gold_returns → GROUP BY product_id ORDER BY COUNT(*) DESC → SKU-1001/1002/1003
   3. gold_returns WHERE product_id IN (those) GROUP BY lot_id → one lot dominates
   4. gold_returns → customer_comment WHERE lot_id = affected → texture complaints
@@ -85,4 +90,5 @@ FROM silver_production_lots l JOIN top_lot t ON t.lot_id = l.lot_id;
 ```
 
 **The demo lands** when question 3 makes Genie hop to `silver_production_lots`
-and quote the homogenizer / pressure / Lyon / released note inline.
+and quote the homogenizer / pressure / Lyon / released note inline. Certify the space only
+after those answers are checked.

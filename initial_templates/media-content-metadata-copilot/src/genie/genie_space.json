@@ -1,0 +1,188 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "18f715a730d84ce876744dc90176c5fe",
+        "question": [
+          "Which hidden gems have the biggest discovery gap?"
+        ]
+      },
+      {
+        "id": "3a7cb7d0a34db76cb8a487ff32b3bc59",
+        "question": [
+          "Do Harborlight titles perform worse when viewers actually watch them?"
+        ]
+      },
+      {
+        "id": "3f70bdba65a40c1dba789aa53d267c23",
+        "question": [
+          "What happened to impressions and play starts for the titles re-tagged in the July pilot vs the rest of Harborlight?"
+        ]
+      },
+      {
+        "id": "566558dcecbbc6d8b47444d0d93e4038",
+        "question": [
+          "What share of impressions does the Harborlight library get compared with its share of the catalogue?"
+        ]
+      },
+      {
+        "id": "7846183eee91ca3060e9f22294cdffe8",
+        "question": [
+          "How many titles are sold as Family-Safe but have AI-detected content warnings, by source?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "Can a title rated TV-14 with violence warnings stay in the Little Ones row, and what brand-safety tier should it have?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "media_advertising.content_metadata_copilot.collections",
+        "description": [
+          "Tag-driven home-screen rows and the rule that fills each one."
+        ]
+      },
+      {
+        "identifier": "media_advertising.content_metadata_copilot.gold_retag_pilot",
+        "description": [
+          "The July 2026 re-tag pilot: per Harborlight title, impressions and play starts 4 weeks before vs 4 weeks from the pilot date. pilot_group = 'Pilot (re-tagged)' | 'Control (not re-tagged)'."
+        ]
+      },
+      {
+        "identifier": "media_advertising.content_metadata_copilot.gold_title_scorecard",
+        "description": [
+          "One row per title: current metadata vs the AI proposal (ai_* columns), completeness_score (0-100), last-4-week engagement (impressions_4w, play_starts_4w, completion_rate_4w), peer benchmark, discovery gap, missing_warnings, safety_risk, hidden_gem, retag_priority_score."
+        ],
+        "column_configs": [
+          {
+            "column_name": "ai_brand_safety_tier",
+            "description": [
+              "tier implied by the AI-detected content warnings"
+            ]
+          },
+          {
+            "column_name": "brand_safety_tier",
+            "description": [
+              "CURRENT live ad-inventory tier: Family-Safe | Standard | Restricted"
+            ]
+          },
+          {
+            "column_name": "completion_rate_4w",
+            "description": [
+              "completions / play starts over the last 4 complete weeks (0-1)"
+            ]
+          },
+          {
+            "column_name": "hidden_gem",
+            "description": [
+              "viewers finish it at or above the genre peer median but it gets < 40% of a well-tagged peer's impressions"
+            ]
+          },
+          {
+            "column_name": "source",
+            "description": [
+              "Orbitline Original | Studio Licensed | Harborlight Library"
+            ]
+          }
+        ]
+      },
+      {
+        "identifier": "media_advertising.content_metadata_copilot.gold_title_weekly",
+        "description": [
+          "Weekly engagement per title (26 weeks). library_group = 'Harborlight - re-tagged in pilot' | 'Harborlight - not re-tagged' | 'Rest of library'."
+        ]
+      },
+      {
+        "identifier": "media_advertising.content_metadata_copilot.retag_events"
+      },
+      {
+        "identifier": "media_advertising.content_metadata_copilot.taxonomy"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "0314e5092ff6d7f0db3282bac0abe6fc",
+        "content": [
+          "Orbitline+ is a (fictional) streaming service. Its library has 1,400 titles from three sources: 'Orbitline Original', 'Studio Licensed' and 'Harborlight Library' (420 titles acquired on 2026-04-13 from a legacy vendor feed with almost no metadata).\n",
+          "Home rows, search and recommendations are TAG-DRIVEN, so a title's metadata completeness (completeness_score 0-100) drives its impressions. Impressions = times the title tile was shown. PLAY RATE = play_starts / impressions. COMPLETION RATE = completions / play_starts (a measure of content quality once found).\n",
+          "Default time window: the last 4 complete weeks. In gold_title_scorecard the *_4w columns already cover it; in gold_title_weekly use week_start > (SELECT date_sub(max(week_start), 28) FROM gold_title_weekly). Never use current_date() — the data ends at the last complete week.\n",
+          "Always compare Harborlight with the rest of the library on a PER-TITLE basis (impressions per title) or as share of impressions vs share of catalogue — the sources have different title counts.\n",
+          "The July re-tag pilot: 40 Harborlight titles were hand re-tagged by editors on 2026-07-27. For its impact use gold_retag_pilot and report impressions and play starts before vs after for BOTH pilot_group values with the multiplier (after / before).\n",
+          "HIDDEN GEM = hidden_gem = true. SAFETY RISK = a title currently sold as brand_safety_tier = 'Family-Safe' whose ai_brand_safety_tier is 'Standard' or 'Restricted' (AI found content warnings the live metadata lacks); missing_warnings lists them. Kids/family rows are 'Little Ones (under 7)' and 'Family Movie Night' in the collections array.\n",
+          "Round percentages to 1 decimal and present them as percentages. When listing titles, include title and source.",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "4334bb413cec1d331348562392a039ae",
+        "question": [
+          "How many titles are sold as Family-Safe but have AI-detected content warnings, by source?"
+        ],
+        "sql": [
+          "SELECT source, COUNT(*) AS titles_at_risk, COUNT_IF(ai_brand_safety_tier = 'Restricted') AS should_be_restricted,\n",
+          "  COUNT_IF(array_contains(collections, 'Little Ones (under 7)') OR array_contains(collections, 'Family Movie Night')) AS in_kids_or_family_rows\n",
+          "FROM media_advertising.content_metadata_copilot.gold_title_scorecard WHERE brand_safety_tier = 'Family-Safe' AND ai_brand_safety_tier <> 'Family-Safe'\n",
+          "GROUP BY source ORDER BY titles_at_risk DESC"
+        ]
+      },
+      {
+        "id": "53426093933b9c0f611386f00a9e42e6",
+        "question": [
+          "What happened to impressions and play starts for the titles re-tagged in the July pilot vs the rest of Harborlight?"
+        ],
+        "sql": [
+          "SELECT pilot_group, COUNT(*) AS titles, SUM(impressions_4w_before) AS impressions_4w_before, SUM(impressions_4w_after) AS impressions_4w_after,\n",
+          "  ROUND(SUM(impressions_4w_after) / SUM(impressions_4w_before), 1) AS impressions_multiplier,\n",
+          "  SUM(play_starts_4w_before) AS play_starts_4w_before, SUM(play_starts_4w_after) AS play_starts_4w_after,\n",
+          "  ROUND(SUM(play_starts_4w_after) / SUM(play_starts_4w_before), 1) AS play_starts_multiplier\n",
+          "FROM media_advertising.content_metadata_copilot.gold_retag_pilot GROUP BY pilot_group"
+        ]
+      },
+      {
+        "id": "5eddaf2c1ead45352fd88caeb42394cb",
+        "question": [
+          "Which hidden gems have the biggest discovery gap?"
+        ],
+        "sql": [
+          "SELECT title, source, primary_genre, completeness_score, impressions_4w, peer_impressions_4w, ROUND(100 * completion_rate_4w, 1) AS completion_pct,\n",
+          "  ROUND(100 * peer_completion_rate_4w, 1) AS peer_completion_pct, discovery_gap_impressions_4w\n",
+          "FROM media_advertising.content_metadata_copilot.gold_title_scorecard WHERE hidden_gem ORDER BY discovery_gap_impressions_4w DESC LIMIT 10"
+        ]
+      },
+      {
+        "id": "a7b9910378f29a47ae30076ca7175b9b",
+        "question": [
+          "What share of impressions does the Harborlight library get compared with its share of the catalogue?"
+        ],
+        "sql": [
+          "SELECT source, COUNT(*) AS titles, ROUND(100 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct_of_catalogue,\n",
+          "  SUM(impressions_4w) AS impressions_4w, ROUND(100 * SUM(impressions_4w) / SUM(SUM(impressions_4w)) OVER (), 1) AS pct_of_impressions,\n",
+          "  ROUND(AVG(completeness_score), 1) AS avg_completeness\n",
+          "FROM media_advertising.content_metadata_copilot.gold_title_scorecard GROUP BY source ORDER BY pct_of_impressions"
+        ]
+      },
+      {
+        "id": "cdac37232abdbb7c374f4a0d63bf03c8",
+        "question": [
+          "Do Harborlight titles perform worse when viewers actually watch them?"
+        ],
+        "sql": [
+          "SELECT library_group, COUNT(DISTINCT title_id) AS titles, ROUND(SUM(impressions) / COUNT(DISTINCT title_id)) AS impressions_per_title,\n",
+          "  ROUND(100 * SUM(play_starts) / SUM(impressions), 2) AS play_rate_pct, ROUND(100 * SUM(completions) / SUM(play_starts), 1) AS completion_rate_pct\n",
+          "FROM media_advertising.content_metadata_copilot.gold_title_weekly WHERE week_start > (SELECT date_sub(max(week_start), 28) FROM media_advertising.content_metadata_copilot.gold_title_weekly)\n",
+          "GROUP BY library_group ORDER BY impressions_per_title"
+        ]
+      }
+    ]
+  }
+}

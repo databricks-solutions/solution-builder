@@ -248,7 +248,7 @@ export function ShareDialog({
             <input
               id="share-email"
               type="email"
-              placeholder="colleague@databricks.com"
+              placeholder="colleague@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => {

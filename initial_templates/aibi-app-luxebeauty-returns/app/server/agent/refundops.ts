@@ -10,8 +10,9 @@
  *   The whole pitch is "AI that not only tells you what's wrong, but can
  *   act on it end-to-end, with the human in the loop." That translates to:
  *     1. An investigation tool that delegates to the Databricks
- *        Multi-Agent Supervisor (`ask_data` → MAS) for open-ended "why"
- *        questions backed by SQL + KA retrieval.
+ *        Genie Agent (`ask_data`) for open-ended "why"
+ *        questions backed by SQL over the tables + PDF retrieval over the
+ *        documents volume.
  *     2. Lookup tools that read the local Lakebase mirror (fast OLTP).
  *     3. A *write* tool that mutates state in one transaction.
  *   The agent instructions below are phased deliberately: Mode A for pure
@@ -24,12 +25,9 @@
  *   - Keep `configureAgentsSdk()` as-is — it handles the Databricks
  *     Responses API wiring, the `Connection: close` workaround for stale
  *     sockets, and the 64-char `input[*].id` strip (see comments below).
- *   - The data-backend tool (`ask_mas` here) is registered via the
- *     reusable factories in `agent/tools/{mas,genie}.ts`. Pick the one
- *     that matches your demo:
- *       • MAS only      → use `askMasTool(ctx, ctx.masEndpointName)`
- *       • Genie only    → use `askGenieTool(ctx, ctx.genieSpaceId)`
- *                          (and rename the AgentContext field accordingly)
+ *   - The data-backend tool (`ask_data` here) is registered via the
+ *     reusable factory in `agent/tools/genie.ts`:
+ *       askDataTool(ctx, ctx.genieSpaceId)
  *       • Both          → register both factories with distinct names,
  *                          and tell the model in instructions when to
  *                          prefer each.
@@ -52,18 +50,15 @@ import { loggedTool as tool } from './tools/logged-tool.js';
 import * as mlflow from 'mlflow-tracing';
 import { z } from 'zod';
 import { authHeaders } from '../lib/auth.js';
+import { getExecutionContext } from '@databricks/appkit';
 import type { AppDb } from '../db/index.js';
 import {
   listReturns,
   lotPremiumBreakdown,
   processReturnBatchForLot,
 } from '../db/queries/index.js';
-// Data-backend tool factories. The template demo uses MAS, but if your
-// demo has only a Genie space, swap `askMasTool` → `askGenieTool` and
-// update the AgentContext field below (masEndpointName → genieSpaceId).
-// If your demo has BOTH, register both tools and tell the model in the
-// agent instructions when to prefer each.
-import { askMasTool } from './tools/mas.js';
+// Data-backend tool factory: the Genie Agent (tables + documents volume).
+import { askDataTool } from './tools/genie.js';
 export type { ToolProgressEvent } from './tools/types.js';
 
 /** Captured detail of the last failing call to the model serving endpoint.
@@ -84,12 +79,9 @@ export type AgentContext = {
   db: AppDb;
   userEmail: string;
   req: Request;
-  /** MAS serving-endpoint name the `ask_mas` tool talks to. Set in
-   * `config/app.json` as `masEndpointName`. The template demo uses MAS;
-   * if your demo uses Genie instead, replace this field with
-   * `genieSpaceId: string` and swap `askMasTool` → `askGenieTool` in
-   * makeTools below. See server/agent/tools/{mas,genie}.ts. */
-  masEndpointName: string;
+  /** Genie Agent id the `ask_data` tool talks to (resolved from
+   * `<catalog>.<schema>.demo_resources` at boot, see server/lib/demo-resources.ts). */
+  genieSpaceId: string;
   databricksHost: string;
   model: string;
   /** Called by long-running tools to surface progress to the UI. */
@@ -276,21 +268,15 @@ function makeTools(ctx: AgentContext) {
       ),
   });
 
-  // The data-backend tool. The template demo uses a MAS endpoint;
-  // swap to `askGenieTool(ctx, ctx.genieSpaceId)` if your demo only has
-  // a Genie space (and update AgentContext + config/app.json to match).
-  // For a demo with both, register both tools — the model picks based
-  // on the descriptions in tools/{mas,genie}.ts.
-  // Skip registration entirely if no endpoint is configured — otherwise
-  // the tool fires `POST /serving-endpoints//invocations` (note the
-  // double slash) and returns a confusing 404 to the model. Boot-time
-  // warning in server.ts already tells the operator to fix the config.
+  // The data-backend tool: the Genie Agent (tables + documents volume).
+  // Skip registration if no space is configured — the boot-time warning in
+  // server.ts tells the operator to fix the config.
   // Typed as Tool[] so the heterogeneous tools (different param schemas) and
   // the optional data-backend tool can coexist — otherwise TS infers a narrow
   // union from the literal array and rejects the push below.
   const tools: Tool[] = [findReturnsForLot, findLotPremiumBreakdown, createCouponTool, processBatch];
-  if (ctx.masEndpointName) {
-    tools.push(askMasTool(ctx, ctx.masEndpointName));
+  if (ctx.genieSpaceId) {
+    tools.push(askDataTool(ctx, ctx.genieSpaceId));
   }
   return tools;
 }
@@ -308,7 +294,7 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
   //
   // Use a custom fetch that forces a fresh TCP connection per call and
   // disables keep-alive. Without this, after a long-running tool call
-  // (ask_data → MAS takes ~90s), the second Responses API call reuses a
+  // (ask_data takes ~90s), the second Responses API call reuses a
   // stale socket that the Databricks gateway has half-closed, which
   // surfaces as a bare 502 (no headers/body) ~3s into the call. Also bump
   // maxRetries since 502s are transient gateway failures.
@@ -412,6 +398,31 @@ export async function configureAgentsSdk(ctx: AgentContext): Promise<void> {
         console.error('[openai-shim] fetch threw', { url, error: e });
         throw e;
       }
+      // SP fallback: if the user's OBO token is rejected (missing
+      // model-serving / ai-gateway scope, or an "Invalid Token" from the AI
+      // Gateway), retry ONCE with the app service principal's credentials so
+      // the chat still answers. The body is a string, so it's safely resendable.
+      if ((resp.status === 401 || resp.status === 403) && !headers.has('x-sp-retry')) {
+        try {
+          const spHeaders = new Headers(headers);
+          const auth = new Headers();
+          await getExecutionContext().client.config.authenticate(auth);
+          const spAuth = auth.get('Authorization');
+          if (spAuth && spAuth !== headers.get('Authorization')) {
+            const why = await resp.clone().text().catch(() => '');
+            console.warn(`[openai-shim] ${resp.status} with user token from ${url} (${why.slice(0, 160)}) — retrying once as app service principal`);
+            spHeaders.set('Authorization', spAuth);
+            resp = await fetch(input as Parameters<typeof fetch>[0], {
+              ...init,
+              headers: spHeaders,
+              body,
+              keepalive: false,
+            });
+          }
+        } catch (e) {
+          console.error('[openai-shim] SP fallback failed', e);
+        }
+      }
       console.debug(
         `[openai-shim] ← ${resp.status} ${resp.statusText} from ${url} in ${Date.now() - tShim}ms (content-type: ${resp.headers.get('content-type') ?? '?'})`,
       );
@@ -490,9 +501,9 @@ concise, and always lead with the number.
 TOOLS AT YOUR DISPOSAL
 ════════════════════════════════════════════════════════════
 
-ask_data(question) — delegates to the multi-agent supervisor. Use for any
-  WHY / WHAT HAPPENED / investigative question about data, customers,
-  production incidents, or release notes. Prefer ONE well-formed question
+ask_data(question) — asks the Genie Agent, which queries the tables and searches the
+  documents volume (incident reports, QC notes, SOPs). Use for any WHY / WHAT HAPPENED /
+  investigative question about data, customers, production incidents, or release notes. Prefer ONE well-formed question
   over many small ones.
 
 find_returns_for_lot(lot) — returns pending returns for a specific lot,
@@ -548,10 +559,10 @@ reading data or documents → call ask_data EXACTLY ONCE with a SHORT,
 targeted question. Then synthesize for the user. Do NOT use the action
 tools unless the user explicitly asks you to fix something.
 
-**Critical for latency**: ask_data calls out to a multi-agent supervisor
-that spawns sub-agents per sub-question. Broad questions ("identify
-driver, SKUs, lot, timing, reasons, incident...") trigger 4+ sub-agent
-hops and take >90s. Narrow questions finish in 20-40s.
+**Critical for latency**: ask_data runs the Genie Agent, which may run several SQL queries
+and document searches for one question. Broad questions ("identify
+driver, SKUs, lot, timing, reasons, incident...") take much longer. Narrow
+questions finish sooner.
 
 Prefer ONE of these shapes over the broad "tell me everything":
   - "Which production lot is driving the recent returns spike? Give me
@@ -560,8 +571,7 @@ Prefer ONE of these shapes over the broad "tell me everything":
      caused it?"
 
 Avoid: asking for weekly trends + SKU breakdown + lot detail + reasons
-+ incident narrative in a single question. The supervisor will hop
-4 times.
++ incident narrative in a single question. The agent will run many steps.
 
 MODE B — ACTION CHAIN (HUMAN-IN-THE-LOOP, TIERED BY PREMIUM STATUS)
 If the user asks you to HANDLE / FIX / RESOLVE / PROCESS something, you

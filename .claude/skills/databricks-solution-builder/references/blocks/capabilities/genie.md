@@ -3,7 +3,7 @@ name: Genie Space
 category: agent-bricks
 disabled: false
 buildable: true
-skill: databricks-genie
+skill: databricks-genie-agents
 ---
 
 # Genie Space
@@ -16,7 +16,7 @@ Think of Genie as a new data analyst joining a company. It needs: quality table 
 
 - Every demo with a dashboard should have a Genie space for follow-up exploration.
 - Answers "why?" and "how much?" questions the dashboard raises.
-- In multi-agent setup, Genie is the data/metrics specialist the supervisor routes quantitative queries to.
+- When the story also has policies, procedures, or incident reports, attach them to the same Genie agent as a documents volume (see `unstructured-documents`). Genie then answers "how much?" from the tables and "what does the policy say?" from the documents in one turn.
 
 ## Key Decisions
 
@@ -46,7 +46,7 @@ Think of Genie as a new data analyst joining a company. It needs: quality table 
 
 - **Upstream:** Queries Gold and Silver tables from the declarative pipeline.
 - **Dashboard:** Answers deeper questions the dashboard surfaces.
-- **Multi-agent supervisor:** Typically Agent 1 (data specialist) in a supervisor setup.
+- **Unstructured documents:** an optional documents volume attached to this same Genie agent, for policy and incident questions.
 - **Data generation:** Sample question expected answers must align with synthetic data distributions.
 
 

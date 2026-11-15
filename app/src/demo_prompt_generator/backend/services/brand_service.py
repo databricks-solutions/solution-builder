@@ -16,6 +16,7 @@ just watch INFO) to trace what the agent did. See docs/brand-service-spec.md.
 from __future__ import annotations
 
 import base64
+import contextvars
 import io
 import ipaddress
 import json
@@ -27,15 +28,33 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote_to_bytes, urljoin, urlparse
 
 import httpx
+
+from .headless_browser import (
+    browser_env,
+    browser_slot,
+    sanitize_browser_env,
+    track_group,
+    untrack_group,
+)
 
 if TYPE_CHECKING:
     from ..models import BrandLogoCandidate, BrandOut
     from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
+
+# The resolve a log line belongs to (see _LogCapture). asyncio.to_thread and the
+# agent's event loop carry it over; thread pools don't, so they go through _ctx_map.
+_RESOLVE_ID: contextvars.ContextVar[Optional[object]] = contextvars.ContextVar("brand_resolve", default=None)
+
+
+def _ctx_map(ex: Any, fn: Any, items: Any) -> Any:
+    """ex.map(fn, items), each call run in a copy of the caller's context."""
+    ctx = contextvars.copy_context()
+    return ex.map(lambda x: ctx.copy().run(fn, x), items)
 
 # Crawl as Googlebot: many sites do server-side rendering / "dynamic rendering"
 # for search bots, so we get the STATIC (SSR'd) HTML — the logo + meta are in the
@@ -49,6 +68,10 @@ _UA_BROWSER = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
+# Wikimedia (Wikidata, Commons) 403s crawler and browser UAs; its policy asks for
+# a descriptive one. _http_get sends this to every Wikimedia host.
+_UA_WIKIMEDIA = "SolutionBuilderBrand/1.0 (https://github.com/databricks-solutions/solution-builder)"
+_WIKIMEDIA_HOSTS = ("wikimedia.org", "wikidata.org", "wikipedia.org")
 _HTTP_TIMEOUT = 12.0
 _MAX_HTML_BYTES = 3_000_000  # don't slurp huge pages
 
@@ -143,7 +166,18 @@ class BrandRun:
     # screenshot (JPEG bytes) of the official site — brand context for followups +
     # a reference the vision model uses to disambiguate the logo. Captured once.
     site_screenshot: Optional[bytes] = None
-    _shot_tried: bool = False
+    # visible images/SVGs/background images on that screenshot, with their boxes
+    # (see _VISIBLE_ELEMENTS_JS) — what _locate_logo numbers for the vision model.
+    site_elements: list[dict[str, Any]] = field(default_factory=list)
+    _shot_root: Optional[str] = None  # the site the screenshot was taken of
+    # Simple Icons entry for the domain ({title, hex, svg}), looked up once per domain.
+    simple_icon: Optional[dict[str, Any]] = None
+    _simple_icon_domain: Optional[str] = None
+    # Repeated find_logo calls reuse these: the homepage-located logo (one vision
+    # call per screenshot) and Wikidata's logos per domain.
+    located_logo: Optional[dict[str, Any]] = None
+    _located_root: Optional[str] = None
+    wikidata_logos: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     def warn(self, msg: str) -> None:
         if msg not in self.warnings:
@@ -170,6 +204,13 @@ class BrandRun:
         """Record an agent/tool reasoning note (why it chose X, what was hard)."""
         logger.debug("[brand:%s] REASONING [%s] %s", self.name, step, why)
         self.trace("reasoning", tool=step, reasoning=why)
+
+    def drop_votes(self, source: str) -> None:
+        """Withdraw every vote from one source (e.g. a lookup for a corrected domain)."""
+        for hx in [h for h, srcs in self.color_votes.items() if source in srcs]:
+            self.color_votes[hx].discard(source)
+            if not self.color_votes[hx]:
+                del self.color_votes[hx]
 
     def vote_color(self, hex_value: str, source: str) -> Optional[str]:
         """Normalize + record a color vote from a source, tagged by that source.
@@ -228,6 +269,8 @@ def _http_get(url: str, *, referer: str | None = None, binary: bool = False,
     one). On a 403/406 (bot-wall) with the default Googlebot UA, retry ONCE with
     a real-browser UA — some sites (e.g. Notion) block crawler UAs. Raises on
     non-public targets / HTTP errors — callers catch."""
+    if _ua is None and (urlparse(url).hostname or "").endswith(_WIKIMEDIA_HOSTS):
+        _ua = _UA_WIKIMEDIA
     ua = _ua or _UA
     headers = {"User-Agent": ua, "Accept": "*/*"}
     if referer:
@@ -406,7 +449,10 @@ def _svg_uses_css_vars(svg_markup: str) -> bool:
 # that's how 'airbnb logo' once returned IKEA/candles/porn. So we do NOT use the
 # lib for images; we fall back to its bing/google backends only if i.js fails.)
 _DDG_UA = _UA_BROWSER  # DDG's i.js wants a real-browser UA
+# Per-query DDG vqd token cache. Bounded (drop-oldest) so a stream of distinct
+# brand queries over the app's lifetime can't grow it without limit.
 _vqd_cache: dict[str, str] = {}
+_VQD_CACHE_MAX = 1000
 
 
 def _ddg_vqd(client: "httpx.Client", query: str) -> Optional[str]:
@@ -417,6 +463,8 @@ def _ddg_vqd(client: "httpx.Client", query: str) -> Optional[str]:
         r = client.get("https://duckduckgo.com/", params={"q": query})
         m = (re.search(r'vqd=["\']?([\d-]+)', r.text) or re.search(r'vqd=([\d-]+)&', r.text))
         if m:
+            if len(_vqd_cache) >= _VQD_CACHE_MAX:
+                _vqd_cache.pop(next(iter(_vqd_cache)), None)  # drop-oldest (FIFO)
             _vqd_cache[query] = m.group(1)
             return m.group(1)
     except Exception:
@@ -486,14 +534,8 @@ def _ddg_images(query: str, n: int = 12) -> list[dict[str, Any]]:
 # renderer on heavy SPAs (airbnb.com etc.) — "Target page has been closed". Most
 # company sites are SPAs, and reliability > the small memory saving, so we keep
 # the normal multi-process model. (Measured memory delta was ~noise anyway.)
-def _sanitize_browser_env() -> None:
-    """Strip env vars that break Playwright's Node driver subprocess. Some
-    environments inject a NODE_OPTIONS=--require=<file> that points at a missing
-    script → the Node driver crashes with 'Connection closed while reading from the
-    driver'. A screenshot browser has no business inheriting a stray NODE_OPTIONS."""
-    no = os.environ.get("NODE_OPTIONS", "")
-    if "restore-node-options" in no or "cmux" in no:
-        os.environ.pop("NODE_OPTIONS", None)
+# Shared with the architecture render tool (headless_browser owns the browser env).
+_sanitize_browser_env = sanitize_browser_env
 
 
 _PW_ARGS = [
@@ -519,11 +561,10 @@ _SHOT_BLOCK_URL_HINTS = (
     "connect.facebook", "hotjar", "segment.io", "mixpanel", "amplitude",
     "fullstory", "intercom", "/gtag/", "/analytics", "adservice", "adsystem",
 )
-# Serialize screenshots process-wide: each headless-shell is ~375 MB, so running
-# several concurrently (multiple resolves at once) could OOM the container. This
-# lock caps it to ONE browser at a time — a resolve waiting for a screenshot just
-# queues briefly. (Screenshots are short-lived, ~3 s, so the queue drains fast.)
-_SCREENSHOT_LOCK = threading.Lock()
+# Screenshots take a slot from the process-wide browser pool (headless_browser.py),
+# shared with the architecture render tool: each headless shell is ~375 MB, so at most
+# BROWSER_SLOTS_MAX browsers run at once across BOTH features. A resolve waiting for a
+# slot just queues briefly (screenshots are short-lived, ~3 s).
 
 
 def _consent_cookies(domain: str) -> list[dict[str, Any]]:
@@ -695,9 +736,10 @@ def _content_ready(page, timeout_ms: int = 6000) -> bool:
         return False
 
 
-def _screenshot_site(url: str) -> Optional[bytes]:
-    """Screenshot a site (desktop viewport so the header logo is visible) → JPEG
-    bytes, or None. SSRF-guarded; best-effort.
+def _screenshot_site(url: str) -> tuple[Optional[bytes], list[dict[str, Any]]]:
+    """Screenshot a site (desktop viewport so the header logo is visible) → (JPEG
+    bytes or None, the visible image elements with their boxes). SSRF-guarded;
+    best-effort.
 
     Playwright chromium-headless-shell (+stealth) — fast (~750MB peak), handles
     most sites incl. JS-fingerprint walls (SAP via stealth). Runs in a SUBPROCESS
@@ -706,15 +748,13 @@ def _screenshot_site(url: str) -> Optional[bytes]:
     op); SIGKILL on timeout reaps the browser subtree. Network-layer-WAF sites
     (LVMH etc.) just return None here — logo/palette still resolve via image search.
 
-    Sync — runs on the resolve worker thread. Serialized via _SCREENSHOT_LOCK so at
-    most one browser subprocess runs at a time across concurrent resolves."""
+    Sync — runs on the resolve worker thread. Takes a shared browser slot, so the number
+    of browser subprocesses is capped across concurrent resolves AND architecture renders."""
     try:
         _assert_public_url(url)
     except Exception:
-        return None
-    if _SCREENSHOT_LOCK.locked():
-        logger.info("[brand] screenshot: another capture in progress, queuing for %s", url)
-    with _SCREENSHOT_LOCK:
+        return None, []
+    with browser_slot():
         return _run_capture_subprocess(url, timeout_s=_SHOT_TIMEOUT_S)
 
 
@@ -724,13 +764,17 @@ def _screenshot_site(url: str) -> Optional[bytes]:
 _SHOT_TIMEOUT_S = 35
 
 
-def _run_capture_subprocess(url: str, timeout_s: int) -> Optional[bytes]:
+# This process's env plus the Chromium shared libs (BROWSER_LD_LIBRARY_PATH), browser child only.
+_browser_env = browser_env
+
+
+def _run_capture_subprocess(url: str, timeout_s: int) -> tuple[Optional[bytes], list[dict[str, Any]]]:
     """Run the screenshot in a child process with a HARD timeout. On timeout we
     SIGKILL the child's whole PROCESS GROUP — not just the direct child — so the
     browser grandchildren (the actual ~750MB) are reaped too, not left as orphans.
-    Returns JPEG bytes or None. The child imports brand_service and calls
-    _capture_playwright, writing the JPEG to a temp file we read back (base64 over
-    stdout risks truncation on large shots)."""
+    Returns (JPEG bytes or None, visible elements). The child imports brand_service
+    and calls _capture_playwright, writing the JPEG and an elements JSON to temp
+    files we read back (base64 over stdout risks truncation on large shots)."""
     import signal
     import subprocess
     import sys
@@ -740,52 +784,119 @@ def _run_capture_subprocess(url: str, timeout_s: int) -> Optional[bytes]:
     fd, out_path = tempfile.mkstemp(prefix="brand_shot_", suffix=".jpg")
     os.close(fd)
     code = (
-        "import sys;"
+        "import logging,sys;"
+        "logging.basicConfig(level=logging.INFO,stream=sys.stderr,format='%(levelname)s %(message)s');"
         "from demo_prompt_generator.backend.services import brand_service as bs;"
-        "b=bs._capture_playwright(sys.argv[1]);"
-        "open(sys.argv[2],'wb').write(b) if b else None"
+        "import json;els=[];"
+        "b=bs._capture_playwright(sys.argv[1],elements=els);"
+        "open(sys.argv[2],'wb').write(b) if b else None;"
+        "json.dump(els,open(sys.argv[2]+'.json','w'))"
     )
     proc = None
     try:
         # start_new_session → child is a process-group leader; killpg reaps the
         # whole browser subtree on timeout.
-        proc = subprocess.Popen(
-            [sys.executable, "-c", code, url, out_path],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        # stderr to a file, not a pipe: waiting on a pipe also waits for any
+        # browser process that inherited it and outlived the child.
+        with open(out_path + ".log", "wb") as errf:
+            proc = subprocess.Popen(
+                [sys.executable, "-c", code, url, out_path],
+                start_new_session=True, env=_browser_env(),
+                stdout=subprocess.DEVNULL, stderr=errf,
+            )
+        track_group(proc.pid)
         proc.wait(timeout=timeout_s)
         if os.path.getsize(out_path) > 0:
+            elements: list[dict[str, Any]] = []
+            try:
+                with open(out_path + ".json", encoding="utf-8") as f:
+                    elements = json.load(f)
+            except Exception:
+                pass
             with open(out_path, "rb") as f:
-                return f.read()
-        return None
+                return f.read(), elements
+        # The child's own logs say why (no browser, launch error, blank render).
+        logger.warning("[brand] screenshot: no image for %s (exit=%s): %s",
+                       url, proc.returncode, _tail(_read_bytes(out_path + ".log")))
+        return None, []
     except subprocess.TimeoutExpired:
         logger.info("[brand] screenshot: TIMED OUT (%ds) for %s — killing process group",
                     timeout_s, url)
         try:
             if proc is not None:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                proc.wait(timeout=5)
+                logger.info("[brand] screenshot: child output before kill: %s",
+                            _tail(_read_bytes(out_path + ".log")))
         except Exception:
             pass
-        return None
+        return None, []
     except Exception as e:
         logger.info("[brand] screenshot: subprocess error for %s: %s", url, str(e)[:100])
-        return None
+        return None, []
     finally:
         if proc is not None:
+            try:
+                # The group outlives the child if a browser didn't shut down; its
+                # pgid is the child's pid (start_new_session).
+                os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                pass
+            untrack_group(proc.pid)
             try:
                 proc.wait(timeout=5)  # reap the zombie after kill
             except Exception:
                 pass
-        try:
-            os.unlink(out_path)
-        except Exception:
-            pass
+        for path in (out_path, out_path + ".json", out_path + ".log"):
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
 
 
-def _capture_playwright(url: str) -> Optional[bytes]:
+def _read_bytes(path: str) -> Optional[bytes]:
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _tail(b: Optional[bytes], n: int = 2000) -> str:
+    """Last n chars of a child's output, for one log line."""
+    return (b or b"").decode("utf-8", "replace").strip()[-n:] or "(no output)"
+
+
+# Visible images in the captured area, for _locate_logo: <img> (currentSrc),
+# top-level inline <svg> (markup), and any element with a CSS background image.
+# Coordinates are in screenshot pixels (the capture starts at 0,0, unscrolled).
+_SVG_MARKUP_MAX = 200_000  # inline SVG markup kept per element; longer is cut
+_VISIBLE_ELEMENTS_JS = r"""() => {
+  const out = [], W = 1280, H = 900;
+  for (const el of document.querySelectorAll('*')) {
+    if (out.length >= 150) break;
+    const r = el.getBoundingClientRect();
+    if (r.width < 12 || r.height < 8 || r.bottom <= 0 || r.top >= H || r.right <= 0 || r.left >= W) continue;
+    if (r.width * r.height > W * H * 0.4) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.opacity === '0') continue;
+    const tag = el.tagName.toLowerCase();
+    let kind = null, src = null;
+    if (tag === 'img') { kind = 'img'; src = el.currentSrc || el.src; }
+    else if (tag === 'svg' && !el.parentElement.closest('svg')) { kind = 'svg'; src = el.outerHTML.slice(0, SVG_MAX); }
+    else { const m = /url\(["']?([^"')]+)["']?\)/.exec(st.backgroundImage || ''); if (m) { kind = 'bg'; src = new URL(m[1], location.href).href; } }
+    if (!kind || !src) continue;
+    out.push({kind, src, alt: (el.getAttribute('alt') || el.getAttribute('aria-label') || '').slice(0, 80),
+              box: [Math.max(0, r.left), Math.max(0, r.top), Math.min(W, r.right), Math.min(H, r.bottom)].map(Math.round)});
+  }
+  return out;
+}""".replace("SVG_MAX", str(_SVG_MARKUP_MAX))
+
+
+def _capture_playwright(url: str, elements: Optional[list[dict[str, Any]]] = None) -> Optional[bytes]:
     """chromium-headless-shell + stealth. Runs IN-PROCESS (called inside the
-    subprocess worker spawned by _run_capture_subprocess). See _screenshot_site."""
+    subprocess worker spawned by _run_capture_subprocess). See _screenshot_site.
+    `elements`, if given, is filled with the page's visible images (_VISIBLE_ELEMENTS_JS)."""
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
@@ -847,8 +958,20 @@ def _capture_playwright(url: str) -> Optional[bytes]:
             # lower is better: penalize blank (high uniformity) heavily.
             return _uniformity(png)
 
+        def _scan():
+            # Scanned with each grab: the boxes must come from the same render as
+            # the shot that's kept, not from the page after a later reload.
+            if elements is None:
+                return []
+            try:
+                return page.evaluate(_VISIBLE_ELEMENTS_JS)
+            except Exception as e:
+                logger.info("[brand] screenshot: element scan failed for %s: %s", url, e)
+                return []
+
         best = None
         best_q = 1.0
+        best_els: list[dict[str, Any]] = []
         # Up to 3 attempts. Each: wait for a PROPER styled render (catches both
         # blank SPAs and unstyled CSS-failed fallbacks), dismiss cookies, grab.
         # Reload between attempts — a bad render won't fix itself in place. Keep
@@ -860,7 +983,7 @@ def _capture_playwright(url: str) -> Optional[bytes]:
             cand = _grab()
             q = _quality(cand)
             if best is None or q < best_q:
-                best, best_q = cand, q
+                best, best_q, best_els = cand, q, _scan()
             # good enough? proper render AND not near-blank → done.
             if ready and q < 0.9:
                 break
@@ -886,6 +1009,8 @@ def _capture_playwright(url: str) -> Optional[bytes]:
             return None
         logger.info("[brand] screenshot: captured %s (%d bytes, %.1fs, uniform=%.2f)",
                     url, len(best), time.monotonic() - _t0, best_q)
+        if elements is not None:
+            elements.extend(best_els)
         return best
     except Exception as e:
         logger.info("[brand] screenshot failed for %s: %s", url, e)
@@ -977,6 +1102,161 @@ def _compose_contact_sheet(cells: list["ImageType"], labels: Optional[list[str]]
     return sheet
 
 
+_WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+_COMMONS_FILE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+
+
+def _wikidata_logos(name: str, domain: Optional[str]) -> list[dict[str, Any]]:
+    """The logo Wikidata records for the company (property P154, usually an SVG on
+    Commons). An entity counts only if its official website (P856) is the
+    resolved domain, so a same-named company or a subsidiary never matches. Deprecated
+    logos are dropped, retired ones (with an end date, P582) unless nothing else is
+    recorded; preferred rank first. Best-effort → []."""
+    from urllib.parse import quote, urlencode
+
+    if not domain:
+        return []
+    try:
+        # By name, then full text on the domain among items that have a logo: a
+        # common name ("Snowflake") ranks the company below the generic sense.
+        hits = _http_get(_WIKIDATA_API + "?" + urlencode({
+            "action": "wbsearchentities", "search": name, "language": "en",
+            "type": "item", "limit": 7, "format": "json"})).json().get("search", [])
+        by_domain = _http_get(_WIKIDATA_API + "?" + urlencode({
+            "action": "query", "list": "search", "srsearch": f"{domain} haswbstatement:P154",
+            "srlimit": 5, "format": "json"})).json().get("query", {}).get("search", [])
+        ids = list(dict.fromkeys([h["id"] for h in hits] + [h["title"] for h in by_domain]))
+        if not ids:
+            return []
+        entities = _http_get(_WIKIDATA_API + "?" + urlencode({
+            "action": "wbgetentities", "ids": "|".join(ids), "props": "claims",
+            "format": "json"})).json().get("entities", {})
+    except Exception as e:
+        logger.info("[brand] wikidata lookup failed for %r: %s", name, e)
+        return []
+
+    def _values(claims: dict[str, Any], prop: str) -> list[dict[str, Any]]:
+        return [c for c in claims.get(prop, []) if c.get("mainsnak", {}).get("datavalue")]
+
+    for qid in ids:  # search order = relevance
+        claims = entities.get(qid, {}).get("claims", {})
+        sites = [_domain_of(c["mainsnak"]["datavalue"]["value"]) for c in _values(claims, "P856")]
+        # The site itself, not a subdomain: a subsidiary's site can sit under the
+        # parent's domain (franchise.carrefour.com → a Carrefour store chain).
+        if domain not in sites:
+            continue
+        # Deprecated rank is how Wikidata usually marks a superseded logo.
+        logos = [c for c in _values(claims, "P154") if c.get("rank") != "deprecated"]
+        if not logos:
+            continue  # an entity on the domain with no logo recorded; try the next
+        logos = [c for c in logos if "P582" not in c.get("qualifiers", {})] or logos
+        logos.sort(key=lambda c: c.get("rank") != "preferred")
+        out = []
+        for c in logos[:2]:
+            f = quote(c["mainsnak"]["datavalue"]["value"].replace(" ", "_"))
+            out.append({"image": _COMMONS_FILE + f, "thumbnail": _COMMONS_FILE + f + "?width=512",
+                        "page": f"https://www.wikidata.org/wiki/{qid}", "title": "wikidata P154",
+                        "source": "wikidata", "w": 0, "h": 0})
+        logger.info("[brand] wikidata: %s matches %s → %d logo(s)", qid, domain, len(out))
+        return out
+    logger.info("[brand] wikidata: no entity with a logo for %r and an official site on %s", name, domain)
+    return []
+
+
+# Simple Icons (CC0 data, ~3,300 brand marks): one SVG symbol per brand, its
+# official hex, and the URL it was sourced from — which is how we match a domain.
+_SIMPLE_ICONS = "https://cdn.jsdelivr.net/npm/simple-icons@16"
+_simple_icons_data: Optional[list[dict[str, Any]]] = None
+_simple_icons_failed_at = 0.0  # a failed data fetch isn't retried for _SI_RETRY_S
+_SI_RETRY_S = 600
+_SIMPLE_ICONS_LOCK = threading.Lock()
+
+
+def _si_slug(title: str) -> str:
+    """Simple Icons' titleToSlug: its file name for a brand title."""
+    import unicodedata
+
+    t = title.lower()
+    for a, b in (("+", "plus"), (".", "dot"), ("&", "and"), ("đ", "d"), ("ħ", "h"), ("ı", "i"),
+                 ("ĸ", "k"), ("ŀ", "l"), ("ł", "l"), ("ß", "ss"), ("ŧ", "t")):
+        t = t.replace(a, b)
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFD", t))
+
+
+def _simple_icon(name: str, domain: Optional[str]) -> Optional[dict[str, Any]]:
+    """The Simple Icons entry whose source or guidelines URL is on `domain` →
+    {title, hex, svg (filled with the brand hex)}. Matching on the domain keeps a
+    same-named brand out; the title must also match the name or the domain, since
+    many icons source from hosting sites (github.com, figma.com). Best-effort → None."""
+    global _simple_icons_data, _simple_icons_failed_at
+    if not domain:
+        return None
+    try:
+        with _SIMPLE_ICONS_LOCK:
+            if _simple_icons_data is None:
+                if time.monotonic() - _simple_icons_failed_at < _SI_RETRY_S:
+                    return None
+                try:
+                    raw = _http_get(f"{_SIMPLE_ICONS}/data/simple-icons.json").json()
+                except Exception:
+                    _simple_icons_failed_at = time.monotonic()
+                    raise
+                _simple_icons_data = raw.get("icons", []) if isinstance(raw, dict) else raw
+        hits = [i for i in _simple_icons_data
+                if any((h := _domain_of(i.get(k) or "")) == domain or h.endswith("." + domain)
+                       for k in ("source", "guidelines"))]
+        # several brands can source from one domain (Google, Google Cloud…)
+        # the name first, then the domain's label ("Snowflake Inc." on snowflake.com)
+        hit = next((i for want in (_si_slug(name), _si_slug(domain.split(".")[0]))
+                    for i in hits if want in (i.get("slug"), _si_slug(i["title"]))), None)
+        if not hit:
+            return None
+        svg = _http_get(f"{_SIMPLE_ICONS}/icons/{hit.get('slug') or _si_slug(hit['title'])}.svg").text
+        return {"title": hit["title"], "hex": "#" + hit["hex"].lower(),
+                "svg": svg.replace("<svg", f'<svg fill="#{hit["hex"]}"', 1)}
+    except Exception as e:
+        logger.info("[brand] simple icons lookup failed for %s: %s", domain, e)
+        return None
+
+
+def _bimi_svg(domain: Optional[str]) -> Optional[str]:
+    """The SVG logo the domain publishes for email clients (BIMI TXT record at
+    default._bimi.<domain>, read over DNS-over-HTTPS) — the company's own,
+    usually certified, square symbol. Best-effort → None."""
+    from urllib.parse import quote
+
+    if not domain:
+        return None
+    try:
+        answers = _http_get(f"https://dns.google/resolve?name=default._bimi.{quote(domain)}&type=TXT"
+                            ).json().get("Answer", [])
+        record = " ".join(a.get("data", "") for a in answers).replace('"', "")
+        m = re.search(r"\bl=(https://[^;\s]+)", record)
+        if not m:
+            return None
+        svg = _http_get(m.group(1)).text
+        return svg if "<svg" in svg[:2000] else None
+    except Exception as e:
+        logger.info("[brand] bimi lookup failed for %s: %s", domain, e)
+        return None
+
+
+def _ensure_simple_icon(run: BrandRun) -> None:
+    """Look up the Simple Icons entry once the domain is known; its hex joins the
+    color votes (tagged simpleicons)."""
+    # The registrable root: the agent may have confirmed brand.<company>.com.
+    domain = run.domain and _registrable_root(run.domain)
+    if not domain or domain == run._simple_icon_domain:
+        return
+    run._simple_icon_domain = domain
+    run.drop_votes("simpleicons")  # a lookup for an earlier, corrected domain
+    run.simple_icon = _simple_icon(run.name, domain)
+    if run.simple_icon:
+        run.vote_color(run.simple_icon["hex"], "simpleicons")
+    logger.info("[brand:%s] simple icons: %s", run.name,
+                run.simple_icon and f"{run.simple_icon['title']} {run.simple_icon['hex']}")
+
+
 def _gather_logo_images(run: BrandRun, context: str = "",
                         search_phrase: str = "") -> list[dict[str, Any]]:
     """Collect logo image candidates from DDG image search + site-crawl.
@@ -1009,8 +1289,11 @@ def _gather_logo_images(run: BrandRun, context: str = "",
     queries += [f'{brand} logo transparent', f'{brand} logo svg']
     queries = list(dict.fromkeys(queries))  # dedupe, keep order
 
-    seen_img: set[str] = set()
-    raw: list[dict[str, Any]] = []
+    # Wikidata's recorded logo first: a curated, usually vector, official mark.
+    if run.domain and run.domain not in run.wikidata_logos:
+        run.wikidata_logos[run.domain] = _wikidata_logos(brand, run.domain)
+    raw: list[dict[str, Any]] = list(run.wikidata_logos.get(run.domain or "", []))
+    seen_img: set[str] = {r["image"] for r in raw}
     # image-search results
     for q in queries:
         for r in _ddg_images(q, n=8):
@@ -1097,6 +1380,189 @@ def _validate_logo_image(run: BrandRun, llm: "LLMService", data: bytes,
         return {"is_logo": True, "what": f"validation failed ({e}); not checked"}
 
 
+# Text that marks a parked / for-sale domain rather than a company's site; the
+# marketplace hosts are matched as whole hostnames (dan.com, not jordan.com).
+_PARKED_HINTS = ("domain is for sale", "buy this domain", "this domain may be for sale",
+                 "domain parking", "parked free")
+_PARKED_HOSTS = re.compile(r"(?<![a-z0-9.-])(?:www\.)?(?:hugedomains|sedo|dan|afternic)\.com\b")
+
+
+def _probe_domain(domain: str) -> dict[str, Any]:
+    """Live evidence for one domain guess: does it resolve, where does it redirect,
+    and what does its homepage say it is (title, h1, site name, schema.org names,
+    footer). Lets the agent check a domain it proposed instead of trusting it.
+    Never raises: a bad guess comes back as {exists: False} or an error."""
+    try:
+        return _probe_domain_inner(domain)
+    except Exception as e:
+        return {"domain": domain, "exists": False, "error": f"{type(e).__name__}: {e}"[:150]}
+
+
+def _probe_domain_inner(domain: str) -> dict[str, Any]:
+    from selectolax.lexbor import LexborHTMLParser
+
+    d = _domain_of(domain if "://" in domain else f"https://{domain.strip()}")
+    if not d:
+        return {"domain": domain, "exists": False}
+    # The bare domain, then www.: some companies only publish www.
+    hosts = []
+    for h in (d, f"www.{d}"):
+        try:
+            socket.getaddrinfo(h, 443)
+            hosts.append(h)
+        except (OSError, UnicodeError):
+            pass
+    if not hosts:
+        return {"domain": d, "exists": False}
+    r = err = None
+    for h in hosts:
+        try:
+            r = _http_get(f"https://{h}")
+            break
+        except Exception as e:
+            err = e
+    if r is None:
+        return {"domain": d, "exists": True,
+                "error": (str(err).splitlines() or [type(err).__name__])[0][:150]}
+    html = r.text[:_MAX_HTML_BYTES]
+    tree = LexborHTMLParser(html)
+
+    def text(sel: str, n: int = 150) -> str:
+        node = tree.css_first(sel)
+        return " ".join((node.text() or "").split())[:n] if node else ""
+
+    def meta(prop: str) -> str:
+        node = tree.css_first(f'meta[property="{prop}"]') or tree.css_first(f'meta[name="{prop}"]')
+        return ((node.attributes.get("content") if node else "") or "").strip()[:150]
+
+    schema_names: list[str] = []
+    for node in tree.css('script[type="application/ld+json"]'):
+        for m in re.finditer(r'"name"\s*:\s*"([^"]{2,80})"', node.text() or ""):
+            if m.group(1) not in schema_names:
+                schema_names.append(m.group(1))
+    low = html[:200_000].lower()
+    return {
+        "domain": d, "exists": True, "final_url": str(r.url),
+        "title": text("title"), "h1": text("h1"),
+        "site_name": meta("og:site_name") or meta("application-name"),
+        "description": meta("description") or meta("og:description"),
+        "schema_names": schema_names[:5],
+        "footer": text("footer", 400)[-160:],
+        "parked": any(h in low for h in _PARKED_HINTS) or bool(_PARKED_HOSTS.search(low)),
+    }
+
+
+def _ensure_screenshot(run: BrandRun) -> None:
+    """Screenshot the official site once — a REFERENCE the vision model uses to
+    recognize the real logo, the source of _locate_logo, and brand context on the
+    result. Always the REGISTRABLE ROOT (databricks.com), never a brand/asset
+    subdomain the agent may have confirmed. Best-effort."""
+    if not run.official_site:
+        return
+    root = f"https://{_registrable_root(_domain_of(run.official_site))}"
+    if root == run._shot_root:
+        return  # taken already; a corrected official site gets a new one
+    run._shot_root = root
+    run.drop_votes("screenshot")
+    run.site_screenshot, run.site_elements = _screenshot_site(root)
+    run.trace("tool", tool="screenshot_site", args={"url": root},
+              summary={"captured": bool(run.site_screenshot), "elements": len(run.site_elements)})
+    # Pixel-sample the screenshot for EXACT dominant colors (colorthief reads
+    # real pixels — precise, unlike asking the model to name hex). These join
+    # the color evidence tagged "screenshot"; the agent still decides which are
+    # brand colors (the screenshot itself is in the vision call for that).
+    if run.site_screenshot:
+        for hx in _colors_from_screenshot(run.site_screenshot):
+            run.vote_color(hx, "screenshot")
+
+
+def _locate_logo(run: BrandRun, llm: "LLMService") -> Optional[dict[str, Any]]:
+    """Have the vision model point at the logo on the official homepage: number the
+    page's visible images on the screenshot (set-of-marks) and ask which box is the
+    company's own logo. Returns that element as a candidate: the delivered image is
+    the real asset (img/background URL or the inline SVG), or the on-page crop when
+    the SVG can't stand alone. None if no pick."""
+    from PIL import Image, ImageDraw  # type: ignore[import-untyped]
+
+    from .llm_service import ModelSize
+
+    if not run.site_screenshot or not run.site_elements:
+        return None
+    shot = Image.open(io.BytesIO(run.site_screenshot)).convert("RGB")
+    els = run.site_elements[:60]
+    marked = shot.copy()
+    draw = ImageDraw.Draw(marked)
+    for i, e in enumerate(els, 1):
+        x0, y0, x1, y1 = e["box"]
+        draw.rectangle([x0, y0, x1, y1], outline=(255, 0, 64), width=2)
+        ty = max(0, y0 - 14)
+        draw.rectangle([x0, ty, x0 + 8 + 7 * len(str(i)), ty + 14], fill=(255, 0, 64))
+        draw.text((x0 + 3, ty + 1), str(i), fill=(255, 255, 255))
+    buf = io.BytesIO()
+    marked.save(buf, "JPEG", quality=85)
+    prompt = (
+        f"This is a screenshot of the homepage of {run.name} ({run.domain}). Red numbered "
+        "boxes mark the images on the page. Which box is the company's OWN primary logo "
+        "or wordmark (usually in the header)? Not a partner, customer or app-store logo, "
+        "an icon, or a photo. If none of the boxes is its logo, answer null. Return JSON: "
+        '{"box": <number or null>, "why": <one short sentence>}.')
+    try:
+        raw = llm.chat_vision([
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {
+                "url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")}},
+        ], size=ModelSize.MINI, json_output=True, max_tokens=200)
+        ans = json.loads(raw)
+        n = int(ans["box"]) if ans.get("box") is not None else None
+    except Exception as e:
+        logger.info("[brand:%s] locate logo failed: %s", run.name, e)
+        return None
+    run.trace("decision", tool="locate_logo", summary={"box": n, "boxes": len(els)},
+              reasoning=ans.get("why"))
+    if not n or not 1 <= n <= len(els):
+        logger.info("[brand:%s] locate logo: no box (%s)", run.name, ans.get("why"))
+        return None
+    e = els[n - 1]
+    x0, y0, x1, y1 = e["box"]
+    crop = shot.crop((max(0, x0 - 4), max(0, y0 - 4), x1 + 4, y1 + 4))
+    cbuf = io.BytesIO()
+    crop.save(cbuf, "PNG")
+    crop_url = "data:image/png;base64," + base64.b64encode(cbuf.getvalue()).decode("ascii")
+    src = e["src"]
+    if e["kind"] == "svg":
+        # An inline SVG that references the page (sprite <use>, CSS vars,
+        # currentColor) renders blank on its own, and one cut at the scan's
+        # _SVG_MARKUP_MAX is unterminated; deliver what was on screen.
+        if "<use" in src or _svg_uses_css_vars(src) or len(src) >= _SVG_MARKUP_MAX:
+            src = crop_url
+        else:
+            # outerHTML from an HTML page omits the namespaces a standalone file needs.
+            tag = src[:src.find(">") + 1]
+            ns = ("" if re.search(r"\sxmlns\s*=", tag) else ' xmlns="http://www.w3.org/2000/svg"') + (
+                ' xmlns:xlink="http://www.w3.org/1999/xlink"'
+                if "xlink:" in src and "xmlns:xlink" not in tag else "")
+            src = src.replace("<svg", "<svg" + ns, 1)
+            src = "data:image/svg+xml;base64," + base64.b64encode(src.encode("utf-8")).decode("ascii")
+    elif not src.startswith(("http://", "https://", "data:image/")):
+        src = crop_url  # blob: and the like can't be fetched
+    is_svg = src.startswith("data:image/svg") or src.lower().split("?")[0].endswith(".svg")
+    # The tile must show what gets DELIVERED: a white logo on a dark header looks fine
+    # in the page crop but is a white-on-transparent file. Only an SVG (no rasterizer
+    # here) or the crop itself is previewed by the crop.
+    raster = None if is_svg or src == crop_url else _fetch_raster(src)
+    if e["kind"] == "bg" and raster is not None:
+        # A CSS sprite sheet holds many icons; the box shows one. A background whose
+        # shape differs from the box isn't the logo by itself → deliver the crop.
+        box_ar = (x1 - x0) / max(1, y1 - y0)
+        img_ar = raster.width / max(1, raster.height)
+        if not 0.67 < img_ar / box_ar < 1.5:
+            src, raster = crop_url, None
+    logger.info("[brand:%s] locate logo: box %d (%s) → %s", run.name, n, e["kind"], src[:90])
+    return {"image": src, "thumbnail": src, "page": run.official_site, "title": e.get("alt", ""),
+            "source": "located", "is_svg": is_svg, "raster": raster or crop.convert("RGBA"),
+            "w": 0, "h": 0}
+
+
 def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
                         search_phrase: str = "") -> Optional[dict[str, Any]]:
     """Gather candidate logo images, build a contact sheet, and have a MULTIMODAL
@@ -1108,6 +1574,14 @@ def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
     from .llm_service import ModelSize
 
     cands = _gather_logo_images(run, context=context, search_phrase=search_phrase)
+    # The logo as it appears on the company's own homepage leads the sheet.
+    _ensure_screenshot(run)
+    if run._shot_root != run._located_root:
+        run._located_root = run._shot_root
+        run.located_logo = _locate_logo(run, llm)
+    located = run.located_logo
+    if located:
+        cands = [located] + [c for c in cands if c["image"] != located["image"]][:11]
     if not cands:
         return {"committed": None, "rationale": "no logo images could be gathered", "shortlist": []}
 
@@ -1148,27 +1622,14 @@ def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
     sheet_b64 = _b64.b64encode(buf.getvalue()).decode("ascii")
     run.logo_sheet_png = buf.getvalue()  # for the review file
 
-    # Screenshot the official site once — a REFERENCE the model uses to recognize
-    # the real logo (it's visible in the site header), plus brand context returned
-    # on the result. Always the REGISTRABLE ROOT (databricks.com), never a brand/
-    # asset subdomain the agent may have confirmed. Best-effort.
-    if run.official_site and not run._shot_tried:
-        run._shot_tried = True
-        _root = f"https://{_registrable_root(_domain_of(run.official_site))}"
-        run.site_screenshot = _screenshot_site(_root)
-        run.trace("tool", tool="screenshot_site", args={"url": _root},
-                  summary={"captured": bool(run.site_screenshot)})
-        # Pixel-sample the screenshot for EXACT dominant colors (colorthief reads
-        # real pixels — precise, unlike asking the model to name hex). These join
-        # the color evidence tagged "screenshot"; the agent still decides which are
-        # brand colors (the screenshot itself is in the vision call for that).
-        if run.site_screenshot:
-            for hx in _colors_from_screenshot(run.site_screenshot):
-                run.vote_color(hx, "screenshot")
+    # The homepage screenshot (taken above) goes in as a second image: a reference
+    # for what the real logo looks like.
     shot_b64 = _b64.b64encode(run.site_screenshot).decode("ascii") if run.site_screenshot else None
 
     legend = "\n".join(
         f"#{p['n']}: {p['type'].upper()} from {p['host'] or p['source']}"
+        + (" (the logo recorded on this company's Wikidata entry)" if p["source"] == "wikidata" else "")
+        + (" (the logo a vision model found on the company's own homepage)" if p["source"] == "located" else "")
         for p in provenance
     )
     prompt = (
@@ -1195,7 +1656,11 @@ def _pick_logo_by_sight(run: BrandRun, llm: "LLMService", context: str = "",
         "- Prefer the full wordmark (name in the brand typeface, with symbol if "
         "present) over a bare app-icon, unless the brand's primary mark IS the icon.\n"
         "- If the SAME logo recurs across cells, that's a strong signal it's correct.\n"
-        "- Prefer a clean, complete rendering that looks good on BOTH backgrounds. "
+        "- A TRANSPARENT logo shows on only one half: a dark one vanishes on the "
+        "black half, a light one on the white half. That is transparency, NOT "
+        "cropping — judge it on the half where it shows, and prefer it over the same "
+        "logo boxed in an opaque background. Prefer the version made for LIGHT "
+        "backgrounds (dark or colored) over an all-white one that only works on dark. "
         "The caption also gives each cell's file type: prefer SVG (crisp vector), "
         "then PNG (usually transparent); a JPG can't be transparent so it's often a "
         "lower-quality grab — fine only if it's clearly the right logo.\n"
@@ -1335,9 +1800,10 @@ def _trim_html_for_llm(html: str, base: str, *, max_chars: int = 6000) -> dict[s
     """Return {meta, headings, links, imgs, svgs, inline_colors, text} distilled
     from a page — small enough to feed an LLM. `imgs`/`svgs`/`links` are absolute
     URLs; `inline_colors` are hex/rgb found in inline <style>/style= attrs."""
-    from selectolax.parser import HTMLParser
+    # lexbor: selectolax 1.0 removed the old Modest backend (selectolax.parser).
+    from selectolax.lexbor import LexborHTMLParser
 
-    tree = HTMLParser(html)
+    tree = LexborHTMLParser(html)
     meta: dict[str, str] = {}
     _t = tree.css_first("title")
     if _t:
@@ -1467,6 +1933,25 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
             logger.warning("[brand:%s]   ddg error for %r: %s", run.name, query, e)
             run.trace("tool", tool="_ddg", args={"query": query}, detail=f"error: {e}")
             return []
+
+    @function_tool(strict_mode=False)
+    def check_domains(domains: list[str]) -> list[dict]:
+        """Check domains YOU propose for the company (up to 10, in parallel). For
+        each: exists (DNS), final_url (where it redirects), and what the homepage
+        says it is — title, h1, site_name, description, schema_names (schema.org),
+        footer, and parked (for sale / placeholder). Trust a domain only when that
+        evidence names THIS company."""
+        ds = list(dict.fromkeys(str(x).strip().lower() for x in domains if str(x).strip()))[:10]
+        if not ds:
+            return []
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(ds)) as ex:
+            out = list(_ctx_map(ex, _probe_domain, ds))
+        run.trace("tool", tool="check_domains", args={"domains": ds}, summary={
+            "live": [o["domain"] for o in out if o.get("title") and not o.get("parked")]})
+        logger.info("[brand:%s] check_domains %s → live %s", run.name, ds,
+                    [o["domain"] for o in out if o.get("title") and not o.get("parked")])
+        return out
 
     @function_tool(strict_mode=False)
     def find_official_site(query: str) -> list[dict]:
@@ -1718,6 +2203,8 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         sources that showed it), sources}. Ranked official-declared first, then by
         cross-source agreement. Use judgment — declared-official beats a color seen
         on many aggregators."""
+        _ensure_simple_icon(run)
+
         def key(kv):
             official = "official-declared" in kv[1]
             return (0 if official else 1, -len({s.split(":")[0] for s in kv[1]}), kv[0])
@@ -1851,7 +2338,7 @@ def _build_tools(run: BrandRun, llm: "LLMService"):
         run.log_reasoning(step, why)
         return {"logged": True}
 
-    return [find_official_site, search_brand_colors, search_brand_logo, fetch_page,
+    return [check_domains, find_official_site, search_brand_colors, search_brand_logo, fetch_page,
             fetch_css, color_votes, set_official_site, find_logo, choose_logo,
             set_palette, log_reasoning]
 
@@ -1885,7 +2372,8 @@ def _download_logo(url: str, referer: str | None) -> tuple[Optional[bytes], Opti
         try:
             header, _, payload = url.partition(",")
             ct = header[5:].split(";")[0] or "image/svg+xml"
-            data = base64.b64decode(payload) if ";base64" in header else payload.encode("utf-8")
+            # A plain data: URL is percent-encoded (data:image/svg+xml,%3Csvg…).
+            data = base64.b64decode(payload) if ";base64" in header else unquote_to_bytes(payload)
             return (data, ct) if data else (None, None)
         except Exception:
             return None, None
@@ -1893,7 +2381,13 @@ def _download_logo(url: str, referer: str | None) -> tuple[Optional[bytes], Opti
         r = _http_get(url, referer=referer, binary=True)
         data = r.content
         ct = r.headers.get("content-type", "").split(";")[0]
-        if data and (ct.startswith("image/") or url.lower().endswith((".svg", ".png", ".jpg", ".jpeg", ".webp"))):
+        # The extension vouches for any type but HTML: hosts serve images as
+        # octet-stream or text/plain (raw.githubusercontent.com), but a .svg URL
+        # serving HTML is a file PAGE (e.g. Wikipedia's File:…svg), not the image.
+        html = ct in ("text/html", "application/xhtml+xml") or data[:200].lstrip().lower().startswith(
+            (b"<!doctype html", b"<html"))
+        if data and (ct.startswith("image/") or (not html and url.lower().split("?")[0].endswith(
+                (".svg", ".png", ".jpg", ".jpeg", ".webp")))):
             return data, ct or None
     except Exception:
         pass
@@ -1930,7 +2424,7 @@ def _validate_candidates(run: BrandRun) -> list[dict[str, Any]]:
 
     valid: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=6) as ex:
-        for res in ex.map(_dl, ranked):
+        for res in _ctx_map(ex, _dl, ranked):
             if res:
                 valid.append(res)
 
@@ -2209,6 +2703,85 @@ def _clean_palette(hexes: list[str], *, merge_near: bool = True) -> list[str]:
 # ---------------------------------------------------------------------------
 # Public entrypoint.
 # ---------------------------------------------------------------------------
+class _LogCapture(logging.Handler):
+    """Collects this module's log lines during one resolve, returned as BrandOut.logs
+    so the /brand page shows what happened server-side. Only lines logged under
+    this resolve's _RESOLVE_ID count: another user's concurrent resolve logs to the
+    same logger, and its lines must not reach this user."""
+
+    MAX_LINES = 2000
+
+    def __init__(self, resolve_id: object) -> None:
+        super().__init__()
+        self.resolve_id = resolve_id
+        self.lines: list[str] = []
+        self.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if _RESOLVE_ID.get() is self.resolve_id and len(self.lines) < self.MAX_LINES:
+            self.lines.append(self.format(record))
+
+
+# start.sh writes the Playwright browser install output here.
+_PW_INSTALL_LOG = "/tmp/pw-install.log"
+
+
+def diagnostics() -> dict[str, Any]:
+    """Runtime facts behind screenshot/fetch failures: the Playwright install log,
+    which browsers are on disk, and the deployed versions of the scraping deps
+    (the build re-resolves them, so they can differ from uv.lock)."""
+    from importlib import metadata
+
+    browsers_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    try:
+        browsers = sorted(os.listdir(browsers_path)) if browsers_path else []
+    except OSError:
+        browsers = []
+    try:
+        with open(_PW_INSTALL_LOG, encoding="utf-8", errors="replace") as f:
+            install_log: Optional[str] = f.read()[-20000:]
+    except OSError:
+        install_log = None
+    packages: dict[str, Optional[str]] = {}
+    for pkg in ("playwright", "playwright-stealth", "selectolax", "ddgs", "openai-agents"):
+        try:
+            packages[pkg] = metadata.version(pkg)
+        except metadata.PackageNotFoundError:
+            packages[pkg] = None
+    return {
+        "playwright_browsers_path": browsers_path,
+        "installed_browsers": browsers,
+        "install_log": install_log,
+        "packages": packages,
+        "missing_libs": _missing_browser_libs(browsers_path),
+        "os": _os_release(),
+    }
+
+
+def _missing_browser_libs(browsers_path: Optional[str]) -> list[str]:
+    """Shared libraries the installed headless shell can't load (ldd "not found")."""
+    import glob
+    import subprocess
+
+    exes = glob.glob(f"{browsers_path}/chromium_headless_shell-*/*/chrome-headless-shell") if browsers_path else []
+    if not exes:
+        return []
+    try:
+        out = subprocess.run(["ldd", exes[0]], capture_output=True, text=True, timeout=10,
+                             env=_browser_env()).stdout
+    except Exception as e:
+        return [f"ldd failed: {e}"]
+    return sorted({ln.split("=>")[0].strip() for ln in out.splitlines() if "not found" in ln})
+
+
+def _os_release() -> Optional[str]:
+    try:
+        with open("/etc/os-release", encoding="utf-8") as f:
+            return next((ln.split("=", 1)[1].strip().strip('"') for ln in f if ln.startswith("PRETTY_NAME=")), None)
+    except OSError:
+        return None
+
+
 class BrandService:
     def __init__(self, ws, config):
         self.ws = ws
@@ -2220,7 +2793,15 @@ class BrandService:
         agent loop are synchronous). SEARCHES are cached (see _search_cache_*), so
         re-running after a logic patch is fast but re-executes all logic."""
         import asyncio
-        out: BrandOut = await asyncio.to_thread(self._resolve_sync, name)
+        cap = _LogCapture(object())
+        logger.addHandler(cap)
+        token = _RESOLVE_ID.set(cap.resolve_id)  # to_thread copies the context
+        try:
+            out: BrandOut = await asyncio.to_thread(self._resolve_sync, name)
+        finally:
+            _RESOLVE_ID.reset(token)
+            logger.removeHandler(cap)
+        out.logs = cap.lines
         return out
 
     def _resolve_sync(self, name: str) -> "BrandOut":
@@ -2237,15 +2818,7 @@ class BrandService:
             # logo step never ran (agent errored early, no logo candidates, etc.) —
             # the result should ALWAYS include a homepage screenshot when possible.
             # Registrable root only (databricks.com), never a brand subdomain.
-            if run.official_site and not run._shot_tried:
-                run._shot_tried = True
-                _root = f"https://{_registrable_root(_domain_of(run.official_site))}"
-                run.site_screenshot = _screenshot_site(_root)
-                run.trace("tool", tool="screenshot_site", args={"url": _root},
-                          summary={"captured": bool(run.site_screenshot)})
-                if run.site_screenshot:
-                    for hx in _colors_from_screenshot(run.site_screenshot):
-                        run.vote_color(hx, "screenshot")
+            _ensure_screenshot(run)
 
             # Logo = the agent's choice if it committed one; else the code's
             # ranked fallback (agent errored / didn't choose).
@@ -2294,15 +2867,23 @@ class BrandService:
             # even when the agent only inferred the domain — the earlier in-agent
             # screenshot only fired when official_site was explicitly confirmed, so
             # a fallback-derived domain would otherwise get no screenshot at all.
-            if run.domain and not run.site_screenshot:
-                root_url = f"https://{run.domain}"
-                run.site_screenshot = _screenshot_site(root_url)
+            # (Not again for a root that already failed: a blank render stays blank.)
+            if run.domain and not run.site_screenshot and run._shot_root != f"https://{run.domain}":
+                root_url = run._shot_root = f"https://{run.domain}"
+                run.site_screenshot, run.site_elements = _screenshot_site(root_url)
                 run.trace("tool", tool="screenshot_site", args={"url": root_url},
                           summary={"captured": bool(run.site_screenshot), "official_root": True})
 
             # Palette: the agent's explicit choice wins; else fall back to the
             # cross-source vote tally, then the logo/CSS colors.
+            _ensure_simple_icon(run)  # its brand hex is a vote for the fallback palette
             palette = _final_palette(run, logo_bytes, ct)
+            # Square symbol (no wordmark): the company's own BIMI mark, else Simple Icons.
+            symbol_svg, symbol_source = _bimi_svg(run.domain), "bimi"
+            if not symbol_svg and run.simple_icon:
+                symbol_svg, symbol_source = run.simple_icon["svg"], "simpleicons"
+            symbol_url = ("data:image/svg+xml;base64," + base64.b64encode(symbol_svg.encode("utf-8")).decode("ascii")
+                          if symbol_svg else None)
             data_url = None
             if logo_bytes and ct:
                 data_url = f"data:{ct};base64,{base64.b64encode(logo_bytes).decode('ascii')}"
@@ -2333,6 +2914,8 @@ class BrandService:
                 name=run.name, domain=run.domain, asset_source=run.asset_source,
                 confidence=run.confidence,
                 logo_url=logo_url, logo_data_url=data_url, logos=logos, palette=palette,
+                symbol_data_url=symbol_url,
+                symbol_source=symbol_source if symbol_url else None,
                 source=source, warnings=run.warnings, trace=run.steps,
                 logo_contact_sheet=sheet_url,
                 logo_provenance=[{k: v for k, v in p.items() if k != "raster"}
@@ -2438,10 +3021,18 @@ class BrandService:
             "You orchestrate — the tools fan out and EXTRACT; YOU cross-check and "
             "decide.\n\n"
             "How to work:\n"
-            "• Fire several searches EARLY and in parallel when you can: "
-            "find_official_site('<name> official website'), search_brand_colors('<name>'), "
-            "search_brand_logo('<name>'). Each returns already-extracted info (the "
-            "color search even votes hex codes it finds across sources).\n"
+            "• DOMAIN — start from what you know: propose the official domain(s) yourself "
+            "and verify them with check_domains([...]). For a well-known company you "
+            "usually know it; for a small or ambiguous one list up to ~10 plausible "
+            "guesses (<name>.com/.ai/.io/.co, get-/use-/try-<name>.com, <name>hq.com, "
+            "<name>labs.com…). Accept one only when its live evidence (title, site name, "
+            "schema names, footer, redirect) clearly names THIS company; parked or "
+            "unrelated pages don't count. Use find_official_site('<name> official "
+            "website') when no guess checks out or several companies share the name.\n"
+            "• Fire several calls EARLY and in parallel when you can: check_domains([...]), "
+            "search_brand_colors('<name>'), search_brand_logo('<name>'). Each returns "
+            "already-extracted info (the color search even votes hex codes it finds "
+            "across sources).\n"
             "• Confirm the OFFICIAL site (beware brand collisions — a car brand vs an "
             "aerospace company sharing a name). fetch_page it; each page comes back "
             "as EVIDENCE: a plain-language 'finding', whether it's_official, whether "
@@ -2480,8 +3071,8 @@ class BrandService:
             "notes are how humans debug and improve this system.\n"
             "• Finish with ONE short line: domain + confidence. Don't invent data.\n\n"
             f'Company: "{run.name}".'
-            " No domain resolved yet — use find_official_site to search DuckDuckGo "
-            "for the official site, then verify it before committing via set_official_site."
+            " No domain resolved yet — guess and check_domains first; search with "
+            "find_official_site only if that doesn't settle it. Commit via set_official_site."
         )
 
         try:

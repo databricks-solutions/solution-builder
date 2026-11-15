@@ -271,8 +271,11 @@ export function useCollabYjs({ projectId, enabled, ydoc, onSynced }: UseCollabYj
     const scheduleReconnect = () => {
       if (closedRef.current) return;
       attemptRef.current += 1;
-      const base = Math.min(1000 * 2 ** Math.min(attemptRef.current, 4), 15000);
-      const delay = base * (0.7 + Math.random() * 0.6);
+      // Full jitter over a growing window: a server restart drops every client
+      // at once, so the first retries must spread across seconds, not a 2 s ±30%
+      // band. Floor 1 s; window 5 s, 10 s, ... capped at 30 s.
+      const ceiling = Math.min(5000 * 2 ** (attemptRef.current - 1), 30000);
+      const delay = 1000 + Math.random() * (ceiling - 1000);
       reconnectRef.current = setTimeout(connect, delay);
     };
 

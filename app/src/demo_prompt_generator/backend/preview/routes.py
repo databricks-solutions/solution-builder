@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,7 +29,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .logbuffer import LogLine
-from .proxy import proxy_request
+from .proxy import forget_project_rewrites, proxy_request
 from .registry import (
     ConcurrencyError,
     NotReadyError,
@@ -45,6 +47,7 @@ from ..core.auth import (
 )
 from ..models import Project, User
 from ..services.llm_service import LLMService, ModelSize
+from ..services.shutdown import get_live_connections
 from sqlmodel import select
 from fastapi import Depends
 
@@ -87,6 +90,23 @@ class AnalyzeLogsOut(BaseModel):
     errors: list[DetectedError]
 
 
+def _require_project_read(
+    project_id: str,
+    headers: Dependencies.Headers,
+    session: Dependencies.Session,
+    config: Dependencies.Config,
+) -> None:
+    """Read access to the project (owner, admin, accepted share or link), else 404
+    (the same answer the project routes give, so IDs don't leak). A plain `def`, so
+    FastAPI runs its DB read in the threadpool, off the event loop."""
+    from ..routes.project_files import _get_user_email
+    from ..routes.projects import _get_authorized_project
+
+    _get_authorized_project(
+        session, project_id, _get_user_email(headers), config.template_admin_emails
+    )
+
+
 def _to_out(state: PreviewState, has_start_script: bool) -> PreviewStateOut:
     return PreviewStateOut(
         project_id=state.project_id,
@@ -99,6 +119,64 @@ def _to_out(state: PreviewState, has_start_script: bool) -> PreviewStateOut:
 
 
 # --- Registration -------------------------------------------------------------
+
+
+# Per-project "is remote target" answer, shared by every proxied request. The pin
+# (Project.target_workspace_host) is write-once (remote_deploy.user_target
+# .pin_project_target), so the only change a cached value can miss is the first
+# cross-workspace deploy: False → True. See AUTH.md for why that bounded staleness is safe.
+_REMOTE_TARGET_TTL_SECONDS = 30.0
+_remote_target_cache: dict[str, tuple[float, bool]] = {}
+_remote_target_lock = threading.Lock()
+
+
+def forget_remote_target(project_id: str) -> None:
+    """Drop a project's cached remote-target answer, e.g. right after its pin is written."""
+    with _remote_target_lock:
+        _remote_target_cache.pop(project_id, None)
+
+
+def _is_remote_target(
+    project_id: str,
+    session: Dependencies.Session,
+    config: Dependencies.Config,
+) -> bool | None:
+    """True if THIS project deploys cross-workspace via the deployer SP.
+
+    Drives the proxy's user-token strip: for a remote target the child must
+    authenticate as the SP (its env holds oauth-m2m creds), so we must NOT
+    forward the viewing user's host-workspace OBO token to it (invalid for
+    the target → 401). Same predicate the auth-env read side uses, so both
+    sides of the preview agree on identity. Returns None on a lookup failure
+    (the caller forwards the token, the same-workspace default, and does not cache it).
+    """
+    try:
+        project = session.get(Project, project_id)
+        target_host = project.target_workspace_host if project else None
+        return target_deploy_active(config, target_host)
+    except Exception:
+        return None
+
+
+async def _strip_user_token(
+    project_id: str,
+    session: Dependencies.Session,
+    config: Dependencies.Config,
+) -> bool:
+    # Checked before the to_thread hop: a hit costs no thread and no DB.
+    now = time.monotonic()
+    with _remote_target_lock:
+        cached = _remote_target_cache.get(project_id)
+    if cached is not None and now - cached[0] < _REMOTE_TARGET_TTL_SECONDS:
+        return cached[1]
+    # A blocking DB read: off the event loop, so a busy pool (pool_timeout)
+    # never freezes every other stream while this request waits.
+    value = await asyncio.to_thread(_is_remote_target, project_id, session, config)
+    if value is None:
+        return False
+    with _remote_target_lock:
+        _remote_target_cache[project_id] = (time.monotonic(), value)
+    return value
 
 
 def register_routes(
@@ -172,7 +250,11 @@ def register_routes(
         config: Dependencies.Config,
     ) -> PreviewStateOut:
         try:
-            extra_env = _subprocess_auth_env(project_id, headers, session, config)
+            # DB reads + auth-file reads: off the event loop.
+            extra_env = await asyncio.to_thread(
+                _subprocess_auth_env, project_id, headers, session, config
+            )
+            forget_remote_target(project_id)
             state = await registry.start(project_id, extra_env=extra_env)
         except NotReadyError as e:
             raise HTTPException(status_code=409, detail=str(e))
@@ -183,6 +265,7 @@ def register_routes(
     @router.post("/api/preview/{project_id}/stop", operation_id="previewStop")
     async def stop(project_id: str) -> PreviewStateOut:
         state = await registry.stop(project_id)
+        forget_project_rewrites(project_id)
         return _to_out(state, registry.has_start_script(project_id))
 
     @router.post(
@@ -197,7 +280,12 @@ def register_routes(
         config: Dependencies.Config,
     ) -> PreviewStateOut:
         try:
-            extra_env = _subprocess_auth_env(project_id, headers, session, config)
+            # DB reads + auth-file reads: off the event loop.
+            extra_env = await asyncio.to_thread(
+                _subprocess_auth_env, project_id, headers, session, config
+            )
+            forget_project_rewrites(project_id)
+            forget_remote_target(project_id)
             state = await registry.restart(project_id, extra_env=extra_env)
         except NotReadyError as e:
             raise HTTPException(status_code=409, detail=str(e))
@@ -205,7 +293,11 @@ def register_routes(
             raise HTTPException(status_code=429, detail=str(e))
         return _to_out(state, registry.has_start_script(project_id))
 
-    @router.get("/api/preview/{project_id}/state", operation_id="previewState")
+    @router.get(
+        "/api/preview/{project_id}/state",
+        operation_id="previewState",
+        dependencies=[Depends(_require_project_read)],
+    )
     async def get_state(project_id: str) -> PreviewStateOut:
         state = registry.get(project_id)
         return _to_out(state, registry.has_start_script(project_id))
@@ -214,8 +306,9 @@ def register_routes(
         "/api/preview/{project_id}/ping",
         operation_id="previewPing",
         # Ping runs every 60s from the tab — doubles as the token refresh
-        # channel for the running preview subprocess in deployed mode.
-        dependencies=[Depends(refresh_lifecycle)],
+        # channel for the running preview subprocess in deployed mode. Debounced:
+        # the proxy refreshes the same token on the same key while the iframe is live.
+        dependencies=[Depends(refresh_keepalive)],
     )
     async def ping(project_id: str) -> dict[str, str]:
         state = registry.get(project_id)
@@ -226,6 +319,8 @@ def register_routes(
         "/api/preview/{project_id}/analyze-logs",
         operation_id="previewAnalyzeLogs",
         response_model=AnalyzeLogsOut,
+        # Spends the app's LLM budget: read access at minimum, not just any caller.
+        dependencies=[Depends(_require_project_read)],
     )
     async def analyze_logs(
         project_id: str,
@@ -297,7 +392,9 @@ def register_routes(
 
         llm = LLMService(client, config)
         try:
-            result = llm.chat_json(
+            # Blocking LLM round trip: off the event loop so other streams keep moving.
+            result = await asyncio.to_thread(
+                llm.chat_json,
                 prompt,
                 size=ModelSize.MINI,
                 system_prompt=system_prompt,
@@ -326,7 +423,10 @@ def register_routes(
 
     # ---- SSE stream: state + logs from a cursor ----------------------------
 
-    @router.get("/api/preview/{project_id}/events")
+    @router.get(
+        "/api/preview/{project_id}/events",
+        dependencies=[Depends(_require_project_read)],
+    )
     async def events(project_id: str, since: int = 0, request: Request = None):  # type: ignore[assignment]
         state = registry.get(project_id)
 
@@ -354,6 +454,10 @@ def register_routes(
             log_task = asyncio.create_task(log_q.get())
             state_task = asyncio.create_task(state_q.get())
             try:
+                # Track this SSE task so SIGTERM eager-cancel can stop it promptly
+                # (it parks on asyncio.wait up to 20s); the finally unregisters +
+                # unsubscribes. See services/shutdown.py.
+                get_live_connections().register(asyncio.current_task())
                 while True:
                     if request is not None and await request.is_disconnected():
                         return
@@ -391,6 +495,7 @@ def register_routes(
             except asyncio.CancelledError:
                 return
             finally:
+                get_live_connections().unregister(asyncio.current_task())
                 for task in (log_task, state_task):
                     if not task.done():
                         task.cancel()
@@ -419,14 +524,25 @@ def register_routes(
         # ping loop stops firing for any reason.
         dependencies=[Depends(refresh_keepalive)],
     )
-    async def proxy(project_id: str, path: str, request: Request):
+    async def proxy(
+        project_id: str,
+        path: str,
+        request: Request,
+        session: Dependencies.Session,
+        config: Dependencies.Config,
+    ):
         state = registry.get(project_id)
         if state.status != "ready" or state.port is None:
             return JSONResponse(
                 {"error": "preview not running", "status": state.status},
                 status_code=503,
             )
-        return await proxy_request(request, state, path)
+        strip = await _strip_user_token(project_id, session, config)
+        # Release the DB connection before streaming: the request-scoped session
+        # otherwise stays checked out until the proxied response ENDS, and a
+        # preview's long-lived SSE/chat streams then pin the whole pool.
+        session.close()
+        return await proxy_request(request, state, path, strip_user_token=strip)
 
     # A bare /preview/{project_id} (no trailing slash) hits the app's root "/".
     @router.api_route(
@@ -434,14 +550,24 @@ def register_routes(
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
         dependencies=[Depends(refresh_keepalive)],
     )
-    async def proxy_root(project_id: str, request: Request):
+    async def proxy_root(
+        project_id: str,
+        request: Request,
+        session: Dependencies.Session,
+        config: Dependencies.Config,
+    ):
         state = registry.get(project_id)
         if state.status != "ready" or state.port is None:
             return JSONResponse(
                 {"error": "preview not running", "status": state.status},
                 status_code=503,
             )
-        return await proxy_request(request, state, "")
+        strip = await _strip_user_token(project_id, session, config)
+        # Release the DB connection before streaming: the request-scoped session
+        # otherwise stays checked out until the proxied response ENDS, and a
+        # preview's long-lived SSE/chat streams then pin the whole pool.
+        session.close()
+        return await proxy_request(request, state, "", strip_user_token=strip)
 
     # ---- WebSocket proxy (Vite HMR) ----------------------------------------
     # The shim rewrites `new WebSocket(...)` so ws:// calls land at
@@ -523,6 +649,10 @@ def register_routes(
                 return
 
         try:
+            # Track this WS-bridge task so SIGTERM eager-cancel can stop it (it
+            # parks in asyncio.wait on the two relay tasks); the finally closes
+            # upstream + client. See services/shutdown.py.
+            get_live_connections().register(asyncio.current_task())
             done, pending = await asyncio.wait(
                 [
                     asyncio.create_task(client_to_upstream()),
@@ -538,6 +668,7 @@ def register_routes(
         except asyncio.CancelledError:
             pass
         finally:
+            get_live_connections().unregister(asyncio.current_task())
             try:
                 await upstream.close()
             except Exception:

@@ -256,7 +256,9 @@ fi
 # pre/post scripts like `predev`. Without this line `drizzle/` is never
 # created and the server's runMigrations() 503s with "No Drizzle migrations
 # folder found" on first preview boot. Run it directly so it's independent of
-# the npm lifecycle. Idempotent + cheap (regenerates from schema.ts).
+# the npm lifecycle. Idempotent + cheap (deterministic baseline — see
+# scripts/db-generate.js — so a regenerated one never re-runs on an
+# already-migrated DB).
 if [ ! -d drizzle ] || [ -z "$(ls -A drizzle 2>/dev/null)" ]; then
   echo "[start.sh] generating Drizzle migrations (db:generate)…"
   npm run db:generate || {

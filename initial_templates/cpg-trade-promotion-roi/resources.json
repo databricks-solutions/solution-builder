@@ -1,0 +1,24 @@
+{
+    "short_description": "A salty-snacks CPG's deep BOGOs at its biggest retailer tripled volume but lost 63 cents per trade dollar. A UC-registered ML baseline model powers a post-event analysis that nets every promotion for pantry loading, cannibalization and forward buying; the Trade Promo Copilot app (Databricks App on Lakebase) forecasts next quarter's promo calendar, flags the money-losing events with evidence, checks the trade policy and the retailer's JBP through the Genie agent, which searches the policy documents, proposes a compliant re-plan and writes the approved plan back; finance tracks trade spend vs ROI in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "unity-catalog",
+            "ml-model-serving",
+            "metric-views",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "mlflow-tracing"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "delta-sharing",
+            "databricks-one",
+            "ai-functions"
+        ]
+    },
+    "created_resources": {}
+}

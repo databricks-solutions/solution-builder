@@ -1,0 +1,30 @@
+<h2>3/ Explore the raw data with the Assistant</h2>
+<p>Now let's poke at what landed. Rather than writing SQL by hand, <strong>ask the Assistant.</strong> Paste each prompt into the <span class="gc-mark"><i data-icon="genie-code"></i></span> panel, run the SQL it generates, and read the result.</p>
+<div class="xo-head"><span class="xo-lbl">You should see</span></div>
+<div class="xo-pair">
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Prompt 1 — see what's in the landing zone</span>
+  <button class="copy">Copy</button>
+  <p>Show me what raw datasets landed in the Volume and a few sample rows of each.</p>
+</blockquote>
+<span class="xo-arrow" aria-hidden="true"><i data-icon="arrow-right"></i></span>
+<div class="xo"><div class="xo-tbls"><div class="xo-tbl"><div class="xo-tn">returns</div><div class="xo-th"><span>sku</span><span>refund</span></div><div class="xo-tr"><i style="width:70%"></i><i style="width:55%"></i></div><div class="xo-tr"><i style="width:55%"></i><i style="width:70%"></i></div></div><div class="xo-tbl"><div class="xo-tn">production_lots</div><div class="xo-th"><span>lot_id</span><span>status</span></div><div class="xo-tr"><i style="width:70%"></i><i style="width:55%"></i></div><div class="xo-tr"><i style="width:55%"></i><i style="width:70%"></i></div></div><span class="xo-more">+4<br>more</span></div><div class="xo-cap">6 raw datasets. <b>Returns</b> and <b>lots</b> hold the story.</div></div>
+</div>
+<div class="xo-pair">
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Prompt 2 — spot the returns spike</span>
+  <button class="copy">Copy</button>
+  <p>Plot our total refund amount per week over the last 4 months as a bar chart. Is there a spike?</p>
+</blockquote>
+<span class="xo-arrow" aria-hidden="true"><i data-icon="arrow-right"></i></span>
+<div class="xo"><div class="xo-spark"><i class="" style="height:33%"></i><i class="" style="height:36%"></i><i class="" style="height:32%"></i><i class="" style="height:34%"></i><i class="" style="height:33%"></i><i class="" style="height:36%"></i><i class="" style="height:34%"></i><i class="" style="height:33%"></i><i class="up" style="height:62%"></i><i class="pk" style="height:100%"></i><i class="up" style="height:77%"></i><i class="up" style="height:54%"></i><i class="up" style="height:42%"></i></div><div class="xo-cap"><b>~4–5x spike (~$140K)</b> three weeks ago vs a ~$30K baseline.</div></div>
+</div>
+<div class="xo-pair">
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Prompt 3 — find the common thread</span>
+  <button class="copy">Copy</button>
+  <p>What's driving those returns — any product or production lot that stands out?</p>
+</blockquote>
+<span class="xo-arrow" aria-hidden="true"><i data-icon="arrow-right"></i></span>
+<div class="xo"><div class="xo-hbars"><i class="bad" style="width:100%"></i><i class="bad" style="width:83%"></i><i class="bad" style="width:52%"></i><i class="" style="width:10%"></i><i class="" style="width:8%"></i></div><div class="xo-cap"><b>SKU-1001 / 1002 / 1003</b> dominate, all on <b>one lot</b>.</div></div>
+</div>

@@ -1,0 +1,46 @@
+{
+  // Corvane Motion Systems — Supply Planning Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/planner.ts): the Genie agent — S&OP analytics over the tables + the
+  // supply-policy manual (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:mfg-supply-planning-copilot}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (VP Supply Chain view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/supply_policy",
+
+  // Delta gold tables the planning engine reads (server/services/planner.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Supply Planning Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "What runs out first?", "prompt": "What is going to run out first in the next 13 weeks, and how much revenue is at risk?" },
+    { "label": "Why?", "prompt": "Why is Dayton short of HX-220 gear housings? Show me the supplier delay and how Nanhai's on-time delivery has trended.", "triggerAfter": ["HX-220"] },
+    { "label": "Build the plan", "prompt": "Propose the cheapest mitigation plan for the HX-220 shortage at Dayton that keeps us above safety stock, and stage it for me.", "triggerAfter": ["Nanhai", "delay"] },
+    { "label": "Who approves?", "prompt": "Per our supply policy, who has to approve $74,000 of air freight, and when should we raise safety stock on a disrupted lane?", "triggerAfter": ["plan", "Plan"] }
+  ]
+}

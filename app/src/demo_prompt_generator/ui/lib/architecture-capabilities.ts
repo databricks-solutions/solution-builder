@@ -13,14 +13,14 @@
  * the composite blocks (which bundle several capabilities) and a couple of
  * special cases need an explicit map.
  */
-import { parseArchitectureFile, baseId } from "./platform-architecture";
+import { resolveArchitectureFile, baseId } from "./platform-architecture";
 import { CAPABILITY_META } from "./capabilities";
 import { SIMPLE_BASELINE, APP_BUNDLE } from "@/components/capabilities-panel";
 
 /** Node types that are free-form annotations / visuals, never capabilities. */
 const NON_CAPABILITY_TYPES = new Set(["text", "box", "logo", "image", "source"]);
 
-/** Composite blocks → the capability slugs they bundle. `agent-bricks` is
+/** Composite blocks → the capability slugs they bundle. `databricks-agent` is
  *  handled separately (its mapping depends on whether the diagram feeds it
  *  documents). */
 const COMPOSITE_MAP: Record<string, string[]> = {
@@ -56,7 +56,7 @@ const SIMPLE_ENVELOPE = new Set<string>([
 ]);
 
 /** Any node that looks like a document source (PDF / docs on a Volume) —
- *  drives the agent-bricks → knowledge-assistant mapping. */
+ *  drives the databricks-agent → unstructured-documents mapping. */
 function hasDocSource(nodes: { id?: string; icon?: string }[]): boolean {
   return nodes.some((n) => {
     const hay = `${n.id ?? ""} ${n.icon ?? ""}`.toLowerCase();
@@ -81,7 +81,7 @@ function sourceName(n: { id?: string; label?: string }): string {
 export function extractArchitectureCapabilities(
   content: string | null,
 ): ExtractedArchitecture | null {
-  const file = content ? parseArchitectureFile(content) : null;
+  const file = content ? resolveArchitectureFile(content) : null;
   if (!file) return null;
   const nodes = file.nodes ?? [];
   const docSource = hasDocSource(nodes);
@@ -90,10 +90,11 @@ export function extractArchitectureCapabilities(
   for (const n of nodes) {
     if (!n?.type || NON_CAPABILITY_TYPES.has(n.type)) continue;
     const t = baseId(n.type);
-    if (t === "agent-bricks") {
-      // PDF/doc source feeding Agent Bricks → it's a Knowledge Assistant
-      // story; otherwise the composite's core is the Supervisor Agent.
-      out.add(docSource ? "knowledge-assistant" : "supervisor-agent");
+    if (t === "databricks-agent") {
+      // The Genie agent is the agent; a PDF/doc source feeding it adds the
+      // documents capability (answered by that same Genie agent).
+      out.add("genie");
+      if (docSource) out.add("unstructured-documents");
       continue;
     }
     const mapped = COMPOSITE_MAP[t];

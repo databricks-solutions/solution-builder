@@ -1,10 +1,10 @@
 import { ModeToggle } from "@/components/layout/mode-toggle";
-import { sageEmbedActive } from "@/lib/sage-embed";
 import { UserMenu } from "@/components/layout/user-menu";
 import Logo from "@/components/layout/logo";
 import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
-import { Menu, Home, FolderOpen, Library, User, Info, HelpCircle } from "lucide-react";
+import { Menu, Home, Library, User, Info, HelpCircle, Network } from "lucide-react";
 import { useGuide } from "@/components/guide/guide-modal";
+import { WhatsNew } from "@/components/whats-new";
 import { ReactNode } from "react";
 import { IS_ELECTRON } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ import {
 const navLinks = [
   { to: "/" as const, label: "Home", icon: Home },
   { to: "/templates" as const, label: "Templates", icon: Library },
-  { to: "/projects" as const, label: "Projects", icon: FolderOpen },
+  { to: "/architecture-showcase" as const, label: "Architectures", icon: Network },
   { to: "/about" as const, label: "About", icon: Info },
 ];
 
@@ -89,9 +89,9 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
                 <Library className="mr-2 h-4 w-4" />
                 Templates
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/projects" })} className="cursor-pointer">
-                <FolderOpen className="mr-2 h-4 w-4" />
-                My Projects
+              <DropdownMenuItem onClick={() => navigate({ to: "/architecture-showcase" })} className="cursor-pointer">
+                <Network className="mr-2 h-4 w-4" />
+                Architectures
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate({ to: "/about" })} className="cursor-pointer">
@@ -104,6 +104,7 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <WhatsNew />
           <Button
             variant="ghost"
             size="icon"
@@ -114,7 +115,7 @@ export function Navbar({ leftContent, rightContent, hideNav }: NavbarProps) {
           >
             <HelpCircle className="h-4 w-4" />
           </Button>
-          {!sageEmbedActive() && <ModeToggle />}
+          <ModeToggle />
           <UserMenu />
         </div>
       </div>

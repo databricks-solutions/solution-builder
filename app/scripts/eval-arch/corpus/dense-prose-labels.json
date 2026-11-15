@@ -1,0 +1,44 @@
+[
+  {
+    "name": "Dense prose labels",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "story": "Eval case: a governed ML lifecycle where EVERY edge carries a real sentence rather than a number. This is the case SKILL.md used to forbid (>10 labelled edges), and the one that proves automatic label placement works. Do not 'tidy' this diagram — its difficulty is the point.",
+    "columns": ["sources", "pipeline", "train", "registry", "serve", "consumers"],
+    "rowGrid": true,
+    "nodes": [
+      { "id": "src-orders", "type": "source", "col": "sources", "row": 0, "label": "Order events", "icon": "text" },
+      { "id": "src-crm", "type": "source", "col": "sources", "row": 1, "label": "CRM", "icon": "text" },
+      { "id": "src-returns", "type": "source", "col": "sources", "row": 2, "label": "Returns feed", "icon": "text" },
+      { "id": "src-docs", "type": "source", "col": "sources", "row": 3, "label": "Policy PDFs", "icon": "text" },
+      { "id": "medallion-table", "type": "medallion-table", "col": "pipeline", "row": 1 },
+      { "id": "model-training", "type": "model-training", "col": "train", "row": 1 },
+      { "id": "uc-model-registry", "type": "uc-model-registry", "col": "registry", "row": 1 },
+      { "id": "model-serving", "type": "model-serving", "col": "serve", "row": 0 },
+      { "id": "lakeflow-jobs", "type": "lakeflow-jobs", "col": "serve", "row": 2 },
+      { "id": "sql-lakehouse", "type": "sql-lakehouse", "col": "serve", "row": 3 },
+      { "id": "databricks-apps", "type": "databricks-apps", "col": "consumers", "row": 0 },
+      { "id": "genie", "type": "genie", "col": "consumers", "row": 2 },
+      { "id": "ai-bi-dashboard", "type": "ai-bi-dashboard", "col": "consumers", "row": 3 },
+      { "id": "uc-volume", "type": "uc-volume", "col": "train", "row": 3 }
+    ],
+    "edges": [
+      { "id": "e01", "from": "src-orders@r", "to": "medallion-table@l", "label": "Stream order events", "flow": true },
+      { "id": "e02", "from": "src-crm@r", "to": "medallion-table@l", "label": "Nightly customer CDC", "flow": true },
+      { "id": "e03", "from": "src-returns@r", "to": "medallion-table@l", "label": "Hourly returns extract", "flow": true },
+      { "id": "e04", "from": "src-docs@r", "to": "uc-volume@l", "label": "Index policy documents", "flow": true },
+      { "id": "e05", "from": "medallion-table@out-gold", "to": "model-training@l", "label": "Build the training set" },
+      { "id": "e06", "from": "model-training@r", "to": "uc-model-registry@l", "label": "Log run and register version" },
+      { "id": "e07", "from": "uc-model-registry@r", "to": "model-serving@l", "label": "Promote champion alias" },
+      { "id": "e08", "from": "uc-model-registry@r", "to": "lakeflow-jobs@l", "label": "Score the nightly batch" },
+      { "id": "e09", "from": "medallion-table@out-gold", "to": "sql-lakehouse@l", "label": "Serve curated marts" },
+      { "id": "e10", "from": "model-serving@r", "to": "databricks-apps@l", "label": "Real-time inference call" },
+      { "id": "e11", "from": "sql-lakehouse@r", "to": "genie@l", "label": "Ask questions in plain English" },
+      { "id": "e12", "from": "sql-lakehouse@r", "to": "ai-bi-dashboard@l", "label": "Refresh executive metrics" },
+      { "id": "e13", "from": "lakeflow-jobs@r", "to": "ai-bi-dashboard@l", "label": "Publish batch scores" },
+      { "id": "e14", "from": "genie@r", "to": "databricks-apps@l", "label": "Ground answers in policy" },
+      { "id": "e15", "from": "model-serving@b", "to": "uc-model-registry@b", "label": "Report drift back to the registry", "dashed": true }
+    ]
+  }
+]

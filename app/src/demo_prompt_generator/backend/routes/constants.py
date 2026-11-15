@@ -12,8 +12,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..core import Dependencies, create_router
-from ..core.constants import INDUSTRIES, get_capabilities as load_capabilities
+from ..core.constants import (
+    INDUSTRIES,
+    WORKSHOP_CAPABILITIES,
+    WORKSHOP_CORE_CAPABILITIES,
+    get_capabilities as load_capabilities,
+)
 from ..services.llm_service import LLMService, ModelSize
+from ..services.shutdown import shutdown_requested
 
 router = create_router()
 logger = logging.getLogger(__name__)
@@ -40,6 +46,39 @@ class CapabilityInput(BaseModel):
     """Capability with user's explicit selection status."""
     id: str
     status: Optional[Literal["selected", "unselected"]] = None
+
+
+# Workshop mode always shows this many story ideas (cold start).
+WORKSHOP_IDEA_COUNT = 3
+
+
+def _workshop_idea_count(body: "SuggestCapabilitiesRequest") -> int | None:
+    """Exact number of ideas a workshop request must yield, or None outside
+    workshop mode. Mirrors the branch order in `_build_suggest_prompts`: a
+    capability-change refresh keeps its count, a refine is one idea, and the
+    cold start is always WORKSHOP_IDEA_COUNT."""
+    if body.mode != "workshop" or body.capabilities_only:
+        return None
+    if body.previous_ideas:
+        return len(body.previous_ideas)
+    if body.refine_idea and body.refine_comment:
+        return 1
+    return WORKSHOP_IDEA_COUNT
+
+
+def _workshop_framing(idea_count: int) -> str:
+    """The workshop-mode block appended to every suggest prompt shape. It
+    overrides the story tier/capability rules above it."""
+    baseline = ", ".join(sorted(WORKSHOP_CAPABILITIES))
+    core = ", ".join(WORKSHOP_CORE_CAPABILITIES)
+    ideas = "idea line" if idea_count == 1 else "idea lines"
+    return f"""
+
+=== WORKSHOP MODE (overrides the tier rules and capability rules above) ===
+This story becomes a hands-on Genie Code WORKSHOP that the attendee builds live, prompt by prompt.
+- Output EXACTLY {idea_count} {ideas} (count={idea_count}). Each idea is a short plain-text teaser (~25 words, no section headers, no line breaks). Each hook names the persona and the business question the workshop answers, with the catalyst anchored in the recent past per the Catalyst Design Rules.
+- The workshop arc is: raw data → exploration notebooks → SDP pipeline → data quality → dashboard + Genie → metric view → governance (ABAC, classification) → ML model → Genie Code / Genie One → AI functions. Pick data and personas where that arc is natural.
+- CAPABILITIES: start from the workshop baseline ({baseline}). Drop any baseline capability the brief does not need, and always drop the steps the brief rules out (e.g. "no ML" → ml-training-serving; "no governance" → abac, data-classification), but these always stay: {core}. Add another capability from AVAILABLE CAPABILITIES only if the brief clearly needs it. Never output an id that is not in AVAILABLE CAPABILITIES."""
 
 
 class IdeaToRefine(BaseModel):
@@ -80,6 +119,10 @@ class SuggestCapabilitiesRequest(BaseModel):
     # capabilities that match the user's text — NO use-case ideas/story. The
     # stream emits only `capabilities` (+ `reasoning`); never `count`/`idea`.
     capabilities_only: bool = False
+    # Home-page entry mode. "workshop" (Genie Code workshop): the capability
+    # pool excludes genie_code_workshop=false blocks and cold-start ideation
+    # always yields exactly WORKSHOP_IDEA_COUNT stories framed as a workshop.
+    mode: Literal["story", "architecture", "workshop"] = "story"
     # "Use existing data" grounding: the fully-qualified UC tables the user
     # picked (catalog.schema.table). When present, we inject their scanned
     # schema + light stats + a few sample rows (from the process-level cache
@@ -247,7 +290,7 @@ def _build_grounded_system_prompt(
         capability_rules = """## Capability Selection Rules (grounded, data-write opted in)
 - **Keep it LEAN.** Start minimal; add a capability only when the use-case needs it.
 - The read-only backbone still applies: "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code" over the user's real tables.
-- The user opted into letting the demo create its OWN auxiliary data, so write-needing capabilities are ALLOWED when a use-case calls for them: "metric-views", model training/serving, "knowledge-assistant"/"supervisor-agent" (doc Q&A), and even "databricks-apps"+"lakebase" (an action app). Any tables these create live in the DEMO's own catalog — the user's real tables above are STILL read-only.
+- The user opted into letting the demo create its OWN auxiliary data, so write-needing capabilities are ALLOWED when a use-case calls for them: "metric-views", model training/serving, "unstructured-documents" (doc Q&A, requires "genie"), and even "databricks-apps"+"lakebase" (an action app). Any tables these create live in the DEMO's own catalog — the user's real tables above are STILL read-only.
 - You may include "synthetic-data-gen" ONLY to create AUXILIARY tables in the demo's own catalog (e.g. an app write-back table or ML labels) — never to regenerate or replace the user's real tables.
 - Almost always include talking track: "unity-catalog", "genie-one", "genie-code"."""
     else:
@@ -256,7 +299,7 @@ def _build_grounded_system_prompt(
 - The default backbone is: "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code" — read-only analytics on the user's real tables.
 - **Do NOT include "synthetic-data-gen"** — the demo uses the real data, it does not generate any. **Do NOT include ingest capabilities** ("lakeflow-connect", "sdp", "zerobus-ingest") — the data already exists in Unity Catalog; there is no ingest/medallion beat to build.
 - Add heavier capabilities ONLY when the use-case clearly implies them AND the real data supports them, read-only: "metric-views" (governed metrics over the real tables), model training/serving (an ML/prediction angle trained on the real tables). **Avoid "databricks-apps"+"lakebase"** — the app's write-back action chain can't run against read-only customer tables.
-- **"knowledge-assistant" (KA) and "supervisor-agent" (MAS)** need unstructured docs — only when the topic centers on document Q&A.
+- **"unstructured-documents"** needs unstructured docs (PDFs) — only when the topic centers on document Q&A. It requires "genie" (the Genie agent answers from the documents volume).
 - Almost always include talking track: "unity-catalog", "genie-one", "genie-code"."""
     base = f"""You are a Databricks solution architect. The user picked some of their OWN Unity Catalog tables, and the solution will be built DIRECTLY on those real tables — READ-ONLY. Nothing is generated, nothing is copied: the dashboards, Genie space, metric views, etc. query the user's actual tables in place. Your job is to propose valuable analytics use-cases that run on their real data exactly as it is.
 
@@ -452,7 +495,7 @@ def _build_suggest_prompts(
 - **Keep it LEAN — a simple demo is the default.** Start from the minimal coherent path and only add a capability when the user's text clearly calls for it. Each selected product must earn its place with an obvious role.
 - The simple default backbone is: "synthetic-data-gen" + "lakeflow-connect" + "sdp" + "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code". That is a complete, compelling demo on its own — do NOT pad beyond it without a reason in the text.
 - Add heavier capabilities ONLY when the text implies them, e.g.: "lakeflow-jobs" (an explicit orchestration/scheduling need), "metric-views" (a governed-metrics / semantic-layer ask), model training/serving (an ML/prediction story), "databricks-apps"+"lakebase" (an app), "zerobus-ingest" (realtime streaming). If the text or the story doesn't imply it, leave it out.
-- **"knowledge-assistant" (KA) and "supervisor-agent" (MAS) are the expensive ones** — they need UNSTRUCTURED documents and take several minutes to set up. Default to a **tabular-data** story that needs neither. Only add KA/MAS when the user's text clearly involves document Q&A, policy/manual lookup, or multi-agent investigation over unstructured content. When in doubt, leave them out.
+- **"unstructured-documents" is the expensive one** — it needs UNSTRUCTURED documents (PDFs) uploaded and indexed, and takes several minutes to set up. Default to a **tabular-data** story that needs neither. Only add it when the user's text clearly involves document Q&A or policy/manual lookup over unstructured content. When in doubt, leave it out. **But an explicit ask wins:** if the user's text says the demo must answer from PDFs, documents, manuals, policies, contracts or reports, ALWAYS include "unstructured-documents" (with "genie"), even in a lean demo.
 - Always include "synthetic-data-gen" — all demos need realistic fake data.
 - Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code". Unity Catalog unless explicitly excluded.
 - Consider dependencies (dashboards need SDP data, apps need lakebase, etc.) — but a dependency is not a reason to add the heavier parent unless the parent is itself warranted.
@@ -567,7 +610,7 @@ LuxeBeauty's canonical example for the action chain itself:
      Keep them short (2-3 words max).
      BAD: ["SCADA telemetry", "Vibration sensors"] — these are data types, not systems
      GOOD: ["OSIsoft PI", "SAP PM", "Weather API"] — these are actual source systems
-     Default to STRUCTURED/tabular sources (transactions, metrics, logs, sensor data). Add unstructured sources (docs, manuals, policies) ONLY when the story genuinely needs document Q&A — those pull in KA/MAS, which are slow to set up (see Capability Selection Rules).
+     Default to STRUCTURED/tabular sources (transactions, metrics, logs, sensor data). Add unstructured sources (docs, manuals, policies) ONLY when the story genuinely needs document Q&A — those pull in the "unstructured-documents" capability, which is slow to set up (see Capability Selection Rules).
      The datasources must support the ENTIRE demo story — dashboards, Genie, ML models, apps all draw from them.
    - Always follow the user's request for what to demo; the rest are guidelines.
 
@@ -579,7 +622,7 @@ LuxeBeauty's canonical example for the action chain itself:
 - **Keep it LEAN — a simple demo is the default.** Start from the minimal coherent path and only add a capability when the story clearly needs it. Each selected product must earn a clear moment in the demo.
 - The simple default backbone is: "synthetic-data-gen" + "lakeflow-connect" + "sdp" + "unity-catalog" + "aibi-dashboards" + "genie" + "genie-one" + "genie-code" — a complete, compelling demo on its own. Don't pad beyond it without a reason in the story.
 - Add heavier capabilities ONLY when the story implies them: "lakeflow-jobs" (explicit orchestration), "metric-views" (governed metrics / semantic layer), model training/serving (an ML/prediction beat), "databricks-apps"+"lakebase" (an app), "zerobus-ingest" (realtime streaming).
-- **"knowledge-assistant" (KA) and "supervisor-agent" (MAS) are the expensive ones** — they need UNSTRUCTURED documents and take several minutes to set up. **Prefer a tabular-data story** that needs neither, and default your generated ideas toward structured/tabular sources. Only reach for KA/MAS (and unstructured datasources like manuals/policies/PDFs) when the topic genuinely centers on document Q&A or multi-agent investigation over unstructured content.
+- **"unstructured-documents" is the expensive one** — it needs UNSTRUCTURED documents (PDFs) uploaded and indexed, and takes several minutes to set up. **Prefer a tabular-data story** that needs neither, and default your generated ideas toward structured/tabular sources. Only reach for "unstructured-documents" (and unstructured datasources like manuals/policies/PDFs) when the topic genuinely centers on document Q&A over unstructured content. It always comes with "genie". **An explicit ask wins:** if the user's text says answers must come from PDFs, documents, manuals, policies, contracts or reports, ALWAYS include it.
 - Always include "synthetic-data-gen" — all demos need realistic fake data
 - Almost always include talking track: "lakeflow-connect", "unity-catalog", "genie-one", "genie-code". Unity Catalog unless explicitly excluded.
 - Consider dependencies (dashboards need SDP data, apps need lakebase, etc.) — but a dependency isn't a reason to add the heavier parent unless the parent is itself warranted.
@@ -604,8 +647,8 @@ LuxeBeauty's canonical example for the action chain itself:
   - lakeflow-connect (data ingestion)
   - sdp (data processing)
   - aibi-dashboards + genie (analysis)
-  - knowledge-assistant + supervisor-agent (AI agents for investigation — story explicitly involves unstructured-doc lookup)
-  - model-training-mlflow + model-serving (fraud ML models for real-time scoring)
+  - unstructured-documents + genie (document lookup answered by the Genie agent — story explicitly involves unstructured-doc lookup)
+  - ml-training-serving (fraud ML models for real-time scoring)
   - databricks-apps + lakebase (app mentioned, lakebase is dependency)
   - unity-catalog, genie-code (talking track)
 
@@ -636,14 +679,14 @@ Finally, output one line explaining your reasoning (1-2 sentences max):
 {{"type": "count", "count": 2}}
 {{"type": "idea", "title": "Offshore wind output forecasting", "hook": "**Context**\\nLars Eriksen, Operations Director at NorthSea Wind, manages 120 turbines generating $2.4M/month. A wind ramp event 3 weeks ago blew his legacy forecast wide — $380K in curtailment penalties, the worst week of the year. He needs output vs. forecast by farm and to ask: 'Which turbines underperformed that storm and why?'\\n\\n**Discovery**\\n8 turbines with bearing vibration anomalies consistently drop output in high wind. An ML model on SCADA + weather predicts output 48h ahead at 94% accuracy.\\n\\n**Impact**\\nLars approves the drafted crew assignments + trader notification; the app dispatches the work orders. $1.8M/year saved.", "datasources": ["OSIsoft PI (SCADA)", "NOAA Weather API", "SAP PM", "Turbine spec sheets"]}}
 {{"type": "idea", "title": "Gearbox failure early warning", "hook": "**Context**\\nMaria Santos, Reliability Engineer at Atlantic Power, oversees 85 turbines — one gearbox costs $350K and 3 weeks down. Two failures last quarter cost $1.2M with zero warning. OEM manuals document the failure mode but nobody links it to live sensor data.\\n\\n**Discovery**\\nA model on 18 months of vibration + weather scores turbines daily. Top 5 risk units auto-generate work orders with failure mode and action.\\n\\n**Impact**\\nMaria approves the drafted batch; the app pushes work orders to the CMMS with the audit trail. Zero unplanned gearbox failures in 6 months. $2.4M saved.", "datasources": ["GE Vernova APM", "Weather Underground API", "CMMS", "OEM maintenance manuals"]}}
-{{"type": "capabilities", "capabilities": ["synthetic-data-gen", "lakeflow-connect", "sdp", "unity-catalog", "model-training-mlflow", "model-serving", "aibi-dashboards", "genie", "knowledge-assistant", "genie-code"]}}
-{{"type": "reasoning", "text": "SCADA + weather flow through SDP, ML models predict output and failure risk, dashboards visualize fleet health, Genie investigates, KA explains from manuals."}}
+{{"type": "capabilities", "capabilities": ["synthetic-data-gen", "lakeflow-connect", "sdp", "unity-catalog", "ml-training-serving", "aibi-dashboards", "genie", "unstructured-documents", "genie-code"]}}
+{{"type": "reasoning", "text": "SCADA + weather flow through SDP, ML models predict output and failure risk, dashboards visualize fleet health, Genie investigates and answers from the OEM manuals volume."}}
 
 ### TIER 1 example (prompt: a full story with named persona, narrative arc, and resolution):
 {{"type": "count", "count": 1}}
 {{"type": "idea", "title": "Supply chain forecast recovery", "hook": "**Protagonist**\\nAcme Retail — Sarah Chen, VP of Supply Chain. Obsessed with inventory turns and avoiding stockouts.\\n\\n**Catalyst**\\nForecast accuracy dropped from 92% to 78% across 2,000 stores. $4.2M/month in markdowns, $1.8M in lost sales.\\n\\n**Journey**\\nSarah opens her dashboard and spots the Southeast is 3x worse. She asks which categories drive forecast errors — promotional events are the blind spot. The demand planning SOP confirms the model has no promo lift feature. ML team retrains with event data in 48 hours.\\n\\n**Resolution**\\nIn the ops app Sarah asks the assistant to draft markdown-pullback orders for the over-stocked SKUs in the Southeast; she approves the batch and the app pushes the orders to S/4HANA with the audit trail. Accuracy climbs to 94%, markdowns drop 60%, stockouts halved. $3.1M annually saved.", "datasources": ["SAP S/4HANA", "Promotional calendar", "POS system", "Demand planning docs"]}}
-{{"type": "capabilities", "capabilities": ["synthetic-data-gen", "lakeflow-connect", "sdp", "unity-catalog", "model-training-mlflow", "aibi-dashboards", "genie", "knowledge-assistant", "genie-code"]}}
-{{"type": "reasoning", "text": "POS + promo data through SDP, ML retrains forecast model, dashboards show regional accuracy, Genie drills into categories, KA explains from planning docs."}}"""
+{{"type": "capabilities", "capabilities": ["synthetic-data-gen", "lakeflow-connect", "sdp", "unity-catalog", "ml-training-serving", "aibi-dashboards", "genie", "unstructured-documents", "genie-code"]}}
+{{"type": "reasoning", "text": "POS + promo data through SDP, ML retrains forecast model, dashboards show regional accuracy, Genie drills into categories and answers from the planning docs volume."}}"""
 
     # Build user prompt — three distinct shapes:
     #   1. Capability-change refresh (previous_ideas set): minimal rewrite
@@ -652,6 +695,10 @@ Finally, output one line explaining your reasoning (1-2 sentences max):
     #   2. Single-idea refinement (refine_idea + refine_comment): rewrite
     #      one idea per the user's free-text instructions, upgrade tier.
     #   3. Cold start (neither set): full ideation from the topic alone.
+    # Workshop mode keeps its framing (and exact count) in all three shapes;
+    # story mode gets an empty block, so its prompts are unchanged.
+    fixed_count = _workshop_idea_count(body)
+    workshop_block = _workshop_framing(fixed_count) if fixed_count is not None else ""
     if body.previous_ideas:
         # Format the previous ideas + diff. Capabilities marked as
         # mandatory_list are the new set the user wants; previous_capabilities
@@ -691,6 +738,8 @@ They JUST changed the capability mix. Do a MINIMAL rewrite:
 - Match the existing detail tier of each story (plain text → plain text; **Context/Discovery/Impact** → same sections; **Protagonist/Catalyst/...** → same).
 - Do NOT replace the stories with brand-new ones — the user is mid-decision and resetting their context is jarring.
 
+{workshop_block}
+
 Output line-delimited JSON: count line (count={idea_count}), then {idea_count} idea line{"s" if idea_count > 1 else ""}, then capabilities line, then reasoning line."""
     elif body.refine_idea and body.refine_comment:
         user_prompt = f"""User's original demo description:
@@ -719,7 +768,23 @@ IMPORTANT — refinement UPGRADES the detail tier:
 - If the current hook is plain text (no section headers) → it was TIER 3. Upgrade to TIER 2: use **Context**, **Discovery**, **Impact** sections separated by \\n.
 - If the current hook already has **Context**/etc. sections → it was TIER 2. Upgrade to TIER 1: use **Protagonist**, **Catalyst**, **Journey**, **Resolution** sections separated by \\n. Make it a full structured story.
 
+{workshop_block}
+
 Output line-delimited JSON: count line (count=1), then one idea line, then capabilities line, then reasoning line."""
+    elif body.mode == "workshop":
+        user_prompt = f"""User's demo description:
+"{body.prompt}"
+
+=== USER CONSTRAINTS (MUST RESPECT) ===
+- User MANDATORY (always include): {mandatory_list}
+- User EXCLUDED (never include): {excluded_list}
+
+=== AVAILABLE CAPABILITIES ===
+{cap_list}
+
+{_workshop_framing(WORKSHOP_IDEA_COUNT)}
+
+Output line-delimited JSON (count line, {WORKSHOP_IDEA_COUNT} idea lines, capabilities line, reasoning line)."""
     else:
         user_prompt = f"""User's demo description:
 "{body.prompt}"
@@ -898,7 +963,13 @@ def suggest_capabilities(
         # Exclude disabled caps from the LLM's candidate pool — talking-track-only
         # governance features (data-classification, data-quality, abac) aren't
         # relevant to most demos. User can still mandate them via show-hidden.
-        available_caps = [c for c in load_capabilities() if not c.get("disabled")]
+        if body.mode == "workshop":
+            # Workshop pool = the allowlist, regardless of the global `disabled`
+            # flag (data-quality, abac, data-classification are disabled in story
+            # mode but are workshop baseline). Excludes apps/lakebase/documents.
+            available_caps = [c for c in load_capabilities() if c["id"] in WORKSHOP_CAPABILITIES]
+        else:
+            available_caps = [c for c in load_capabilities() if not c.get("disabled")]
         # When `to_decide` is empty (Simple-tab lock: every id is explicitly
         # selected or unselected), the LLM has no capability choice to make
         # — but it STILL needs to generate ideas. Feed it the mandatory list
@@ -923,6 +994,11 @@ def suggest_capabilities(
             body, platform_context, mandatory_list, excluded_list, cap_list, ws
         )
 
+        # Workshop: the idea count is fixed (cold start / refine / refresh), so
+        # the LLM's count line and any extra ideas are ignored.
+        fixed_count = _workshop_idea_count(body)
+        ideas_sent = 0
+
         try:
             llm = LLMService(ws, config)
 
@@ -933,6 +1009,8 @@ def suggest_capabilities(
             # (Never in capabilities-only mode — there are no idea skeletons.)
             if body.capabilities_only:
                 pass
+            elif fixed_count is not None:
+                yield f"event: count\ndata: {json.dumps({'count': fixed_count})}\n\n"
             elif body.refine_idea and body.refine_comment:
                 yield f"event: count\ndata: {json.dumps({'count': 1})}\n\n"
             elif body.previous_ideas:
@@ -951,6 +1029,12 @@ def suggest_capabilities(
                 size=ModelSize.NORMAL if grounded else ModelSize.MINI,
                 max_tokens=max_tokens,
             ):
+                # Redeploy in flight → stop streaming so we don't hold uvicorn's
+                # graceful-shutdown drain open. This is a SYNC generator run in a
+                # threadpool, so task.cancel() can't reach it — poll the flag set
+                # by cancel_all_on_shutdown() on SIGTERM. See services/shutdown.py.
+                if shutdown_requested():
+                    return
                 try:
                     data = json.loads(line)
                     event_type = data.get("type")
@@ -962,11 +1046,17 @@ def suggest_capabilities(
                         continue
 
                     if event_type == "count":
-                        # Forward count event to UI
+                        # Forward count event to UI (workshop: already sent)
+                        if fixed_count is not None:
+                            continue
                         count = data.get("count", 3)
                         yield f"event: count\ndata: {json.dumps({'count': count})}\n\n"
 
                     elif event_type == "idea":
+                        if fixed_count is not None:
+                            if ideas_sent >= fixed_count:
+                                continue
+                            ideas_sent += 1
                         # Parse and validate idea
                         ds = data.get("datasources", [])
                         if isinstance(ds, str):
@@ -994,7 +1084,11 @@ def suggest_capabilities(
                         # Validate and filter capabilities
                         suggested = data.get("capabilities", [])
                         llm_selected = [cap_id for cap_id in suggested if cap_id in valid_ids and cap_id in to_decide]
-                        final_selection = list(set(always_include + llm_selected) - set(never_include))
+                        final_selection = set(always_include + llm_selected)
+                        if body.mode == "workshop":
+                            # Core workshop arc stays unless the SA unselected it.
+                            final_selection |= set(WORKSHOP_CORE_CAPABILITIES)
+                        final_selection = list(final_selection - set(never_include))
 
                         caps_data = {"capabilities": final_selection}
                         yield f"event: capabilities\ndata: {json.dumps(caps_data)}\n\n"

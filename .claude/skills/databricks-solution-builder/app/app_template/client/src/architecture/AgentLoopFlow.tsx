@@ -3,7 +3,7 @@
  * diagram on the home page. Shows how one conversation becomes a multi-step
  * plan with a human-in-the-loop checkpoint:
  *
- *   Operator → [ ANALYSIS box: Agent Bricks · Genie · Lakebase ]
+ *   Operator → [ ANALYSIS box: Genie Agent · Lakebase ]
  *            → Propose action → fork{ Send email, Approve refunds }
  *   ──────── governed by Unity Catalog · AI Gateway ────────
  *
@@ -13,7 +13,6 @@
  */
 import { Connector, FlowKeyframes, Fork, Stage } from './Flow';
 import {
-  AgentBricksIcon,
   GatewayIcon,
   GenieIcon,
   LakebaseIcon,
@@ -153,8 +152,7 @@ export function AgentLoopFlow() {
           <div className="text-[10.5px] font-mono uppercase tracking-[0.16em] text-muted-foreground">
             Agentic analysis
           </div>
-          <MiniTile icon={<AgentBricksIcon />} label="Agent Bricks · orchestrates" />
-          <MiniTile icon={<GenieIcon />} label="Genie · text → SQL" />
+          <MiniTile icon={<GenieIcon />} label="Genie Agent · data + documents" />
           <MiniTile icon={<LakebaseIcon />} label="Lakebase · queries the data" />
         </div>
 
@@ -179,8 +177,7 @@ export function AgentLoopFlow() {
         <MobileStep icon={<OperatorIcon />} label="Operator" sub="asks the question" />
         <li className="rounded-xl border border-border bg-background p-3 flex flex-col gap-2">
           <div className="text-[10.5px] font-mono uppercase tracking-[0.16em] text-muted-foreground">Agentic analysis</div>
-          <MiniTile icon={<AgentBricksIcon />} label="Agent Bricks · orchestrates" />
-          <MiniTile icon={<GenieIcon />} label="Genie · text → SQL" />
+          <MiniTile icon={<GenieIcon />} label="Genie Agent · data + documents" />
           <MiniTile icon={<LakebaseIcon />} label="Lakebase · queries the data" />
         </li>
         <MobileStep icon={<ProposeIcon />} label="Propose action" sub="human approves" />

@@ -1,0 +1,1259 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "Kpis",
+      "queryLines": [
+        "WITH m AS (SELECT month, SUM(claims) claims, SUM(units_in_service) units, SUM(warranty_cost) cost FROM gold_monthly_kpis GROUP BY month)\n",
+        "SELECT\n",
+        "  (SELECT ROUND(1000 * SUM(claims) / SUM(units), 1) FROM m WHERE month >= add_months(date_trunc('MONTH', current_date()), -3) AND month < date_trunc('MONTH', current_date())) AS claims_per_1k_3m,\n",
+        "  (SELECT ROUND(1000 * SUM(claims) / SUM(units), 1) FROM m WHERE month >= add_months(date_trunc('MONTH', current_date()), -15) AND month < add_months(date_trunc('MONTH', current_date()), -3)) AS claims_per_1k_prior,\n",
+        "  (SELECT ROUND(SUM(cost), 0) FROM m WHERE month >= add_months(date_trunc('MONTH', current_date()), -12)) AS warranty_cost_12m,\n",
+        "  (SELECT ROUND(SUM(cost) / AVG(units), 2) FROM m WHERE month >= add_months(date_trunc('MONTH', current_date()), -12)) AS cost_per_bike_12m,\n",
+        "  (SELECT ROUND(100 * SUM(recovered_amount) / SUM(supplier_attributable_cost), 1) FROM gold_supplier_recovery WHERE status = 'settled' AND quarter >= concat(year(add_months(current_date(), -12)), '-Q', quarter(add_months(current_date(), -12)))) AS recovery_rate_pct,\n",
+        "  (SELECT COUNT(*) FROM gold_early_warning WHERE is_signal) AS open_signals\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "monthly",
+      "displayName": "Monthly",
+      "queryLines": [
+        "SELECT month, 'All claims' AS series, ROUND(1000 * SUM(claims) / SUM(units_in_service), 2) AS claims_per_1k FROM gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -15) GROUP BY month\n",
+        "UNION ALL\n",
+        "SELECT month, 'Water ingress (AI)' AS series, ROUND(1000 * SUM(controller_water_claims) / SUM(units_in_service), 2) FROM gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -15) GROUP BY month\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "modes_90d",
+      "displayName": "Modes 90D",
+      "queryLines": [
+        "SELECT failure_mode_label, COUNT(*) AS claims_90d, ROUND(SUM(total_cost),0) AS cost_90d, CASE WHEN failure_mode='controller_water_ingress' THEN 'Hanlin controller water ingress' ELSE 'Everyday failure modes' END AS source FROM gold_claims WHERE claim_status <> 'rejected' AND claim_date > date_sub(current_date(), 90) GROUP BY failure_mode_label, CASE WHEN failure_mode='controller_water_ingress' THEN 'Hanlin controller water ingress' ELSE 'Everyday failure modes' END"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "lots",
+      "displayName": "Lots",
+      "queryLines": [
+        "SELECT controller_lot, water_claims_per_1k_unit_years, e21_bikes_per_1k_connected, units_built, water_ingress_claims, coalesce(pcn_reference, 'none') AS pcn_reference, ppap_status FROM gold_lot_quality WHERE supplier_id = 'SUP-HAN' AND production_start >= add_months(current_date(), -14)\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "early_warning",
+      "displayName": "Early Warning",
+      "queryLines": [
+        "SELECT failure_mode_label, supplier_name, claims_90d, rate_90d_per_1k_unit_years, baseline_rate_per_1k_unit_years, rate_ratio, CAST(ROUND(cost_90d) AS BIGINT) AS cost_90d, concat('$', format_number(CAST(ROUND(cost_90d) AS BIGINT), 0)) AS cost_label, CASE WHEN is_signal THEN 'SIGNAL' ELSE '' END AS flag FROM gold_early_warning ORDER BY is_signal DESC, rate_ratio DESC\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "recovery",
+      "displayName": "Recovery",
+      "queryLines": [
+        "SELECT supplier_name, ROUND(SUM(supplier_attributable_cost), 0) AS attributable_cost, ROUND(SUM(recovered_amount), 0) AS recovered, ROUND(SUM(supplier_attributable_cost - recovered_amount), 0) AS unrecovered, ROUND(100 * SUM(recovered_amount) / SUM(supplier_attributable_cost), 1) AS recovery_rate_pct FROM gold_supplier_recovery WHERE status = 'settled' AND quarter >= concat(year(add_months(current_date(), -12)), '-Q', quarter(add_months(current_date(), -12))) GROUP BY supplier_name\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "recovery_q",
+      "displayName": "Recovery Q",
+      "queryLines": [
+        "SELECT quarter, supplier_name, supplier_attributable_claims, CAST(ROUND(supplier_attributable_cost) AS BIGINT) AS supplier_attributable_cost, CAST(ROUND(recovered_amount) AS BIGINT) AS recovered_amount, ROUND(100 * recovery_rate, 1) AS recovery_rate_pct, CONCAT(ROUND(100 * recovery_rate, 1), ' %') AS recovery_label, concat('$', format_number(CAST(ROUND(supplier_attributable_cost) AS BIGINT), 0)) AS cost_label, concat('$', format_number(CAST(ROUND(recovered_amount) AS BIGINT), 0)) AS recovered_label, status FROM gold_supplier_recovery ORDER BY quarter DESC, supplier_attributable_cost DESC\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "coding",
+      "displayName": "Coding",
+      "queryLines": [
+        "SELECT dealer_labor_code, COUNT(*) AS claims FROM gold_claims WHERE failure_mode = 'controller_water_ingress' AND claim_status <> 'rejected' GROUP BY dealer_labor_code\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "region",
+      "displayName": "Region",
+      "queryLines": [
+        "SELECT region, CASE WHEN wet_region THEN 'Wet region' ELSE 'Dry region' END AS climate, COUNT(*) AS claims FROM gold_claims WHERE failure_mode = 'controller_water_ingress' AND claim_status <> 'rejected' AND claim_date > date_sub(current_date(), 90) GROUP BY region, wet_region\n"
+      ],
+      "catalog": "manufacturing",
+      "schema": "warranty_cost_optimization"
+    },
+    {
+      "name": "ds_rate_monthly",
+      "displayName": "Claims per 1k bikes by month (all claims)",
+      "queryLines": [
+        "SELECT month, ROUND(1000 * SUM(claims) / SUM(units_in_service), 2) AS claims_per_1k\n",
+        "FROM gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -15)\n",
+        "GROUP BY month ORDER BY month\n"
+      ]
+    },
+    {
+      "name": "ds_cost_monthly",
+      "displayName": "Warranty cost by month",
+      "queryLines": [
+        "SELECT month, CAST(ROUND(SUM(warranty_cost)) AS BIGINT) AS warranty_cost\n",
+        "FROM gold_monthly_kpis WHERE NOT is_partial_month AND month >= add_months(date_trunc('MONTH', current_date()), -13)\n",
+        "GROUP BY month ORDER BY month\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "p1",
+      "displayName": "Warranty cost & quality",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Brightwater - Warranty Cost & Supplier Quality\n",
+                "\n",
+                "**The event** — claims per 1,000 bikes climbed from ~7.5 to ~10/month this summer (+34%). The driver is hidden in generic dealer labor codes: AI-classified technician notes reveal a **Hanlin MC-48 controller water-ingress** failure on lots HX-2605+ (PCN-0419 coating change, never approved). Remaining warranty exposure **~$977K**.\n",
+                "\n",
+                "**What to see** — the failure-mode bar puts **motor-controller water ingress** (orange) on top, far above every everyday mode · the Hanlin-lot bars light up the PCN-0419 lots in orange · wet regions dominate the claims."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_rate_monthly",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(claims_per_1k)",
+                      "expression": "AVG(`claims_per_1k`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(claims_per_1k)",
+                  "displayName": "Claims per 1,000 bikes (latest full month)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Claims per 1,000 bikes (latest full month)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "claims_per_1k_prior",
+                      "expression": "`claims_per_1k_prior`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "claims_per_1k_prior",
+                  "displayName": "Claims per 1,000 bikes (prior 12 months)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Claims per 1,000 bikes (prior 12 months)"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cost_monthly",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "avg(warranty_cost)",
+                      "expression": "AVG(`warranty_cost`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg(warranty_cost)",
+                  "displayName": "Warranty cost (latest full month, $)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Warranty cost (latest full month, $)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "cost_per_bike_12m",
+                      "expression": "`cost_per_bike_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "cost_per_bike_12m",
+                  "displayName": "Warranty cost per bike in service ($)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Warranty cost per bike in service ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "recovery_rate_pct",
+                      "expression": "`recovery_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "recovery_rate_pct",
+                  "displayName": "Supplier recovery, 4 quarters (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier recovery, 4 quarters (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "open_signals",
+                      "expression": "`open_signals`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_signals",
+                  "displayName": "Emerging failure signals"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Emerging failure signals"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 3,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "claims_per_1k",
+                      "expression": "`claims_per_1k`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "claims_per_1k",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Claims per 1,000 bikes"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "All claims",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Water ingress (AI)",
+                        "color": "#E4572E"
+                      }
+                    ]
+                  },
+                  "displayName": "series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Claims per 1,000 bikes — controller water ingress is the new part"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "modes_90d",
+                  "fields": [
+                    {
+                      "name": "failure_mode_label",
+                      "expression": "`failure_mode_label`"
+                    },
+                    {
+                      "name": "claims_90d",
+                      "expression": "`claims_90d`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "failure_mode_label",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reverse"
+                    }
+                  },
+                  "displayName": "Failure mode"
+                },
+                "x": {
+                  "fieldName": "claims_90d",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Claims (last 90 days)"
+                },
+                "color": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Hanlin controller water ingress",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "Everyday failure modes",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Source"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Claims in the last 90 days, by AI failure mode"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "lots",
+                  "fields": [
+                    {
+                      "name": "controller_lot",
+                      "expression": "`controller_lot`"
+                    },
+                    {
+                      "name": "water_claims_per_1k_unit_years",
+                      "expression": "`water_claims_per_1k_unit_years`"
+                    },
+                    {
+                      "name": "pcn_reference",
+                      "expression": "`pcn_reference`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "controller_lot",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Controller lot"
+                },
+                "x": {
+                  "fieldName": "water_claims_per_1k_unit_years",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Water claims per 1k bike-yrs"
+                },
+                "color": {
+                  "fieldName": "pcn_reference",
+                  "displayName": "PCN reference",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "PCN-0419",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "none",
+                        "color": "#1B6E7A"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hanlin MC-48 lots — water-ingress claims per 1k bike-years"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "lots",
+                  "fields": [
+                    {
+                      "name": "controller_lot",
+                      "expression": "`controller_lot`"
+                    },
+                    {
+                      "name": "e21_bikes_per_1k_connected",
+                      "expression": "`e21_bikes_per_1k_connected`"
+                    },
+                    {
+                      "name": "pcn_reference",
+                      "expression": "`pcn_reference`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "controller_lot",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Controller lot"
+                },
+                "x": {
+                  "fieldName": "e21_bikes_per_1k_connected",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "E21 bikes per 1k connected"
+                },
+                "color": {
+                  "fieldName": "pcn_reference",
+                  "displayName": "PCN reference",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "PCN-0419",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "none",
+                        "color": "#1B6E7A"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hanlin lots — connected bikes reporting E21 (per 1k)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "early_warning",
+                  "fields": [
+                    {
+                      "name": "failure_mode_label",
+                      "expression": "`failure_mode_label`"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "claims_90d",
+                      "expression": "`claims_90d`"
+                    },
+                    {
+                      "name": "rate_90d_per_1k_unit_years",
+                      "expression": "`rate_90d_per_1k_unit_years`"
+                    },
+                    {
+                      "name": "baseline_rate_per_1k_unit_years",
+                      "expression": "`baseline_rate_per_1k_unit_years`"
+                    },
+                    {
+                      "name": "rate_ratio",
+                      "expression": "`rate_ratio`"
+                    },
+                    {
+                      "name": "cost_label",
+                      "expression": "`cost_label`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "failure_mode_label",
+                    "displayName": "Failure mode"
+                  },
+                  {
+                    "fieldName": "supplier_name",
+                    "displayName": "Supplier"
+                  },
+                  {
+                    "fieldName": "claims_90d",
+                    "displayName": "Claims (90 d)"
+                  },
+                  {
+                    "fieldName": "rate_90d_per_1k_unit_years",
+                    "displayName": "Rate (90 d)"
+                  },
+                  {
+                    "fieldName": "baseline_rate_per_1k_unit_years",
+                    "displayName": "Baseline rate"
+                  },
+                  {
+                    "fieldName": "rate_ratio",
+                    "displayName": "Ratio"
+                  },
+                  {
+                    "fieldName": "cost_label",
+                    "displayName": "Cost (90 d)"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Early-warning board — last 90 days vs prior 12 months (per 1k bike-years)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "p2",
+      "displayName": "Supplier recovery",
+      "layout": [
+        {
+          "widget": {
+            "name": "w13",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Supplier Recovery\n",
+                "\n",
+                "Supplier recovery rate and unrecovered cost by supplier, how dealers *coded* the water-ingress claims (most not as a controller fault), and the wet-vs-dry regional split. Hanlin recovers only ~7% — the chargeback gap is the story.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "recovery",
+                  "fields": [
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "recovery_rate_pct",
+                      "expression": "`recovery_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "supplier_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Supplier"
+                },
+                "x": {
+                  "fieldName": "recovery_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Recovery rate (%)"
+                },
+                "color": {
+                  "fieldName": "supplier_name",
+                  "displayName": "Supplier",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Ardent Brake Components",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Hanlin Electronics Co.",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "Kessler Drive Systems GmbH",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Torvik Frameworks",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Voltcell Energy",
+                        "color": "#13293D"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier recovery rate, last 4 settled quarters (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "recovery",
+                  "fields": [
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "unrecovered",
+                      "expression": "`unrecovered`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "supplier_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Supplier"
+                },
+                "x": {
+                  "fieldName": "unrecovered",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Unrecovered cost ($)"
+                },
+                "color": {
+                  "fieldName": "supplier_name",
+                  "displayName": "Supplier",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Ardent Brake Components",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Hanlin Electronics Co.",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "Kessler Drive Systems GmbH",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Torvik Frameworks",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "Voltcell Energy",
+                        "color": "#13293D"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Unrecovered supplier-attributable cost, 4 quarters ($)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "coding",
+                  "fields": [
+                    {
+                      "name": "dealer_labor_code",
+                      "expression": "`dealer_labor_code`"
+                    },
+                    {
+                      "name": "claims",
+                      "expression": "`claims`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "dealer_labor_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Dealer labor code"
+                },
+                "x": {
+                  "fieldName": "claims",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Claims"
+                },
+                "color": {
+                  "fieldName": "dealer_labor_code",
+                  "displayName": "Dealer labor code",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "ELEC-GEN",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "MOTOR",
+                        "color": "#13293D"
+                      },
+                      {
+                        "value": "OTHER",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "How dealers coded the controller water-ingress claims"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "region",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "claims",
+                      "expression": "`claims`"
+                    },
+                    {
+                      "name": "climate",
+                      "expression": "`climate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Region"
+                },
+                "x": {
+                  "fieldName": "claims",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Claims (last 90 days)"
+                },
+                "color": {
+                  "fieldName": "climate",
+                  "displayName": "Climate",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Wet region",
+                        "color": "#E4572E"
+                      },
+                      {
+                        "value": "Dry region",
+                        "color": "#5FB3B3"
+                      }
+                    ]
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Controller water-ingress claims, last 90 days, by region"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "recovery_q",
+                  "fields": [
+                    {
+                      "name": "quarter",
+                      "expression": "`quarter`"
+                    },
+                    {
+                      "name": "supplier_name",
+                      "expression": "`supplier_name`"
+                    },
+                    {
+                      "name": "supplier_attributable_claims",
+                      "expression": "`supplier_attributable_claims`"
+                    },
+                    {
+                      "name": "cost_label",
+                      "expression": "`cost_label`"
+                    },
+                    {
+                      "name": "recovered_label",
+                      "expression": "`recovered_label`"
+                    },
+                    {
+                      "name": "recovery_label",
+                      "expression": "`recovery_label`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "quarter",
+                    "displayName": "Quarter"
+                  },
+                  {
+                    "fieldName": "supplier_name",
+                    "displayName": "Supplier"
+                  },
+                  {
+                    "fieldName": "supplier_attributable_claims",
+                    "displayName": "Claims"
+                  },
+                  {
+                    "fieldName": "cost_label",
+                    "displayName": "Attributable cost"
+                  },
+                  {
+                    "fieldName": "recovered_label",
+                    "displayName": "Recovered"
+                  },
+                  {
+                    "fieldName": "recovery_label",
+                    "displayName": "Recovery"
+                  },
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Supplier chargebacks by quarter"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#13293D",
+        "#E4572E",
+        "#1B6E7A",
+        "#F2A541",
+        "#5FB3B3"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

@@ -12,8 +12,8 @@
 1. Dashboard shows fraud spike concentrated in CNP transactions, specific merchant categories
 2. Jennifer asks Genie: "Why did CNP fraud spike this week?"
 3. Genie traces to a cluster of transactions at online electronics merchants, linked to a compromised merchant (TechDealz Online)
-4. Jennifer asks Knowledge Assistant: "What do we know about TechDealz fraud pattern?"
-5. KA reveals: fraud intelligence report showing TechDealz was compromised, synthetic identity ring operating
+4. Jennifer asks Genie about the documents: "What do we know about TechDealz fraud pattern?"
+5. The answer cites: fraud intelligence report showing TechDealz was compromised, synthetic identity ring operating
 
 **The Resolution:**
 - Root cause: TechDealz Online merchant breach + synthetic identity ring using stolen cards
@@ -44,8 +44,7 @@
 | Pipeline | Bronze/Silver/Gold with fraud metrics |
 | Dashboard | Fraud KPIs, trends, merchant breakdown |
 | Genie Space | Query transaction and fraud data |
-| Knowledge Assistant | Search fraud intel, merchant reports, regulations |
-| Multi-Agent Supervisor | Route between data and document queries |
+| Genie (documents) | Search fraud intel, merchant reports, regulations |
 | ML Notebook | Real-time fraud scoring model |
 
 ## Build Order
@@ -54,6 +53,5 @@
 2. Create pipeline (Bronze → Silver → Gold)
 3. Build dashboard (fraud metrics, trends)
 4. Configure Genie Space
-5. Generate documents and configure KA
-6. Set up Multi-Agent Supervisor
-7. Train/deploy ML model for fraud detection
+5. Generate documents and attach them to the Genie agent
+6. Train/deploy ML model for fraud detection

@@ -1,0 +1,10 @@
+{
+  "id": "travel-disruption-rebooking",
+  "name": "IROPS Copilot — Autonomous Disruption Response & Rebooking",
+  "customer": "Aeralis Airways",
+  "industry": "Retail & CPG",
+  "narrative": "Winter Storm Harlan has shut Chicago O'Hare, and Aeralis Airways (a fictional carrier) has cancelled 36 flights and 5,266 trips. Its legacy auto-rebooker already ran: first-booked, first-served, own metal only. It got 16% of passengers home today and left 248 of 283 special-assistance passengers, 14 unaccompanied minors and 55 long-haul connectors stranded. Marisol Vega's IROPS desk asks Genie how bad it is, and the history shows the DEN desk's priority-rebooking pilot cost less and moved NPS from -28 to +15.\n\nThe aha is one flight, AE 1418 to San Francisco. The IROPS Copilot reads every passenger: SSR codes, Tokyo and Sydney connections, AI Functions on their messages (a funeral tomorrow), and a UC detractor-risk model. It re-plans in priority order inside the cost guardrails and cites UMNR and refund rules from a Genie agent. The result is 103 home today instead of 43, every child and wheelchair passenger protected, zero misconnects, and .7K cheaper. The K of partner spend goes to the Duty Manager, who approves; the rebookings are committed to Lakebase and written back to Delta for the ops dashboard.",
+  "dbdemos_tracker": {
+    "app_id": "travel-disruption-rebooking"
+  }
+}

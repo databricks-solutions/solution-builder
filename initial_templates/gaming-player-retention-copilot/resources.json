@@ -1,0 +1,23 @@
+{
+    "short_description": "Hollowspire (fictional F2P action RPG by Emberline Studios) lost a third of its new-player D7 retention after the Season 7 launch — a boss wall at stage 7-4, 5-8 minute ranked queues in APAC/OCE, and harassment in the new Raid Finder. A Live-Ops Console app scores every player with UC-registered XGBoost churn + LTV models and SHAP drivers, reads the chat moderation queue with AI Functions, and a live-ops copilot sizes the at-risk LTV by segment, prices every intervention with a deterministic plan engine inside the monthly budget (rejecting the blanket gem sale), drafts the player message and schedules the fix — written back to Lakebase + Delta. Live-ops dashboard (D1/D7/D30, ARPDAU, churn by cohort) + Genie on the same tables.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "ml-training-serving",
+            "unity-catalog",
+            "aibi-dashboards",
+            "genie",
+            "databricks-apps",
+            "lakebase",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "zerobus-ingest",
+            "sdp",
+            "genie-one",
+            "ai-gateway"
+        ]
+    },
+    "created_resources": {}
+}

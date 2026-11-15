@@ -1,0 +1,95 @@
+// =============================================================================
+// SERVERLESS → ON-PREMISES ON GCP: PRIVATE SERVICE CONNECT + HYBRID NEG
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Serverless compute runs in the Databricks-managed serverless plane, outside the
+//     customer's VPC. On GCP there is no Private Network Gateway: the private path to
+//     the customer network is a PSC endpoint, created as a PRIVATE ENDPOINT RULE in the
+//     workspace's Network Connectivity Configuration (NCC).
+//   • The customer publishes the target through a chain built in a hub VPC:
+//       1. a Hybrid Connectivity NEG (network endpoint group) whose endpoints are the
+//          target's private IP and port (an on-prem database, server or API);
+//       2. an internal TCP Proxy Load Balancer with the hybrid NEG as its backend. Its
+//          Envoy proxies run in a regional PROXY-ONLY subnet, and that subnet is
+//          advertised to on-prem over BGP (Cloud Router) so return traffic comes back;
+//       3. a PSC SERVICE ATTACHMENT fronting the load balancer's forwarding rule, using
+//          a dedicated PSC NAT subnet;
+//       4. the NCC private endpoint rule points at that service attachment.
+//   • The hub reaches on-prem over Cloud Interconnect or HA VPN (S2S); Cloud Router
+//     exchanges the routes. The workspace VPC is peered to the hub but is not on the
+//     serverless path.
+//   • This is the "Private Link service" pattern: use it when PNG is not an option. It
+//     is not managed: the customer provisions, monitors and maintains the load balancer
+//     and its configuration, one target (IP:port) per NEG endpoint.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The hops run in traffic order inside one hub row: the PSC NAT subnet → load balancer
+//     subnet → proxy-only subnet → hybrid NEG, then the link and on-premises. Each hop is a
+//     subnet box or a tile on `track: "t1"`, so the red path is one straight line.
+//   • What does not carry the data (Cloud Router's BGP, the peering) is grey and dashed.
+//   • A VPC with no traffic on this slide (the workspace VPC) is ONE card.
+//
+// ADAPT IT: same chain on AWS (NLB + VPC endpoint service) and on Azure (Load
+// Balancer + Private Link service + proxy VMs): swap the subnets and icons. Several
+// targets: one NEG endpoint per target IP:port, not one diagram path each.
+// =============================================================================
+[
+  {
+    "name": "Private Service Connect — GCP",
+    "story": "Serverless compute runs in the Databricks-managed serverless plane, outside the customer's VPC. To reach a private target on-premises, the customer builds a chain in the hub VPC: a Hybrid Connectivity NEG holding the target's private IP and port, an internal TCP Proxy Load Balancer using that NEG as its backend (its Envoy proxies run in a regional proxy-only subnet advertised to on-prem over BGP), and a Private Service Connect service attachment in front of the load balancer's forwarding rule, using a dedicated PSC NAT subnet. A private endpoint rule in the workspace's NCC connects serverless to that service attachment. Traffic then reaches the data centre over Cloud Interconnect or HA VPN. The workspace VPC is peered to the hub and is not on the serverless path. The customer owns and maintains the load balancer chain; use it when a Private Network Gateway is not an option.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Private Service Connect on GCP","subtitle":"Serverless reaches on-premises through a TCP proxy load balancer and a PSC service attachment"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "ai_reasoning": "Databricks-managed; outside the customer's Google Cloud project", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "ai_reasoning": "where the traffic starts", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "pe-rule", "type": "logo", "icon": "file:databricks-line/endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "a PSC endpoint created by Databricks from the NCC rule; it targets the customer's service attachment", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "gcp", "type": "box", "title": "Google Cloud", "titleIcon": "file:cloud/gcp/gcp", "layout": "column", "gap": 106, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VPC", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "row", "gap": 121, "align": "start", "children": [
+          {"id": "psc-subnet", "type": "box", "title": "PSC NAT subnet", "subtitle": "10.1.0.0/24", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "svc-att", "type": "logo", "icon": "file:cloud/gcp/networking/private-service-connect", "text": "PSC service attachment", "caption": "bottom", "ai_reasoning": "publishes the load balancer to Databricks; connections are NATed from the PSC NAT subnet", "track": "line-serverless"}
+          ] },
+          {"id": "lb-subnet", "type": "box", "title": "Load balancer subnet", "subtitle": "10.1.1.0/24", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "fwd", "type": "logo", "icon": "file:cloud/gcp/networking/load-balancing", "text": "Forwarding rule", "caption": "bottom", "ai_reasoning": "the internal TCP Proxy Load Balancer's frontend IP:port, the thing the service attachment fronts", "track": "line-serverless"}
+          ] },
+          {"id": "proxy-subnet", "type": "box", "title": "Proxy-only subnet", "subtitle": "10.1.2.0/24 · advertised via BGP", "titleIcon": "file:cloud/gcp/networking/vpc", "layout": "column", "children": [
+            {"id": "envoy", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-service-mesh", "text": "Envoy proxies", "caption": "bottom", "ai_reasoning": "Google-managed proxies of the TCP Proxy Load Balancer; they open the connection to the target, so on-prem sees their proxy-only subnet addresses", "track": "line-serverless"}
+          ] },
+          {"id": "col-neg", "type": "group", "layout": "column", "gap": 26, "align": "center", "children": [
+            {"id": "neg", "type": "logo", "icon": "lucide:layers", "text": "Hybrid NEG", "caption": "bottom", "ai_reasoning": "the load balancer backend: one endpoint per on-prem target IP:port; a regional resource of the hub VPC, not in a subnet", "track": "line-serverless"},
+            {"id": "router", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-router", "text": "Cloud Router", "caption": "bottom", "ai_reasoning": "exchanges routes with on-prem over BGP, including the proxy-only subnet so replies find their way back", "track": "line-router"}
+          ] }
+        ] },
+        {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/gcp/networking/vpc", "body": "<b>Workspace subnet</b> <span style=\"color:#64748b\">10.0.0.0/16</span>", "ai_reasoning": "classic compute; peered to the hub, not on the serverless path, so one card"}
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/gcp/networking/cloud-interconnect", "text": "Interconnect / HA VPN", "caption": "bottom", "ai_reasoning": "Cloud Interconnect or Cloud VPN (S2S); either works", "track": "line-serverless"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "track": "line-serverless"},
+        {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+        {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom", "track": "line-router"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "pe-rule", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "pe-rule", "to": "svc-att", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the one hop from the Databricks plane into the customer project, over PSC"},
+      {"id": "e3", "from": "svc-att", "to": "fwd", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "fwd", "to": "envoy", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "envoy", "to": "neg", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "neg", "to": "link", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "link", "to": "op-server", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e8", "from": "router@r", "to": "link@b", "dashed": true, "label": "BGP routes", "ai_reasoning": "control plane only: route exchange, no data"},
+      {"id": "e9", "from": "proxy-subnet@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "VPC peering", "ai_reasoning": "hub ↔ workspace VPC; grey and dashed because serverless traffic does not use it"}
+    ]
+  }
+]

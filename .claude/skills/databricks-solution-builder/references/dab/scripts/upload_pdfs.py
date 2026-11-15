@@ -1,8 +1,9 @@
 # Databricks notebook source
 """
 Copy pre-rendered PDFs from the synced workspace to a UC volume — reference
-script for a DAB setup-job task. These PDFs are the demo's RAG sources, read
-later by the Knowledge Assistant.
+script for a DAB setup-job task. These PDFs are the demo's document source: the
+Genie agent reads them from this volume (deploy_genie attaches the volume and
+waits for its index).
 
 Local pre-deploy step (run BEFORE `databricks bundle deploy`):
   python src/documents/html_to_pdf.py
@@ -23,7 +24,8 @@ Parameters:
 
 # COMMAND ----------
 
-# ⚠️ EDIT PER DEMO: the UC volume the PDFs land in (the KA reads from here).
+# ⚠️ EDIT PER DEMO: the UC volume the PDFs land in. Use a dedicated volume that
+# holds ONLY documents: the whole volume is indexed.
 VOLUME = "<demo_documents_volume>"
 
 # COMMAND ----------

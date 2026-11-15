@@ -95,7 +95,22 @@ export function MessageBubble({
                  raw <iframe> / <style> / <a href="javascript:…"> markup.
                  ReactMarkdown doesn't execute scripts, but it does render
                  HTML tags by default. Matches ThinkingPanel's behavior. */}
-              <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml>{content}</ReactMarkdown>
+              {/* Genie Agent citations are `[n](url)` links to the source
+                 documents (volume file preview) — open them in a new tab so
+                 the chat isn't navigated away. */}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                skipHtml
+                components={{
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
             {thinking.length > 0 && !streaming && (
               <div className="mt-2">

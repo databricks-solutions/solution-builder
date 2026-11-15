@@ -1,49 +1,37 @@
 # Databricks notebook source
 """
-Grant the App's service principal UC privileges — reference script for a DAB
-setup-job task.
+Grant the App's service principal access to the demo data, the documents
+volume and the Genie agent.
 
-The app reads the demo's data via SQL warehouse + reads RAG PDFs from a UC
-volume. Without these grants the app's first /api/config call crashes with:
+Without these grants the app's first /api/config call crashes with:
   INSUFFICIENT_PERMISSIONS: User does not have USE CATALOG on Catalog ...
 
-Granted to the app SP:
+Granted:
   - USE_CATALOG on the catalog
-  - USE_SCHEMA + SELECT on the schema (covers every gold_*/silver_*/mv_* read)
-  - READ_VOLUME on the demo's volume(s)
-  - EXECUTE on the ML model/function (wrapped in try/warn — the model may not
-    be registered yet on an early run; future-proofing grant, not fatal)
+  - USE_SCHEMA + SELECT on the schema (covers all gold_* / silver_* / mv_returns reads)
+  - READ_VOLUME on the documents volume (the PDF documents the Genie agent reads)
+  - READ_VOLUME on the raw data volume
+  - EXECUTE on the ML model/function (wrapped in try/warn: model may not exist yet)
+  - CAN_RUN on the Genie agent (the app asks it questions in Agent mode)
 
-═══════════════════════════════════════════════════════════════════════════
-WHY auto-resolve the SP: the grant target is the app's service-principal
-client_id (a UUID). We resolve it via w.apps.get(app_name) rather than passing
-it as a parameter — more robust against config drift. UC grants are issued as
-SQL via spark.sql (easier than the SDK for GRANT statements).
-
-Idempotent — repeated grants no-op.
+Idempotent — Postgres no-ops repeated grants; the permissions PATCH merges.
 
 Parameters:
-- catalog, schema, app_name
+- catalog, schema, app_name, genie_space_id (from deploy_genie taskValue)
 """
-
-# COMMAND ----------
-
-# ⚠️ EDIT PER DEMO: the volumes + model/function the app needs. List every UC
-# volume the app reads (RAG PDFs, raw data, …) and the ML model/function it
-# scores against. Names are this demo's — rename to match your assets.
-DEMO_VOLUMES = ["<demo_documents_volume>", "<demo_raw_data_volume>"]
-DEMO_MODEL_FUNCTION = "<demo_ml_model>"   # e.g. customer_premium_classifier
 
 # COMMAND ----------
 
 dbutils.widgets.text("catalog",  "", "Catalog")
 dbutils.widgets.text("schema",   "", "Schema")
 dbutils.widgets.text("app_name", "", "App name")
+dbutils.widgets.text("genie_space_id", "", "Genie space ID")
 
 catalog  = dbutils.widgets.get("catalog")
 schema   = dbutils.widgets.get("schema")
 app_name = dbutils.widgets.get("app_name")
-assert catalog and schema and app_name
+genie_space_id = dbutils.widgets.get("genie_space_id")
+assert catalog and schema and app_name and genie_space_id, "catalog, schema, app_name, genie_space_id are required"
 
 # COMMAND ----------
 
@@ -51,8 +39,8 @@ from databricks.sdk import WorkspaceClient
 
 w = WorkspaceClient()
 
-# Resolve the app SP's client_id (UUID grant target). Auto-resolving is more
-# robust against config drift than passing it as a parameter.
+# Resolve the app SP's client_id (UUID grant target). Could be passed as
+# a parameter too, but auto-resolving is more robust against config drift.
 app = w.apps.get(name=app_name)
 sp_client_id = app.service_principal_client_id
 assert sp_client_id, f"App '{app_name}' has no service_principal_client_id"
@@ -64,15 +52,11 @@ print(f"App SP: {sp_client_id}")
 grants = [
     f"GRANT USE_CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
     f"GRANT USE_SCHEMA, SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+    f"GRANT READ_VOLUME ON VOLUME {catalog}.{schema}.<demo_documents_volume> TO `{sp_client_id}`",
+    f"GRANT READ_VOLUME ON VOLUME {catalog}.{schema}.<demo_raw_volume> TO `{sp_client_id}`",
+    # Future-proofing: model + ML predictions table read.
+    f"GRANT EXECUTE ON FUNCTION {catalog}.{schema}.<demo_ml_model> TO `{sp_client_id}`",
 ]
-grants += [
-    f"GRANT READ_VOLUME ON VOLUME {catalog}.{schema}.{vol} TO `{sp_client_id}`"
-    for vol in DEMO_VOLUMES
-]
-# Model/function read (may not exist yet — EXECUTE grant is wrapped below).
-grants.append(
-    f"GRANT EXECUTE ON FUNCTION {catalog}.{schema}.{DEMO_MODEL_FUNCTION} TO `{sp_client_id}`"
-)
 
 for stmt in grants:
     print(f"  {stmt}")
@@ -87,4 +71,19 @@ for stmt in grants:
         else:
             raise
 
-print("Grants applied.")
+print("UC grants applied.")
+
+# COMMAND ----------
+
+# CAN_RUN on the Genie agent. Genie is not a bundle-bindable app resource here
+# (the app is deployed separately), so grant it through the permissions API.
+# The grant is additive: the PATCH merges into the existing ACL.
+w.api_client.do(
+    "PATCH",
+    f"/api/2.0/permissions/genie/{genie_space_id}",
+    body={"access_control_list": [{
+        "service_principal_name": sp_client_id,
+        "permission_level": "CAN_RUN",
+    }]},
+)
+print(f"Genie agent {genie_space_id}: CAN_RUN granted to app SP.")

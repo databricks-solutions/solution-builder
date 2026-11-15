@@ -36,9 +36,10 @@ function Layout() {
     <SessionProvider>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset>
+        <SidebarInset className="min-w-0">
           <AppHeader />
-          <div className="flex-1 min-h-0">
+          {/* pb-28: the floating "Ask the assistant" button sits over the bottom of every page. */}
+          <div className="flex-1 min-h-0 pb-28">
             <Outlet />
           </div>
         </SidebarInset>

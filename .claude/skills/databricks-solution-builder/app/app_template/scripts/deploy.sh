@@ -89,10 +89,10 @@ echo "[deploy] app=$APP_NAME  ws_path=$WS_PATH  user=$USER_NAME"
 # 0) Rebuild from source before uploading. A stale dist/ is a real footgun:
 #    the container installs FRESH deps (npm ci), so a dist/ built against an
 #    older @databricks/appkit crashes at boot (e.g. "server({autoStart}) has
-#    been removed"). build-app.sh runs `npm run build:source` AND rewrites the
-#    lockfile's proxy URLs → public registry (the container can't reach the
-#    internal proxy). Always rebuild here so what we upload matches the deps
-#    the container will install.
+#    been removed"). build-app.sh runs `npm run build:source`. The lockfile
+#    must keep its public registry.npmjs.org URLs (the container can only
+#    reach the public registry). Always rebuild here so what we upload matches
+#    the deps the container will install.
 echo "[deploy] rebuilding dist/ from source (avoids stale-dist boot crash)…"
 if ! ./scripts/build-app.sh; then
     echo "[deploy] ERROR: build-app.sh failed — fix the build before deploying." >&2

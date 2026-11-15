@@ -299,6 +299,9 @@ export function ChatDock() {
       // but this guards against any future regression of that ordering.
       onTurnEnd: async () => {
         if (!conversationId) return;
+        // Dock-created conversations aren't in the sidebar store; refresh it so
+        // the new row (and its first-message title) shows without a reload.
+        void conversationStore.reloadList().catch(() => {});
         try {
           const res = await fetch(`/api/conversations/${conversationId}`);
           if (res.ok) {
@@ -375,6 +378,9 @@ export function ChatDock() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    // No conversation yet (the dock is still creating it): keep the text so
+    // the user's message isn't silently dropped; Send is disabled until it exists.
+    if (!conversationId) return;
     // Sending always means the user is engaged with the latest reply →
     // re-stick to bottom so the response streams into view.
     stickToBottomRef.current = true;
@@ -576,7 +582,7 @@ export function ChatDock() {
             ) : (
               <button
                 type="submit"
-                disabled={!input.trim()}
+                disabled={!input.trim() || !conversationId}
                 className="inline-flex items-center justify-center size-8 rounded-md bg-foreground text-background disabled:opacity-30 hover:opacity-90 transition-opacity"
                 aria-label="Send"
               >

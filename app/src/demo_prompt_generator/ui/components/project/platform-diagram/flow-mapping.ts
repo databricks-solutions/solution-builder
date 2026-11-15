@@ -16,6 +16,11 @@ import {
   type BandId,
   type AnnotationData,
   logoFootprint,
+  naturalSize,
+  isDerivedNodeId,
+  cardLayout,
+  withCardFont,
+  htmlBlockLayout,
 } from "@/lib/platform-architecture";
 import { type NodeData, type EdgeData, nodeFootprint, nodeTypeFor } from "./shared";
 import { ANNOTATION_DEFAULT_SIZE, type AnnotationNodeData } from "./annotations";
@@ -48,6 +53,7 @@ export function schemaToFlow(
   onRename: (id: string, label: string) => void,
   onSetDescription: (id: string, desc: string) => void,
   onAnnotate: (id: string, patch: Partial<AnnotationData>) => void,
+  onAutoHeight?: (id: string, h: number) => void,
 ): { nodes: Node[]; edges: Edge[] } {
   const lookup = componentLookup(schema);
   const hidden = new Set(schema.layout.hidden);
@@ -63,11 +69,22 @@ export function schemaToFlow(
       // unit tightly (matches computeLayout's sizeOf + the render). An explicit
       // w/h (dragged / add-time-sized) still wins.
       const base =
-        pos.annotation.variant === "logo" && !pos.w && !pos.h
+        // A card's height is measured from its text (the same cardLayout the
+        // render draws from); an explicit w/h sets the width / a height floor.
+        pos.annotation.variant === "card"
+          ? (() => { const l = cardLayout(withCardFont(pos.annotation!, pos.cardFont), { w: pos.w, h: pos.h }); return { w: l.w, h: l.h }; })()
+          // An html block is measured from its HTML (the same htmlBlockLayout the render draws).
+          : pos.annotation.variant === "html"
+          ? htmlBlockLayout(pos.annotation.html, { w: pos.w, h: pos.h }, pos.annotation.padding ?? 0)
+          : pos.annotation.variant === "logo" && !pos.w && !pos.h
           // A same-lane captioned-logo group imposes a uniform width (step 2.5's
           // derived `laneW`) so the cards match + icons align; otherwise the box
           // hugs the icon+caption footprint. An explicit w/h still wins.
-          ? (() => { const f = logoFootprint(sz.w, sz.h, pos.annotation); return { w: pos.laneW ?? f.w, h: f.h }; })()
+          ? (() => {
+              const a = { ...pos.annotation, fontSize: pos.annotation.fontSize ?? (schema.theme === "slide" ? 18 : undefined) };
+              const f = logoFootprint(sz.w, sz.h, a);
+              return { w: pos.laneW ?? f.w, h: f.h };
+            })()
           : { w: pos.w ?? sz.w, h: pos.h ?? sz.h };
       const fp = nodeFootprint({ id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent, { w: base.w, h: base.h, rot: pos.rot });
       nodes.push({
@@ -81,18 +98,19 @@ export function schemaToFlow(
         data: {
           nodeId: id,
           type: pos.type ?? pos.annotation.variant,
+          theme: schema.theme,
           annotation: pos.annotation,
-          component: { id, label: "", icon: "data", desc: "", state: "active" } as PlatformComponent,
+          component: { id, label: (pos.annotation.title ?? pos.annotation.text ?? "").split("\n")[0].replace(/[*#`]/g, "").trim(), icon: "data", desc: pos.annotation.desc ?? "", state: "active" } as PlatformComponent,
           bandId: "sources" as BandId,
           bandColor: "#64748b",
-          deepLink: null,
+          deepLink: pos.url ?? null,
           onSelect, onContext, onResize, onRename, onSetDescription, onAnnotate,
           rot: pos.rot ?? 0,
           // Keep w/h as the FILE's explicit size (undefined for a col-placed logo,
           // so it round-trips symbolically — no frozen `size` on save). The render
           // (RotatableCard for a captioned logo) derives the footprint itself when
           // w/h are absent, filling the RF box computed above.
-          w: pos.w, h: pos.h, laneW: pos.laneW, scale: pos.scale,
+          w: pos.w, h: pos.h, laneW: pos.laneW, cardFont: pos.cardFont, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor, iconColor: pos.iconColor,
           borderWidth: pos.borderWidth, borderStyle: pos.borderStyle, borderColor: pos.borderColor, borderRadius: pos.borderRadius, shadow: pos.shadow, groupId: pos.groupId,
         } satisfies AnnotationNodeData,
@@ -106,13 +124,21 @@ export function schemaToFlow(
         id, label: pos.label ?? logoLabel(pos.source.key), icon: pos.icon ?? pos.source.icon,
         desc: "", state: "active",
       };
-      const fp = nodeFootprint(component, pos);
+      const verticalSource = pos.sourceCaption === "top" || pos.sourceCaption === "bottom";
+      const themed = pos.w === undefined && pos.h === undefined && !verticalSource
+        ? naturalSize("source")
+        : null;
+      // When wrap-desc auto-grows the box, leave `h` unset so nodeFootprint owns
+      // the (nat + wrapped-lines) height; else keep the themed height as before.
+      // A lane-uniform `laneW` (step 2.5) wins over the themed width: the card
+      // renders at laneW, so the node box (export crop, anchors) must match it.
+      const fp = nodeFootprint(component, themed ? { ...pos, theme: schema.theme, w: pos.laneW ?? themed.w, ...(pos.wrapDesc ? {} : { h: themed.h }) } : { ...pos, theme: schema.theme });
       nodes.push({
         id, type: "component", position: { x: pos.x, y: pos.y },
         width: fp.w, height: fp.h, zIndex: pos.z ?? pos.autoZ ?? NODE_Z, style: { width: fp.w, height: fp.h },
         data: {
-          nodeId: id, type: pos.type ?? "source", component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
-          deepLink: null, onSelect, onContext, onResize, onRename, onSetDescription,
+          nodeId: id, type: pos.type ?? "source", theme: schema.theme, component, bandId: "sources" as BandId, bandColor: BAND_COLOR.sources,
+          deepLink: pos.url ?? null, onSelect, onContext, onResize, onRename, onSetDescription, onAutoHeight,
           allowTrademark: schema.enableTrademarkLogos ?? false,
           sourceKey: pos.source.key,
           sourceCaption: pos.sourceCaption,
@@ -120,6 +146,7 @@ export function schemaToFlow(
           fontSize: pos.fontSize,
           desc: pos.desc,
           showDesc: pos.showDesc,
+          wrapDesc: pos.wrapDesc,
           rot: pos.rot ?? 0,
           w: pos.w, h: pos.h, scale: pos.scale,
           opacity: pos.opacity, fillColor: pos.fillColor, fontColor: pos.fontColor, iconColor: pos.iconColor,
@@ -158,7 +185,10 @@ export function schemaToFlow(
             ...(pos.desc !== undefined ? { desc: pos.desc } : {}),
           }
         : found.component;
-    const fp = nodeFootprint(component, pos);
+    const themed = pos.w === undefined && pos.h === undefined
+      ? naturalSize(compType, pos.params, pos.sources)
+      : null;
+    const fp = nodeFootprint(component, themed ? { ...pos, w: themed.w, theme: schema.theme, ...(pos.wrapDesc ? {} : { h: themed.h }) } : { ...pos, theme: schema.theme });
     nodes.push({
       id,
       type: nodeTypeFor(component),
@@ -172,15 +202,17 @@ export function schemaToFlow(
       data: {
         nodeId: id,
         type: compType,
+        theme: schema.theme,
         component,
         bandId,
         bandColor: BAND_COLOR[bandId],
-        deepLink: deepLinks[compType] ?? null,
+        deepLink: pos.url ?? deepLinks[compType] ?? null,
         onSelect,
         onContext,
         onResize,
         onRename,
         onSetDescription,
+        onAutoHeight,
         rot: pos.rot ?? 0,
         w: pos.w,
         h: pos.h,
@@ -188,6 +220,7 @@ export function schemaToFlow(
         opacity: pos.opacity,
         fillColor: pos.fillColor,
         fontColor: pos.fontColor,
+        headerFill: pos.headerFill,
         iconColor: pos.iconColor,
         borderWidth: pos.borderWidth,
         borderStyle: pos.borderStyle,
@@ -200,6 +233,7 @@ export function schemaToFlow(
         fontSize: pos.fontSize,
         desc: pos.desc,
         showDesc: pos.showDesc,
+        wrapDesc: pos.wrapDesc,
         allowTrademark: schema.enableTrademarkLogos ?? false,
       } satisfies NodeData,
     });
@@ -210,12 +244,18 @@ export function schemaToFlow(
   // round-trip through flowToLayout → serializeArchitecture so an unmoved node
   // re-emits its symbolic fields instead of flattening to pixel `at`.
   for (const n of nodes) {
+    // The DERIVED legend box (synthesized from the tab's `legend`): it isn't a
+    // file node, so it must not be draggable or selectable — otherwise the user
+    // could move/edit something that has nowhere to persist. Edit it by editing
+    // `legend` (or drop a plain box if you want a free-form one).
+    if (isDerivedNodeId(n.id)) { n.draggable = false; n.selectable = false; }
     const pos = schema.layout.nodes[n.id];
     if (!pos) continue;
     const d = n.data as NodeData;
     if (pos.placement) d.placement = pos.placement;
     if (pos.pinned) d.pinned = true;
     if (pos.params) d.params = pos.params;
+    if (pos.sources) d.sources = pos.sources;
     if (pos.stack && pos.stack > 1) d.stack = pos.stack;
     if (pos.ai_reasoning) d.ai_reasoning = pos.ai_reasoning;
   }
@@ -239,7 +279,7 @@ export function schemaToFlow(
   };
   const edges: Edge[] = schema.layout.edges
     .filter((e) => schema.layout.nodes[e.source] && schema.layout.nodes[e.target])
-    .map((e) => flowToEdge(e))
+    .map((e) => flowToEdge(e, schema.theme, schema.edgeLabelSize))
     .map((e) => ({ ...e, sourceHandle: fixHandle(e.source, e.sourceHandle, "source"), targetHandle: fixHandle(e.target, e.targetHandle, "target") }));
 
   return { nodes, edges };
@@ -283,7 +323,7 @@ export function fallbackHandle(set: Set<string>, missing: string | null | undefi
   return set.values().next().value as string | undefined;
 }
 
-export function flowToEdge(e: PlatformEdge): Edge {
+export function flowToEdge(e: PlatformEdge, theme: PlatformSchema["theme"] = "technical", labelFontSize?: number): Edge {
   return {
     id: e.id,
     source: e.source,
@@ -294,12 +334,16 @@ export function flowToEdge(e: PlatformEdge): Edge {
     sourceHandle: e.sourceHandle ?? "r",
     targetHandle: e.targetHandle ?? "l",
     type: "flow",
-    data: { animated: e.animated ?? false, dashed: e.dashed ?? false, shape: e.shape ?? "smooth", flowStyle: e.flowStyle, arrow: e.arrow ?? "auto", centerX: e.centerX },
+    // NOTE: this rebuilds `data` field-by-field, so ANY new persisted edge property
+    // must be added here as well as to the two serialisers. Omit it and the value
+    // round-trips to the file correctly and is then dropped on the way back in —
+    // which looks exactly like "it doesn't persist" while the saved JSON is fine.
+    data: { theme, labelFontSize, animated: e.animated ?? false, dashed: e.dashed ?? false, color: e.color, shape: e.shape ?? "smooth", flowStyle: e.flowStyle, arrow: e.arrow ?? "auto", centerX: e.centerX, bezier: e.bezier, controlPoints: e.controlPoints, waypoints: e.waypoints, labelPos: e.labelPos },
     label: e.label,
     // FlowEdge derives the visible stroke + arrow from the (possibly
     // auto-resolved) flowStyle; this is just the base.
     style: {
-      stroke: "var(--muted-foreground)",
+      stroke: e.color ?? "var(--muted-foreground)",
       strokeWidth: 1.5,
       opacity: 0.55,
       ...(e.dashed ? { strokeDasharray: "5 4" } : {}),
@@ -315,6 +359,9 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
   const catalog = componentLookup(schema);
   const positions: Record<string, NodePosition> = {};
   nds.forEach((n) => {
+    // Never persist a DERIVED node (legend box, frame title band) —
+    // parseArchitecture re-synthesizes them from `legend` / `frame` on every load.
+    if (isDerivedNodeId(n.id)) return;
     const dd = n.data as NodeData;
     const rot = dd.rot ?? 0;
     // Persist label/icon only when they DIFFER from the default — i.e. the
@@ -350,13 +397,16 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(iconOv !== undefined ? { icon: iconOv } : {}),
       ...(descOv !== undefined ? { desc: descOv } : {}),
       ...(dd.showDesc !== undefined ? { showDesc: dd.showDesc } : {}),
+      ...(dd.wrapDesc !== undefined ? { wrapDesc: dd.wrapDesc } : {}),
       ...(anno ? { annotation: anno } : {}),
       ...(dd.sourceKey ? { source: { key: dd.sourceKey, icon: dd.component.icon } } : {}),
       ...(dd.sourceCaption !== undefined ? { sourceCaption: dd.sourceCaption } : {}),
+      ...(Array.isArray(dd.sources) && dd.sources.length ? { sources: dd.sources } : {}),
       ...(dd.fontSize !== undefined ? { fontSize: dd.fontSize } : {}),
       ...(dd.opacity !== undefined ? { opacity: dd.opacity } : {}),
       ...(dd.fillColor !== undefined ? { fillColor: dd.fillColor } : {}),
       ...(dd.fontColor !== undefined ? { fontColor: dd.fontColor } : {}),
+      ...(dd.headerFill !== undefined ? { headerFill: dd.headerFill } : {}),
       ...(dd.iconColor !== undefined ? { iconColor: dd.iconColor } : {}),
       ...(dd.borderWidth !== undefined ? { borderWidth: dd.borderWidth } : {}),
       ...(dd.borderStyle !== undefined ? { borderStyle: dd.borderStyle } : {}),
@@ -397,10 +447,20 @@ export function flowToLayout(nds: Node[], eds: Edge[], schema: PlatformSchema): 
       ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
       animated: ed?.animated ?? false,
       dashed: ed?.dashed ?? false,
+      ...(ed?.color ? { color: ed.color } : {}),
       shape: ed?.shape ?? "smooth",
       ...(ed?.flowStyle ? { flowStyle: ed.flowStyle } : {}),
       ...(ed?.arrow && ed.arrow !== "auto" ? { arrow: ed.arrow } : {}),
       ...(typeof ed?.centerX === "number" ? { centerX: ed.centerX } : {}),
+      // Manual routing + label placement must survive the SAVE, not just the load.
+      // This is the write half of the round trip and it silently dropped all four of
+      // these, so any node move persisted a layout without them and the reseed then
+      // "correctly" restored an auto-placed label / default route. The read side
+      // being right is not enough — both halves have to carry every persisted field.
+      ...(ed?.bezier ? { bezier: true } : {}),
+      ...(ed?.controlPoints ? { controlPoints: ed.controlPoints } : {}),
+      ...(ed?.waypoints ? { waypoints: ed.waypoints } : {}),
+      ...(ed?.labelPos ? { labelPos: ed.labelPos } : {}),
       label: typeof e.label === "string" ? e.label : undefined,
     };
   });

@@ -87,7 +87,7 @@ def load_demo_catalog():
             description = f"Demo in {folder.name}"
 
         # Extract components from overview if present
-        components = ["Data Gen", "Pipeline", "Dashboard", "Genie", "KA", "MAS"]
+        components = ["Data Gen", "Pipeline", "Dashboard", "Genie", "Documents"]
         if "ML" in content or "ml" in content.lower():
             components.append("ML Notebook")
 

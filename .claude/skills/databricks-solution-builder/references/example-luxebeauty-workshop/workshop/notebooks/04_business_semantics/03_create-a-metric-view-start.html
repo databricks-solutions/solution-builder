@@ -1,0 +1,8 @@
+<h2>1/ Create a metric view — start simple</h2>
+<p>A <strong>metric view</strong> is the governed semantic layer: define your <strong>dimensions</strong> (how you slice) and <strong>measures</strong> (what you count) <em>once</em>, and the dashboard, Genie, and any SQL query all read the same <code>MEASURE(...)</code> — no drift. Start with the core measures:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Create a metric view called <code>mv_returns</code> over <code>gold_daily_summary</code>, with dimensions <code>date</code> (from the <code>summary_date</code> column), <code>region</code>, <code>category</code>, and <code>source</code> (<code>CASE WHEN is_bad_lot THEN 'Affected lot' ELSE 'Everyday' END</code>), and these measures: <code>total_revenue</code> = <code>SUM(revenue_usd)</code>, <code>total_refunds</code> = <code>SUM(returns_usd)</code>, <code>order_count</code> = <code>SUM(order_count)</code>, <code>return_count</code> = <code>SUM(return_count)</code>. Then query a couple of measures to confirm it works.</p>
+</blockquote>
+<blockquote class="note"><p>💡 The <code>source</code> dimension is what lets a business user ask Genie <em>"what's the return rate on the affected lot versus everything else?"</em> without knowing the <code>is_bad_lot</code> column exists.</p></blockquote>

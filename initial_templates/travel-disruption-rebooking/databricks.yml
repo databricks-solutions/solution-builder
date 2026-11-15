@@ -1,0 +1,268 @@
+# Aeralis Airways — IROPS disruption response & rebooking (IROPS Copilot) — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable). Nothing is created by hand:
+# database) and the setup job; the setup job builds the data, model and the Genie agent (tables + policy_docs volume):
+#   databricks bundle run irops_setup
+#       generate_data (schema + policy_docs volume + raw tables)
+#         → message_insights (AI Functions) ─┐
+#         → train_detractor_model (UC ML) ───┴→ build_gold (+ metric view) ─┐
+#         → upload_policy_docs ──────────────────────────────────────────────┴→ deploy_genie (waits for the docs index)
+#                                                                              → grant_app → export_resources
+#       export_resources writes <catalog>.<schema>.demo_resources (Genie agent id, documents volume) — the app reads it.
+#   databricks bundle run irops_app   → deploys the app source and starts it
+#
+#   databricks bundle deploy
+#   databricks bundle run irops_setup
+#   databricks bundle run irops_app
+# See dab_instructions.md.
+
+bundle:
+  name: travel_disruption_rebooking
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo data
+    default: retail_consumer_goods
+  schema:
+    description: Schema for demo tables, metric view, ML model and the policy_docs volume
+    default: travel_disruption_copilot
+  warehouse_id:
+    description: Serverless SQL warehouse (dashboard, Genie, app analytics + write-back)
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard, Genie space and ML experiment
+    default: /Workspace/Users/${workspace.current_user.userName}/travel-disruption-rebooking
+  app_name:
+    description: Databricks App name (unique per workspace, <= 30 chars)
+    default: disruption-rebooking-copilot
+  lakebase_project_slug:
+    description: Existing Lakebase (autoscaling) project the app database lives in
+    default: dbdemos-asset-generator
+  lakebase_branch_id:
+    default: production
+  lakebase_database_id:
+    description: Lakebase database resource id (RFC1123, unique in the project)
+    default: db-dbgen-disruption-rebooking
+  lakebase_database:
+    description: Postgres database name (created as a bundle resource)
+    default: dbgen_disruption_rebooking
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the bundle-created database. Non-personal: a group role, not a personal one.
+
+workspace:
+  root_path: ${var.workspace_folder}/.bundle/${bundle.target}
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "src/**"
+    - "genie/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+    - "app/package.json"        # the repo-root .gitignore ignores package*.json — the Apps
+    - "app/package-lock.json"   # container needs both to npm install
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/playwright-report/**"
+    - "app/test-results/**"
+    - "app/tests/**"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default target — no pinned host: deploys to whatever workspace your profile points at (forks, "Download
+  # DAB"). Bundle files land in your home folder; the bundle creates the Lakebase database in an EXISTING project.
+  #   databricks bundle deploy -p <profile> --var catalog=<cat> --var schema=<schema> --var warehouse_id=<id> \
+  #     --var lakebase_project_slug=<existing project> --var lakebase_owner_role=<postgres role id on the branch>
+  portable:
+    default: true
+    variables:
+      workspace_folder: /Workspace/Users/${workspace.current_user.userName}/travel-disruption-rebooking
+      lakebase_database_id: db-disruption-rebooking-copilot
+      lakebase_database: travel_disruption_rebooking
+    resources:
+      postgres_databases:
+        irops_db:
+          parent: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+          database_id: ${var.lakebase_database_id}
+          postgres_database: ${var.lakebase_database}
+          role: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/roles/${var.lakebase_owner_role}
+      apps:
+        irops_app:
+          resources:
+            - name: postgres
+              postgres:
+                branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+                database: ${resources.postgres_databases.irops_db.name}
+                permission: CAN_CONNECT_AND_CREATE
+
+resources:
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  dashboards:
+    irops_dashboard:
+      display_name: "Aeralis IROPS - Disruption Recovery"
+      file_path: ./dashboard/irops_disruption_recovery.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  apps:
+    irops_app:
+      name: ${var.app_name}
+      description: "Aeralis IROPS Copilot — disruption response & rebooking desk (priority re-accommodation, guardrails, Duty Manager approval, notifications)"
+      source_code_path: ./app
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.irops_dashboard.id}
+          - name: NOTICE_MODEL
+            value: databricks-claude-sonnet-4-5
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_slug}
+          # GENIE_SPACE_ID is NOT set here: the setup job creates the Genie agent and writes its id to
+          # <catalog>.<schema>.demo_resources, which the app reads at boot (server/services/resources.ts).
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: postgres
+          postgres:
+            branch: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}
+            database: projects/${var.lakebase_project_slug}/branches/${var.lakebase_branch_id}/databases/${var.lakebase_database_id}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT
+
+  jobs:
+    irops_setup:
+      name: "[RETAIL] IROPS Copilot - Setup"
+      description: "Synthetic IROPS data → AI Functions over passenger messages → detractor-risk model (UC) → gold + metric view → Genie agent (tables + policy documents) → app grants"
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: message_insights
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/ai/message_insights.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: train_detractor_model
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/ml/train_detractor_model.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}", "--experiment", "${var.workspace_folder}/detractor_risk_experiment"]
+          environment_key: ml
+
+        - task_key: build_gold
+          depends_on: [{task_key: message_insights}, {task_key: train_detractor_model}]
+          spark_python_task:
+            python_file: ./src/gold/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: upload_policy_docs
+          depends_on: [{task_key: generate_data}]
+          notebook_task:
+            notebook_path: ./src/deploy/upload_policy_docs.py
+            base_parameters: {catalog: "${var.catalog}", schema: "${var.schema}"}
+          environment_key: default
+
+        - task_key: deploy_genie
+          depends_on: [{task_key: build_gold}, {task_key: upload_policy_docs}]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              warehouse_id: "${var.warehouse_id}"
+              parent_path: "${var.workspace_folder}"
+          environment_key: sdk_latest
+
+        - task_key: grant_app
+          depends_on: [{task_key: deploy_genie}]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_uc.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk_latest
+
+        - task_key: export_resources
+          depends_on: [{task_key: grant_app}]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              dashboard_id: "${resources.dashboards.irops_dashboard.id}"
+              warehouse_id: "${var.warehouse_id}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+              agent_mlflow_experiment_path: "${resources.experiments.agent_traces.name}"
+          environment_key: sdk_latest
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+        - environment_key: ml
+          spec:
+            client: "4"
+            dependencies:
+              - "mlflow>=3.1"
+              - "scikit-learn>=1.5"
+              - "pandas"
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

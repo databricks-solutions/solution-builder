@@ -1,0 +1,50 @@
+{
+  // Aurora Crest Media — Ad Yield Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml env when deployed) BEFORE parsing. Empty Genie / dashboard IDs are filled at
+  // boot from <DEMO_CATALOG>.<DEMO_SCHEMA>.app_config, written by the setup job.
+
+  // Chat dock data backend (server/agent/yield.ts): the Genie agent — SVP-Ad-Revenue analytics
+  // + the ad-sales library documents (Agent mode).
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:media-ad-yield-optimization}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Recovery-plan diagnosis + agency notice + ad-ops instructions writer (chat completions), used by the campaign workbench.
+  "noticeModel": "${NOTICE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (SVP Ad Revenue view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/ad_sales_library",
+
+  // Delta location of the gold tables mirrored into Lakebase at boot (server/db/sync.ts)
+  // and queried live by the recovery plan (server/services/plan.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Ad Yield Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Where are we leaking yield?", "prompt": "Where are we leaving money on the table this month?" },
+    { "label": "Fix the Summit IO", "prompt": "Build the recovery plan for the Summit Motors Terra EV campaign: why is it under-delivering, where can the shortfall run, and what is it worth?", "triggerAfter": ["Summit", "make-good"] },
+    { "label": "What does the IO allow?", "prompt": "Where may make-goods for IO-2026-0417 run, and must they run inside the flight?", "triggerAfter": ["Live Sports", "reallocat"] },
+    { "label": "Make-good history", "prompt": "How much have make-goods cost us over the last 12 months by advertiser category?", "triggerAfter": ["IO-2026-0417", "ADU"] }
+  ]
+}

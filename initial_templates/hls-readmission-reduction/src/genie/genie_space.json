@@ -1,0 +1,180 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "3da3d9c2ed4025daa4ebb17df774359d",
+        "question": [
+          "Which unit's heart failure readmission rate rose the most in the last 26 weeks?"
+        ]
+      },
+      {
+        "id": "4074cf29b6511537c732719a87c87f92",
+        "question": [
+          "How many high-risk patients on the current worklist have no 7-day follow-up booked, by unit?"
+        ]
+      },
+      {
+        "id": "6dc9c1de3814c0b0bb86fa3d43555c28",
+        "question": [
+          "What is our estimated HRRP penalty by hospital, and which condition drives it?"
+        ]
+      },
+      {
+        "id": "78ca90caa1edd11e55db0eea4b572c6f",
+        "question": [
+          "What is the 30-day readmission rate for heart failure patients with and without a 7-day follow-up booked, over the last 12 months?"
+        ]
+      },
+      {
+        "id": "8ca7d83346af89e9ba7a2d984b1fcdea",
+        "question": [
+          "Among heart failure discharges with a discharge note, how does the readmission rate differ when the note mentions a transportation barrier?"
+        ]
+      },
+      {
+        "id": "ad760f2edf4f642314d94e21ec4f8900",
+        "question": [
+          "What operational changes happened on 4 West?"
+        ]
+      },
+      {
+        "id": "b86bf2dc7fc4db7d04825a174f1439c6",
+        "question": [
+          "For 4 West heart failure discharges in the last 26 weeks, how do the follow-up rate and the readmission rate vary by discharge weekday?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "What does policy CT-201 require for a Friday heart-failure discharge, and who qualifies for home health?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.discharge_note_insights"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.gold_discharges"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.gold_followup_effect"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.gold_readmission_monthly"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.hospitals"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.hrrp_benchmarks"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.hrrp_penalty_estimate"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.hrrp_performance"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.readmissions"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.transition_worklist"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.unit_events"
+      },
+      {
+        "identifier": "healthcare_lifesciences.readmission_reduction.units"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "e1403d6e7f5e9a4b9090db9056e5b08a",
+        "content": [
+          "Larkspur Health (fictional) runs 3 acute-care hospitals: Larkspur Regional Medical Center (LRMC, the flagship), Millbrook Community Hospital (MCH) and Castle Ridge Hospital (CRH). This space answers questions about 30-day unplanned readmissions, care transitions and the CMS Hospital Readmissions Reduction Program (HRRP).\n\nDefinitions and rules:\n- A readmission RATE is count_if(readmitted_30d) / count(*) over gold_discharges WHERE outcome_window_closed AND status = 'discharged' (the 30-day window must be closed). Never compute a rate over discharges less than 30 days old or over planned discharges.\n- \"Recent\" / \"last 6 months\" / \"since the change\" = last_26_weeks = true. \"Before\" = last_26_weeks = false. Weekend discharge = weekend_discharge (Friday, Saturday or Sunday). discharge_dow is Mon..Sun.\n- HRRP conditions (hrrp_condition): HF heart failure, AMI, PN pneumonia, COPD, CABG, THA_TKA elective hip/knee replacement. OTHER is not an HRRP condition. HRRP counts only Medicare FFS patients aged 65+ (medicare_ffs_65).\n- 4 West = unit_id 'LRMC-4W' (Cardiac Step-Down at Larkspur Regional). Always show unit_name alongside unit_id.\n- A 7-day follow-up means followup_7d_scheduled = true (the appointment was booked before the patient left).\n- HRRP: use hrrp_performance (per hospital \u00d7 condition: err_estimate = trailing-12-month excess readmission ratio estimate, err_last_6m = run rate) and hrrp_penalty_estimate (penalty_usd = estimated payment reduction; penalty_usd_hf_run_rate = with heart failure at its last-6-months ERR). Say that the ERR here is a management estimate (observed vs national rate, credibility-weighted for small volumes); CMS risk-adjusts over 3 years.\n- Social risks read from discharge notes by AI Functions are the note_* columns of gold_discharges (only the last ~120 days have notes) and discharge_note_insights.\n- The care-transitions worklist of open patients (planned discharges + discharged in the last 7 days) with their readmission risk scores is transition_worklist; risk_score is a probability (show as %), risk_if_followup = the same patient with a 7-day follow-up booked.\n- unit_events lists operational changes (staffing, clinic schedules) that explain trends.\n- Show rates as percentages with one decimal and always include the number of discharges behind a rate.",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "357acf79f75b4c550685871f1bd7f52f",
+        "question": [
+          "What operational changes happened on 4 West?"
+        ],
+        "sql": [
+          "SELECT e.event_date, u.unit_name, e.event_type, e.description FROM healthcare_lifesciences.readmission_reduction.unit_events e JOIN healthcare_lifesciences.readmission_reduction.units u USING (unit_id) WHERE e.unit_id = 'LRMC-4W' ORDER BY e.event_date"
+        ]
+      },
+      {
+        "id": "4d413fed560c947f15142d17167a9842",
+        "question": [
+          "What is the monthly heart failure readmission rate on 4 West versus the rest of Larkspur Health?"
+        ],
+        "sql": [
+          "SELECT discharge_month, CASE WHEN unit_id = 'LRMC-4W' THEN '4 West' ELSE 'Rest of Larkspur' END AS unit_group, sum(discharges) AS discharges, ROUND(100 * sum(readmissions) / sum(discharges), 1) AS readmission_rate_pct FROM healthcare_lifesciences.readmission_reduction.gold_readmission_monthly WHERE hrrp_condition = 'HF' GROUP BY ALL ORDER BY discharge_month, unit_group"
+        ]
+      },
+      {
+        "id": "54e683653e1b134f6a6f2f04818d0c2a",
+        "question": [
+          "Which unit's heart failure readmission rate rose the most in the last 26 weeks?"
+        ],
+        "sql": [
+          "SELECT unit_id, unit_name, count_if(NOT last_26_weeks) AS discharges_before, ROUND(100 * count_if(readmitted_30d AND NOT last_26_weeks) / count_if(NOT last_26_weeks), 1) AS rate_before_pct, count_if(last_26_weeks) AS discharges_last_26w, ROUND(100 * count_if(readmitted_30d AND last_26_weeks) / count_if(last_26_weeks), 1) AS rate_last_26w_pct, ROUND(100 * count_if(readmitted_30d AND last_26_weeks) / count_if(last_26_weeks) - 100 * count_if(readmitted_30d AND NOT last_26_weeks) / count_if(NOT last_26_weeks), 1) AS change_pts FROM healthcare_lifesciences.readmission_reduction.gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND hrrp_condition = 'HF' GROUP BY unit_id, unit_name ORDER BY change_pts DESC"
+        ]
+      },
+      {
+        "id": "5c2a4666c7bb2a0684bcfe4f5b5503fe",
+        "question": [
+          "What is the 30-day readmission rate for heart failure patients with and without a 7-day follow-up booked, over the last 12 months?"
+        ],
+        "sql": [
+          "SELECT followup_7d_scheduled, sum(discharges) AS discharges, sum(readmissions) AS readmissions, ROUND(100 * sum(readmissions) / sum(discharges), 1) AS readmission_rate_pct FROM healthcare_lifesciences.readmission_reduction.gold_followup_effect WHERE hrrp_condition = 'HF' GROUP BY followup_7d_scheduled ORDER BY followup_7d_scheduled DESC"
+        ]
+      },
+      {
+        "id": "5e771e70a0be0d740e1ac2cef39775e4",
+        "question": [
+          "How many high-risk patients on the current worklist have no 7-day follow-up booked, by unit?"
+        ],
+        "sql": [
+          "SELECT unit_id, unit_name, count(*) AS high_risk_patients, count_if(NOT followup_7d_scheduled) AS no_followup_booked FROM healthcare_lifesciences.readmission_reduction.transition_worklist WHERE risk_tier = 'High' GROUP BY unit_id, unit_name ORDER BY no_followup_booked DESC"
+        ]
+      },
+      {
+        "id": "7a48f4d249f6ebe358a82312352da7e2",
+        "question": [
+          "What is our estimated HRRP penalty by hospital, and which condition drives it?"
+        ],
+        "sql": [
+          "SELECT hospital_name, ROUND(100 * penalty_pct, 2) AS penalty_pct, penalty_usd, top_condition, top_condition_usd, hf_err_estimate, hf_err_last_6m, penalty_usd_hf_run_rate FROM healthcare_lifesciences.readmission_reduction.hrrp_penalty_estimate ORDER BY penalty_usd DESC"
+        ]
+      },
+      {
+        "id": "87c2a397011aa8cea55442959512b7e0",
+        "question": [
+          "Among heart failure discharges with a discharge note, how does the readmission rate differ when the note mentions a transportation barrier?"
+        ],
+        "sql": [
+          "SELECT note_transportation_barrier, count(*) AS discharges, ROUND(100 * avg(CAST(readmitted_30d AS INT)), 1) AS readmission_rate_pct FROM healthcare_lifesciences.readmission_reduction.gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND hrrp_condition = 'HF' AND note_transportation_barrier IS NOT NULL GROUP BY note_transportation_barrier ORDER BY note_transportation_barrier DESC"
+        ]
+      },
+      {
+        "id": "8a0e335b07ae89af81238ea37418c872",
+        "question": [
+          "For 4 West heart failure discharges in the last 26 weeks, how do the follow-up rate and the readmission rate vary by discharge weekday?"
+        ],
+        "sql": [
+          "SELECT discharge_dow, count(*) AS discharges, ROUND(100 * avg(CAST(followup_7d_scheduled AS INT)), 1) AS followup_7d_booked_pct, ROUND(100 * avg(CAST(readmitted_30d AS INT)), 1) AS readmission_rate_pct FROM healthcare_lifesciences.readmission_reduction.gold_discharges WHERE outcome_window_closed AND status = 'discharged' AND unit_id = 'LRMC-4W' AND hrrp_condition = 'HF' AND last_26_weeks GROUP BY discharge_dow ORDER BY CASE discharge_dow WHEN 'Mon' THEN 1 WHEN 'Tue' THEN 2 WHEN 'Wed' THEN 3 WHEN 'Thu' THEN 4 WHEN 'Fri' THEN 5 WHEN 'Sat' THEN 6 ELSE 7 END"
+        ]
+      }
+    ]
+  }
+}

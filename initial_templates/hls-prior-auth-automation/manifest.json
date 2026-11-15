@@ -1,0 +1,10 @@
+{
+  "id": "hls-prior-auth-automation",
+  "name": "MedVault Health Plan — Prior Authorization Copilot",
+  "customer": "MedVault Health Plan",
+  "industry": "Healthcare & Life Sciences",
+  "narrative": "Dana Whitfield is a utilization-management nurse at MedVault Health Plan. It's Monday 08:00: 196 prior-authorization requests are waiting, CMS-0057-F gives her 72 hours on expedited cases and 7 days on standard ones, and the weekend's faxes still haven't been indexed. Every case means reading clinical notes against a medical policy, criterion by criterion.\n\nThe aha: overnight, AI Functions already read every note and quoted the evidence for each policy criterion — and about half the queue turns out to be clear approvals that historically waited ~2.6 days in a FIFO line. Dana releases the auto-approval lane (approve-only, every criterion cited), spends her time on the real gaps with an auto-drafted provider request, asks the Genie agent who may deny (it answers from the medical policy documents), and the ops dashboard and Genie show why expedited misses are almost all weekend faxes and why one practice group drives most lumbar-MRI pends.",
+  "dbdemos_tracker": {
+    "app_id": "hls-prior-auth-automation"
+  }
+}

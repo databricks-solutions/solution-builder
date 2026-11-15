@@ -1,0 +1,1415 @@
+{
+  "datasets": [
+    {
+      "name": "weekly_kpi",
+      "displayName": "Weekly yield KPIs",
+      "queryLines": [
+        "SELECT week_start,\n  SUM(revenue) AS revenue,\n  SUM(sold_impressions) / SUM(avails) AS sell_through,\n  1000 * SUM(revenue) / SUM(sold_impressions) AS ecpm,\n  1000 * SUM(CASE WHEN product_id = 'STR-SPORTS-LIVE' THEN programmatic_revenue ELSE 0 END)\n    / NULLIF(SUM(CASE WHEN product_id = 'STR-SPORTS-LIVE' THEN programmatic_impressions ELSE 0 END), 0) AS live_sports_ecpm\nFROM gold_inventory_daily\nWHERE week_start >= date_sub(date_trunc('WEEK', current_date()), 7 * 26)\nGROUP BY week_start HAVING COUNT(DISTINCT inventory_date) = 7\nORDER BY week_start"
+      ]
+    },
+    {
+      "name": "weekly_mix",
+      "displayName": "Weekly revenue by channel",
+      "queryLines": [
+        "SELECT week_start, platform, channel, revenue FROM (\n  SELECT week_start, platform, SUM(guaranteed_revenue) AS g, SUM(pmp_revenue) AS p, SUM(open_auction_revenue) AS o\n  FROM gold_inventory_daily\n  WHERE week_start >= date_sub(date_trunc('WEEK', current_date()), 7 * 26) AND week_start < date_trunc('WEEK', current_date())\n  GROUP BY week_start, platform HAVING COUNT(DISTINCT inventory_date) = 7)\nLATERAL VIEW STACK(3, 'Guaranteed IOs', g, 'PMP deals', p, 'Open auction', o) s AS channel, revenue\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "ecpm_card",
+      "displayName": "Programmatic eCPM vs rate card",
+      "queryLines": [
+        "SELECT product_name, measure, cpm FROM gold_yield_opportunities\n",
+        "LATERAL VIEW STACK(3, 'Rate card', rate_card_cpm, 'Programmatic eCPM (28d)', programmatic_ecpm_28d, 'Open-auction clearing (28d)', open_clearing_cpm_28d) s AS measure, cpm\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "sports_weekly",
+      "displayName": "Crest+ Live Sports weekly eCPM",
+      "queryLines": [
+        "SELECT week_start, measure, cpm FROM (\n  SELECT week_start,\n    1000 * SUM(programmatic_revenue) / NULLIF(SUM(programmatic_impressions), 0) AS prog,\n    1000 * SUM(open_auction_revenue) / NULLIF(SUM(open_auction_impressions), 0) AS open_c,\n    MAX(rate_card_cpm) AS rc\n  FROM gold_inventory_daily\n  WHERE product_id = 'STR-SPORTS-LIVE' AND week_start >= date_sub(date_trunc('WEEK', current_date()), 7 * 26) AND week_start < date_trunc('WEEK', current_date())\n  GROUP BY week_start HAVING COUNT(DISTINCT inventory_date) = 7)\nLATERAL VIEW STACK(3, 'Programmatic eCPM', prog, 'Open-auction clearing', open_c, 'Rate card', rc) s AS measure, cpm\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "sellthrough",
+      "displayName": "Sell-through by platform x month",
+      "queryLines": [
+        "SELECT month_start, platform, SUM(sold_impressions) / SUM(avails) AS sell_through\n",
+        "FROM gold_monthly_yield WHERE month_start >= add_months(date_trunc('MONTH', current_date()), -12)\n",
+        "GROUP BY month_start, platform\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "opps",
+      "displayName": "Yield opportunities",
+      "queryLines": [
+        "SELECT product_name, tier, rate_card_cpm, programmatic_ecpm_28d, open_clearing_cpm_28d, pmp_ecpm_28d,\n  current_inventory_group, rate_card_inventory_group, current_rule_id, current_rule_since,\n  CASE WHEN group_mismatch THEN 'MIS-PRICED' ELSE 'ok' END AS flag, CAST(ROUND(revenue_gap_28d) AS BIGINT) AS revenue_gap_28d, revenue_gap_since_rule\nFROM gold_yield_opportunities ORDER BY group_mismatch DESC, revenue_gap_28d DESC, programmatic_ecpm_28d / rate_card_cpm\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "kpi_pacing",
+      "displayName": "Pacing KPIs",
+      "queryLines": [
+        "SELECT COUNT_IF(at_risk) AS at_risk_ios, COUNT_IF(status = 'Live') AS live_ios,\n",
+        "  SUM(CASE WHEN at_risk THEN make_good_liability ELSE 0 END) AS make_good_liability,\n",
+        "  SUM(CASE WHEN at_risk THEN projected_shortfall ELSE 0 END) AS projected_shortfall\n",
+        "FROM gold_campaign_pacing WHERE status = 'Live'\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "pacing",
+      "displayName": "Live campaign pacing",
+      "queryLines": [
+        "SELECT campaign_name, advertiser_name, io_number, target_segment,\n  CASE WHEN at_risk THEN 'AT RISK' ELSE 'on pace' END AS risk, pacing, projected_delivery_pct,\n  projected_shortfall, CAST(ROUND(make_good_liability) AS BIGINT) AS make_good_liability, risk_product_name, days_remaining\nFROM gold_campaign_pacing WHERE status = 'Live' ORDER BY at_risk DESC, make_good_liability DESC\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "liability",
+      "displayName": "Make-good liability by campaign",
+      "queryLines": [
+        "SELECT advertiser_name AS advertiser, make_good_liability\nFROM gold_campaign_pacing WHERE at_risk\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "avails_fc",
+      "displayName": "Avails actual vs ai_forecast",
+      "queryLines": [
+        "SELECT week_start, CASE product_id WHEN 'STR-SPORTS-LIVE' THEN 'Crest+ Live Sports' ELSE 'ACN Prime Drama' END || ' · ' || kind AS series, avails FROM (\n  SELECT product_id, week_start, SUM(avails) AS avails, 'actual' AS kind FROM gold_inventory_daily\n  WHERE product_id IN ('STR-SPORTS-LIVE', 'LIN-PRIME-DRAMA') AND week_start >= date_sub(date_trunc('WEEK', current_date()), 7 * 12)\n    AND week_start < date_trunc('WEEK', current_date())\n  GROUP BY product_id, week_start HAVING COUNT(DISTINCT inventory_date) = 7\n  UNION ALL\n  SELECT product_id, date_trunc('WEEK', forecast_date) AS week_start, SUM(avails_forecast) AS avails, 'forecast' AS kind FROM gold_avails_forecast\n  WHERE product_id IN ('STR-SPORTS-LIVE', 'LIN-PRIME-DRAMA') AND forecast_date >= date_trunc('WEEK', current_date())\n    AND forecast_date < date_add(date_trunc('WEEK', current_date()), 56)\n  GROUP BY product_id, date_trunc('WEEK', forecast_date))\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "mg_monthly",
+      "displayName": "Make-goods issued by month",
+      "queryLines": [
+        "SELECT issued_month, SUM(make_good_value) AS make_good_value, COUNT(*) AS make_goods\n",
+        "FROM gold_make_goods GROUP BY issued_month\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    },
+    {
+      "name": "spare",
+      "displayName": "In-target spare avails, Auto Intenders, next 30 days",
+      "queryLines": [
+        "SELECT regexp_replace(s.product_name, ' [(].*[)]$', '') AS product_name, CAST(SUM(s.spare_avails * m.audience_share) AS BIGINT) AS in_target_spare\nFROM gold_spare_avails s JOIN product_audience_mix m ON m.product_id = s.product_id AND m.segment_id = 'AUTO-INT'\nWHERE s.forecast_date BETWEEN current_date() AND date_add(current_date(), 29)\nGROUP BY regexp_replace(s.product_name, ' [(].*[)]$', '')"
+      ],
+      "catalog": "media_advertising",
+      "schema": "ad_yield_optimization"
+    }
+  ],
+  "pages": [
+    {
+      "name": "yield",
+      "displayName": "Yield & revenue",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Ad yield & pricing — Aurora Crest Media\n",
+                "\n",
+                "Revenue, sell-through and eCPM across ACN (linear), Crest+ streaming and FAST. Crest+ Live Sports has been priced in the run-of-network floor group since the July ad-server migration (FR-117): programmatic eCPM collapsed while open-auction bids stayed high."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 5,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "f_weekly_mix_platform",
+                "query": {
+                  "datasetName": "weekly_mix",
+                  "fields": [
+                    {
+                      "name": "platform",
+                      "expression": "`platform`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_sellthrough_platform",
+                "query": {
+                  "datasetName": "sellthrough",
+                  "fields": [
+                    {
+                      "name": "platform",
+                      "expression": "`platform`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "platform",
+                    "displayName": "Platform",
+                    "queryName": "f_weekly_mix_platform"
+                  },
+                  {
+                    "fieldName": "platform",
+                    "displayName": "Platform",
+                    "queryName": "f_sellthrough_platform"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Platform"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 0,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(revenue)",
+                      "expression": "SUM(`revenue`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(revenue)",
+                  "displayName": "Ad revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ad revenue, last full week"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(sell_through)",
+                      "expression": "SUM(`sell_through`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(sell_through)",
+                  "displayName": "Sell-through",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sell-through, last full week"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(ecpm)",
+                      "expression": "SUM(`ecpm`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(ecpm)",
+                  "displayName": "Blended eCPM",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Blended eCPM, last full week"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(live_sports_ecpm)",
+                      "expression": "SUM(`live_sports_ecpm`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(live_sports_ecpm)",
+                  "displayName": "Live Sports eCPM",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Live Sports programmatic eCPM, last full week"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "multilineTextboxSpec": {
+              "lines": [
+                "**Reading it:** Live Sports eCPM = programmatic revenue ÷ programmatic impressions for Crest+ Live Sports. Blended eCPM includes guaranteed IO delivery. Rate card = RC-2026-27."
+              ]
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_mix",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "revenue",
+                      "expression": "`revenue`"
+                    },
+                    {
+                      "name": "channel",
+                      "expression": "`channel`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week start"
+                },
+                "y": {
+                  "fieldName": "revenue",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "channel",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Channel"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly ad revenue by channel (last 26 weeks)"
+              },
+              "mark": {
+                "layout": "stack"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "sports_weekly",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "cpm",
+                      "expression": "`cpm`"
+                    },
+                    {
+                      "name": "measure",
+                      "expression": "`measure`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week start"
+                },
+                "y": {
+                  "fieldName": "cpm",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "CPM",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "measure",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Measure"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Crest+ Live Sports — programmatic eCPM vs open-auction clearing vs rate card"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 5,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ecpm_card",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "cpm",
+                      "expression": "`cpm`"
+                    },
+                    {
+                      "name": "measure",
+                      "expression": "`measure`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "CPM",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  },
+                  "fieldName": "cpm"
+                },
+                "y": {
+                  "fieldName": "product_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Crest+ Live Sports (Pro Football & College)",
+                        "Crest+ Prime Drama Originals",
+                        "Crest+ Sports Studio & Highlights",
+                        "Crest+ Reality & Competition",
+                        "Crest+ Movies Library",
+                        "Crest+ Kids & Family",
+                        "Crest+ News Live",
+                        "Crest+ Run of Network",
+                        "FAST · Classic TV Channels",
+                        "FAST · True Crime Channel",
+                        "FAST · Sports Replays"
+                      ]
+                    }
+                  },
+                  "displayName": "Product"
+                },
+                "color": {
+                  "fieldName": "measure",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Measure"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Programmatic eCPM vs rate card, by product (28 days)"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "sellthrough",
+                  "fields": [
+                    {
+                      "name": "month_start",
+                      "expression": "`month_start`"
+                    },
+                    {
+                      "name": "sell_through",
+                      "expression": "`sell_through`"
+                    },
+                    {
+                      "name": "platform",
+                      "expression": "`platform`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month start"
+                },
+                "y": {
+                  "fieldName": "sell_through",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Sell-through",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "platform",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Platform"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sell-through by platform, per month"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 11,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "opps",
+                  "fields": [
+                    {
+                      "name": "flag",
+                      "expression": "`flag`"
+                    },
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "tier",
+                      "expression": "`tier`"
+                    },
+                    {
+                      "name": "rate_card_cpm",
+                      "expression": "`rate_card_cpm`"
+                    },
+                    {
+                      "name": "programmatic_ecpm_28d",
+                      "expression": "`programmatic_ecpm_28d`"
+                    },
+                    {
+                      "name": "revenue_gap_28d",
+                      "expression": "`revenue_gap_28d`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "flag",
+                    "displayName": "Flag"
+                  },
+                  {
+                    "fieldName": "product_name",
+                    "displayName": "Product"
+                  },
+                  {
+                    "fieldName": "tier",
+                    "displayName": "Tier"
+                  },
+                  {
+                    "fieldName": "rate_card_cpm",
+                    "displayName": "Rate card CPM",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "programmatic_ecpm_28d",
+                    "displayName": "Programmatic eCPM",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "revenue_gap_28d",
+                    "displayName": "Revenue gap (28d)",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Programmatic yield board — mis-priced first (revenue left on the table)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "pacing",
+      "displayName": "Pacing & make-goods",
+      "layout": [
+        {
+          "widget": {
+            "name": "w13",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Pacing & make-goods\n",
+                "\n",
+                "Live guaranteed IOs projected against their audience guarantee (< 95% at flight end = make-good at the booked CPM). ACN Prime Drama lost its audience when *Harbor Lights* moved to Friday; **ai_forecast** shows where the spare avails are."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_pacing",
+                  "fields": [
+                    {
+                      "name": "at_risk_ios",
+                      "expression": "`at_risk_ios`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "at_risk_ios",
+                  "displayName": "IOs at risk of make-goods"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "IOs at risk of make-goods"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_pacing",
+                  "fields": [
+                    {
+                      "name": "make_good_liability",
+                      "expression": "`make_good_liability`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "make_good_liability",
+                  "displayName": "Make-good liability",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Make-good liability"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_pacing",
+                  "fields": [
+                    {
+                      "name": "projected_shortfall",
+                      "expression": "`projected_shortfall`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "projected_shortfall",
+                  "displayName": "Projected shortfall (impressions)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Projected shortfall (impressions)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_pacing",
+                  "fields": [
+                    {
+                      "name": "live_ios",
+                      "expression": "`live_ios`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "live_ios",
+                  "displayName": "Live guaranteed IOs"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Live guaranteed IOs"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "liability",
+                  "fields": [
+                    {
+                      "name": "advertiser",
+                      "expression": "`advertiser`"
+                    },
+                    {
+                      "name": "make_good_liability",
+                      "expression": "`make_good_liability`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "make_good_liability",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Make-good liability",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "advertiser",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  },
+                  "displayName": "Advertiser"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Make-good liability by at-risk IO"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w19",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "pacing",
+                  "fields": [
+                    {
+                      "name": "risk",
+                      "expression": "`risk`"
+                    },
+                    {
+                      "name": "campaign_name",
+                      "expression": "`campaign_name`"
+                    },
+                    {
+                      "name": "projected_delivery_pct",
+                      "expression": "`projected_delivery_pct`"
+                    },
+                    {
+                      "name": "make_good_liability",
+                      "expression": "`make_good_liability`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "risk",
+                    "displayName": "Risk"
+                  },
+                  {
+                    "fieldName": "campaign_name",
+                    "displayName": "Campaign"
+                  },
+                  {
+                    "fieldName": "projected_delivery_pct",
+                    "displayName": "Projected delivery",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "make_good_liability",
+                    "displayName": "Make-good liability",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Live campaign pacing — at-risk first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w20",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "avails_fc",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "avails",
+                      "expression": "`avails`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week start"
+                },
+                "y": {
+                  "fieldName": "avails",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avails",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly avails, actual vs AI forecast"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 4,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w21",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "spare",
+                  "fields": [
+                    {
+                      "name": "product_name",
+                      "expression": "`product_name`"
+                    },
+                    {
+                      "name": "in_target_spare",
+                      "expression": "`in_target_spare`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "in_target_spare",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Spare impressions"
+                },
+                "y": {
+                  "fieldName": "product_name",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  },
+                  "displayName": "Product"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Spare in-target avails, Auto Intenders A25-54, next 30 days"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 8,
+            "width": 2,
+            "height": 11
+          }
+        },
+        {
+          "widget": {
+            "name": "w22",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mg_monthly",
+                  "fields": [
+                    {
+                      "name": "issued_month",
+                      "expression": "`issued_month`"
+                    },
+                    {
+                      "name": "make_good_value",
+                      "expression": "`make_good_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "issued_month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Issued month"
+                },
+                "y": {
+                  "fieldName": "make_good_value",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Make-good value",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Make-goods issued per month (value at booked CPM)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 19,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "visualizationColors": [
+        "#1C1740",
+        "#E5486F",
+        "#5B45D6",
+        "#F2A93B",
+        "#3FB8C9"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketState
 from ..core import create_router
 from ..core._config import logger
 from ..services.collab import get_collab_hub
+from ..services.shutdown import get_live_connections
 from ..services.skills_manager import get_project_directory
 from .projects import (
     ACCESS_VIEWER,
@@ -142,11 +143,16 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
     # → close (don't leak project existence). One short DB round-trip.
     engine = ws.app.state.engine
     config = ws.app.state.config
-    try:
+    def _access() -> str:
         with Session(bind=engine) as session:
-            _project, level = _get_project_access(
+            return _get_project_access(
                 session, project_id, email, config.template_admin_emails
-            )
+            )[1]
+
+    try:
+        # Off the event loop: under a busy pool this waits up to pool_timeout,
+        # and every other stream would freeze with it.
+        level = await asyncio.to_thread(_access)
     except Exception:
         await ws.accept()  # accept then close so the client sees a clean 1008
         await ws.close(code=1008, reason="no access")
@@ -157,6 +163,11 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
 
     hub = get_collab_hub()
     member = await hub.join(project_id, ws, email=email, name=name, role=role)
+    try:
+        from ..services.metrics import get_metrics
+        get_metrics().bump("collab_ws_connects")
+    except Exception:  # noqa: BLE001
+        pass
 
     # Late-join consistency (all binary — the Yjs client reads control messages
     # only on binary MESSAGE_PRESENCE frames): tell the newcomer who they are + who
@@ -167,12 +178,25 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
     who = {"connId": member.conn_id, "email": email, "name": name,
            "role": role, "color": member.color}
     content = _read_architecture(project_id)
+    # If DISK drifted from what the room last agreed on (an agent write, or an
+    # external edit made while the room held only ghosts that never persisted it),
+    # the accumulated Yjs log is stale — drop it so this joiner seeds from the
+    # newer file instead of resurrecting the old doc over it (the 'flash then
+    # revert' + clobber-back-to-disk bug). No-op for a live, in-sync room.
+    if content is not None:
+        hub.reconcile_with_disk(project_id, content)
+    # Through the hub so this socket's sends stay serialized with the room's
+    # broadcasts (a broadcast can reach this member as soon as it joined).
+    async def _push(frame: bytes) -> None:
+        if not await hub.send_frame(member, frame):
+            raise ConnectionError("collab peer send failed during handshake")
+
     try:
-        await ws.send_bytes(_presence_frame({"type": "hello", "you": who}))
-        await ws.send_bytes(_presence_frame({"type": "writer", "connId": hub.writer_of(project_id)}))
+        await _push(_presence_frame({"type": "hello", "you": who}))
+        await _push(_presence_frame({"type": "writer", "connId": hub.writer_of(project_id)}))
         for upd in hub.yjs_replay_log(project_id):
-            await ws.send_bytes(upd)
-        await ws.send_bytes(_presence_frame({"type": "synced"}))
+            await _push(upd)
+        await _push(_presence_frame({"type": "synced"}))
         if content is not None:
             # Seed the room's baseline hash so a later agent write is detected as
             # external (only if not already set by another member / a save).
@@ -182,6 +206,10 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
         return
 
     try:
+        # Track this WebSocket task so the SIGTERM handler can cancel it (it parks
+        # on ws.receive() up to IDLE_PING_S); the finally below unregisters +
+        # hub.leave()s cleanly. See services/shutdown.py.
+        get_live_connections().register(asyncio.current_task())
         # Liveness / ghost reaping. A client that vanishes without a close
         # (laptop sleep, network drop, a dev HMR reload that didn't clean up)
         # would otherwise linger in the room forever, inflating the member count.
@@ -224,11 +252,9 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
                 if missed >= MAX_MISSED:
                     break  # silent too long → ghost → finally reaps it
                 await maybe_sweep()
-                try:
-                    await ws.send_text('{"type":"ping"}')
+                if await hub.send_frame(member, '{"type":"ping"}'):
                     continue
-                except Exception:
-                    break  # peer gone → finally reaps it
+                break  # peer gone or stalled → finally reaps it
 
             if event.get("type") == "websocket.disconnect":
                 break
@@ -266,16 +292,15 @@ async def collab_ws(ws: WebSocket, project_id: str) -> None:
                 # end (a half-open TCP lets the client's send succeed into the void
                 # but never round-trips). No pong within the client's window →
                 # client declares the socket dead in seconds, not minutes.
-                try:
-                    await ws.send_text('{"type":"pong"}')
-                except Exception:
-                    break  # peer gone → finally reaps it
+                if not await hub.send_frame(member, '{"type":"pong"}'):
+                    break  # peer gone or stalled → finally reaps it
             # unknown types are ignored (forward-compatible).
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.debug(f"[collab] socket error project={project_id}: {e!r}")
     finally:
+        get_live_connections().unregister(asyncio.current_task())
         await hub.leave(project_id, member.conn_id)
         if ws.application_state != WebSocketState.DISCONNECTED:
             try:

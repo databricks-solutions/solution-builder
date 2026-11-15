@@ -52,6 +52,34 @@ AUTH_FILE_PROFILE = "DEFAULT"
 # testing the deployed-mode code path on a laptop. Never set in prod.
 _FORCE_MODE_ENV = "DEMO_PROMPT_GENERATOR_FORCE_MODE"
 
+# Sentinel value for subprocess_auth_env: "REMOVE this key from the child's
+# inherited env" (as opposed to "" = set it to empty). A child spawns as
+# {**os.environ, **extra}, so a "" entry leaves the key PRESENT-but-empty —
+# which the Node SDK's credential chain treats as "use PAT" → empty bearer →
+# 400. Removing the key instead lets every SDK (Node AND Python) fall through
+# to the explicit oauth-m2m creds. Consumers MUST merge via build_subprocess_env
+# (below), never `{**os.environ, **extra}` directly, so the sentinel is honored.
+UNSET_ENV = "\x00__DPG_UNSET__"
+
+
+def build_subprocess_env(
+    base: "dict[str, str] | os._Environ[str]", extra: dict[str, str]
+) -> dict[str, str]:
+    """Merge `extra` over `base`, honoring the UNSET_ENV sentinel as key-REMOVAL.
+
+    The single choke point for building any Databricks-authenticated child's
+    env. `extra` (from subprocess_auth_env) may map a key to UNSET_ENV to mean
+    "remove whatever the parent inherited", which a plain dict-merge can't
+    express (a dict entry is always present). See UNSET_ENV above.
+    """
+    merged = dict(base)
+    for k, v in extra.items():
+        if v is UNSET_ENV:
+            merged.pop(k, None)
+        else:
+            merged[k] = v
+    return merged
+
 
 # ---------------------------------------------------------------------------
 # Mode detection
@@ -75,6 +103,10 @@ def detect_mode(headers: DatabricksAppsHeaders) -> Mode:
         return "deployed"
     if forced == "local":
         return "local"
+    # A user named by the trusted MCP service principal came through the proxy too: it
+    # has no token of theirs, and the build runs as the deployer SP.
+    if headers.delegated_by:
+        return "deployed"
     return "deployed" if headers.token is not None else "local"
 
 
@@ -235,12 +267,26 @@ def subprocess_auth_env(
             # landed in the host workspace owned by the app SP. We therefore read
             # the deployer SP's host + client_id/secret back out of the cfg we
             # just wrote and set them as explicit env vars, which unambiguously
-            # win, and blank DATABRICKS_TOKEN so a stray inherited PAT can't
+            # win, and REMOVE DATABRICKS_TOKEN so a stray inherited PAT can't
             # shadow the oauth-m2m creds.
+            #
+            # ⚠️ REMOVE, don't blank. We map DATABRICKS_TOKEN -> UNSET_ENV (a
+            # key-REMOVAL sentinel honored by build_subprocess_env), NOT "". The
+            # child spawns as {**os.environ, **this}: an "" entry leaves the key
+            # PRESENT-but-empty. The PYTHON SDK/CLI (the agent) ignores an empty
+            # token given auth_type=oauth-m2m, but the NODE SDK inside the
+            # generated app treats a PRESENT (even empty) DATABRICKS_TOKEN as
+            # "use PAT" -> empty bearer -> 400 Invalid Token on serving/REST. The
+            # Apps runtime shadows via CLIENT_ID/SECRET (overwritten above), not a
+            # PAT, so removing the key is safe AND lets EVERY path in the app
+            # (authHeaders, execSql, mlflow, warehouse, the Lakebase pool) plus
+            # the Python agent resolve oauth-m2m from the explicit creds — with
+            # ZERO app-side auth logic. This is the single choke point; the
+            # template's server/lib/auth.ts stays dumb (no M2M pinning).
             host, cid, secret = _read_sp_creds_from_cfg(auth_file)
-            if not (host and cid and secret):
+            if not (host and cid and secret) or not _valid_target_host(host):
                 logger.error(
-                    "target_deploy: could not read SP host/creds from %s — "
+                    "target_deploy: could not read a valid SP host/creds from %s — "
                     "refusing to fall through to the app SP / host workspace",
                     auth_file,
                 )
@@ -254,7 +300,7 @@ def subprocess_auth_env(
                 "DATABRICKS_HOST": host,
                 "DATABRICKS_CLIENT_ID": cid,
                 "DATABRICKS_CLIENT_SECRET": secret,
-                "DATABRICKS_TOKEN": "",
+                "DATABRICKS_TOKEN": UNSET_ENV,  # REMOVE the inherited key (not "")
             }
         # Scrub OAuth-M2M creds the Databricks Apps runtime sets in the parent
         # process. Without this, the subprocess inherits DATABRICKS_CLIENT_ID/
@@ -338,6 +384,33 @@ def target_deploy_active(config, target_workspace_host: str | None) -> bool:
     return _impl(config, target_workspace_host)
 
 
+# ── SP mode: the deployer-SP identity, not a per-user OBO token ──────────────
+# When a project runs cross-workspace it authenticates as the deployer SERVICE
+# PRINCIPAL (oauth-m2m, non-expiring machine creds in the container env), NOT the
+# viewing user's short-lived OBO PAT. The whole conversation-DRIVER model —
+# active_driver_email, token-freshness gating, the 409-on-stale, take-over —
+# exists ONLY to manage a per-user OBO PAT (one file, one identity, refreshed per
+# request; see AUTH.md "Conversation driver"). In SP mode there is exactly ONE
+# non-expiring identity and nothing to "take over", so that model is meaningless
+# and is bypassed entirely. `active_driver_email` is stamped with this sentinel
+# instead of a human email so the field stays meaningful/queryable but never gates
+# anything. (It's also why interrupted SP conversations are RESUMABLE on boot: the
+# SP creds are always present, unlike a dead OBO token — see services/resume_agent.)
+SP_DRIVER_SENTINEL = "remote_sp"
+
+
+def project_runs_as_sp(config, project) -> bool:
+    """True iff THIS project's agent authenticates as the deployer SP (oauth-m2m)
+    rather than the viewing user's OBO PAT. The single predicate that gates the
+    driver-model bypass + boot-time resume. Same rule as the subprocess-env /
+    proxy-strip split (`target_deploy_active`), read from the project's pinned
+    target host. `project` is a `Project` row (needs `.target_workspace_host`);
+    tolerant of None so callers can pass a possibly-missing project."""
+    if project is None:
+        return False
+    return target_deploy_active(config, getattr(project, "target_workspace_host", None))
+
+
 def write_project_databrickscfg(
     project_dir: Path,
     *,
@@ -368,6 +441,10 @@ def write_project_databrickscfg(
 
     if _sp_active is not None and _sp_active(config, target_workspace_host):
         host = _normalize_host(target_workspace_host)  # type: ignore[arg-type]
+        if not _valid_target_host(host):
+            # Fail closed: the deployer secret is never written for a non-Databricks host.
+            logger.error("refusing to write deployer-SP creds for non-workspace target %r", host)
+            return None
         write_project_sp_auth_file(
             project_dir,
             host=host,
@@ -392,7 +469,7 @@ def delete_project_auth_file(project_dir: Path) -> None:
 
 
 def resolve_host(headers: DatabricksAppsHeaders) -> str | None:
-    """Resolve the WORKSPACE host (e.g. https://e2-demo-…cloud.databricks.com)
+    """Resolve the WORKSPACE host (e.g. https://<workspace>.cloud.databricks.com)
     for the per-project .databrickscfg.
 
     `X-Forwarded-Host` (= `headers.host`) is the App's *public* hostname
@@ -402,7 +479,7 @@ def resolve_host(headers: DatabricksAppsHeaders) -> str | None:
 
     Always returned with an `https://` scheme. Bundle CLI does naive
     string-equality between the host in the profile and the host in
-    databricks.yml — `e2-demo…` vs `https://e2-demo…` fails the check
+    databricks.yml — `<workspace>…` vs `https://<workspace>…` fails the check
     and breaks `databricks bundle …` from the agent's subprocess.
     """
     env_host = os.environ.get("DATABRICKS_HOST")
@@ -423,13 +500,33 @@ def _normalize_host(host: str) -> str:
     return host
 
 
+def _valid_target_host(host: str | None) -> bool:
+    """True iff `host` is a Databricks workspace URL — the only kind of host the
+    deployer SP's client secret may be written for or handed to. Lazy import:
+    remote_deploy/ may be excluded from a build (then no target ever activates)."""
+    from ..remote_deploy.probe import validate_target_host
+
+    if not host:
+        return False
+    try:
+        validate_target_host(host)
+    except ValueError:
+        return False
+    return True
+
+
 # Debounce window for the per-project auth file refresh. The proxy fires on
 # every static asset the iframe loads — without debouncing we'd thrash the
 # disk. 30s is comfortably below the PAT's typical 1h TTL but well above
 # static-asset burst rate. Keyed by project_id + token-prefix so a token
 # change invalidates the debounce (rare, but correct).
 _AUTH_REFRESH_DEBOUNCE_SECONDS = 30.0
-_auth_refresh_last: dict[tuple[str, str], float] = {}
+# (project_id, caller_email, pat_prefix) → last-write monotonic time. Bounded
+# (drop-oldest) so it can't grow one entry per (project, user, token) over the
+# app's lifetime. An entry is only ever STAMPED after the caller passed the
+# writer checks, so a debounce hit proves that same caller was already authorized.
+_auth_refresh_last: dict[tuple[str, str, str], float] = {}
+_AUTH_REFRESH_LAST_MAX = 10_000
 
 
 def make_project_auth_refresher(
@@ -469,14 +566,22 @@ def make_project_auth_refresher(
         pat = request_user_pat(headers)
         if pat is None:
             return
+        # Deployed mode always carries the caller's email in the header.
+        caller_email = headers.user_email or ""
+        # Debounce check FIRST so a proxied asset burst costs no DB reads. Safe to
+        # skip the auth reads on a hit: the key is only stamped (below) after this
+        # same caller passed the writer checks, and a hit writes nothing anyway.
+        key = (project_id, caller_email, pat[:16])
+        if debounce:
+            last = _auth_refresh_last.get(key, 0.0)
+            if time.monotonic() - last < _AUTH_REFRESH_DEBOUNCE_SECONDS:
+                return
         # IDENTITY GUARD: only the DRIVER (a write-access caller who currently
         # holds the conversation) may write the project's token file. A viewer
         # would stamp their PAT into the owner's dir; a non-driver editor would
         # thrash the token the current driver's agent run depends on — both swap
         # the agent's CLI identity. Lazy import to avoid a core→routes cycle.
         from ..routes.projects import ACCESS_VIEWER, _get_project_access, is_driver
-        # Deployed mode always carries the caller's email in the header.
-        caller_email = headers.user_email or ""
         try:
             _, access = _get_project_access(
                 session, project_id, caller_email, config.template_admin_emails
@@ -503,14 +608,11 @@ def make_project_auth_refresher(
             )
             return
         if debounce:
-            # Key on PAT prefix so a token refresh forces a write, but we don't
-            # store the whole PAT in a process-global dict.
-            key = (project_id, pat[:16])
-            now = time.monotonic()
-            last = _auth_refresh_last.get(key, 0.0)
-            if now - last < _AUTH_REFRESH_DEBOUNCE_SECONDS:
-                return
-            _auth_refresh_last[key] = now
+            # Stamped only for an authorized writer. The PAT prefix (not the whole
+            # token) keeps a token refresh forcing a write without storing the PAT.
+            if len(_auth_refresh_last) >= _AUTH_REFRESH_LAST_MAX:
+                _auth_refresh_last.pop(next(iter(_auth_refresh_last)), None)  # drop-oldest
+            _auth_refresh_last[key] = time.monotonic()
         try:
             wrote = write_project_databrickscfg(
                 get_project_dir(project_id),
@@ -539,11 +641,14 @@ __all__ = [
     "AUTH_FILE_NAME",
     "AUTH_FILE_PROFILE",
     "Mode",
+    "SP_DRIVER_SENTINEL",
+    "build_subprocess_env",
     "WhoAmI",
     "delete_project_auth_file",
     "detect_mode",
     "is_admin",
     "make_project_auth_refresher",
+    "project_runs_as_sp",
     "request_user_pat",
     "resolve_host",
     "subprocess_auth_env",

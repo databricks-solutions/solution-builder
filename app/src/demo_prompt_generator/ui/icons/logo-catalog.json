@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-logo metadata. trademark: real mark is trademarked (gated behind enableTrademarkLogos unless oss). oss: open-source/permissively-usable mark, shown by default. source: is an actual DATA SOURCE (a system that holds/produces data) vs infra (vpc, route53\u2026). Keyed by canonical icon name (matches icons/vendor/<name>.svg and the leaf of icons/cloud/.../<name>.svg). Hand-tuned; edit as the icon bank grows.",
+  "_comment": "Per-logo metadata. trademark: real mark is trademarked (gated behind enableTrademarkLogos unless oss). oss: open-source/permissively-usable mark, shown by default. source: is an actual DATA SOURCE (a system that holds/produces data) vs infra (vpc, route53…). Keyed by canonical icon name (matches icons/vendor/<name>.svg and the leaf of icons/cloud/.../<name>.svg). Hand-tuned; edit as the icon bank grows.",
   "defaults": {
     "trademark": true,
     "oss": false,
@@ -298,6 +298,18 @@
     "trademark": true,
     "oss": false,
     "source": false
+  },
+  "langchain": {
+    "trademark": true,
+    "oss": false,
+    "source": false,
+    "label": "LangChain"
+  },
+  "langchain-wordmark": {
+    "trademark": true,
+    "oss": false,
+    "source": false,
+    "label": "LangChain (wordmark)"
   },
   "grok": {
     "trademark": true,
@@ -666,5 +678,37 @@
     "oss": true,
     "trademark": false,
     "source": true
+  },
+  "mulesoft": {
+    "trademark": true,
+    "source": true
+  },
+  "workday": {
+    "trademark": true,
+    "source": true
+  },
+  "ascender": {
+    "trademark": true,
+    "source": true
+  },
+  "canvas": {
+    "trademark": true,
+    "source": true
+  },
+  "concur": {
+    "trademark": true,
+    "source": true
+  },
+  "peoplesoft": {
+    "trademark": true,
+    "source": true
+  },
+  "sailpoint": {
+    "trademark": true,
+    "source": true
+  },
+  "databricks-admin": {
+    "trademark": false,
+    "oss": false
   }
 }

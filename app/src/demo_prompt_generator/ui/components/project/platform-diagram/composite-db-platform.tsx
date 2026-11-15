@@ -13,7 +13,7 @@ export const DbPlatformBlock = memo(function DbPlatformBlock({ data, selected }:
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component);
+  const nat = baseSize(d.component, d.params, d.theme);
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16, borderWidth: 0, shadow: 0 });
   return (
     <RotatableCard
@@ -37,9 +37,9 @@ export const DbPlatformBlock = memo(function DbPlatformBlock({ data, selected }:
         style={card.style}
       >
         <div className="flex h-full w-full items-center gap-3 px-4" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "left center" }}>
-          <FileSvgIcon iconKey="file:vendor/databricks-wordmark" className="h-5 w-auto shrink-0" />
+          <FileSvgIcon iconKey="file:vendor/databricks-wordmark" className={d.theme === "slide" ? "h-6 w-auto shrink-0" : "h-5 w-auto shrink-0"} />
           <span className="h-7 w-px shrink-0 bg-border" />
-          <span className="min-w-0 text-[15px] font-bold leading-tight text-foreground">Databricks Data + AI</span>
+          <span className="min-w-0 font-bold leading-tight text-foreground text-[15px]">Databricks Data + AI</span>
         </div>
       </div>
     </RotatableCard>

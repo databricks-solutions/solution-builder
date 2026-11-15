@@ -12,7 +12,7 @@ Tables and columns referenced here are defined in `01-lakeflow.md`. Widgets read
 
 ## A. Genie Space
 
-**Skill to use**: `databricks-genie` — read `SKILLS/databricks-genie/SKILL.md` before implementing.
+**Skill to use**: `databricks-genie-agents` — read `SKILLS/databricks-genie-agents/SKILL.md` before implementing.
 
 Create `LuxeBeauty Operations Analytics` Genie Space.
 

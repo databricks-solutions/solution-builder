@@ -14,8 +14,8 @@ import { test, expect, request, type APIRequestContext } from "@playwright/test"
 
 const UI = "http://localhost:5175";
 const API = "http://127.0.0.1:8010";
-const OWNER = "cal.reynolds@databricks.com";
-const VIEWER = `pw.viewer.${Date.now()}@databricks.com`;
+const OWNER = "owner@example.com";
+const VIEWER = `pw.viewer.${Date.now()}@example.com`;
 
 async function ownerApi(): Promise<APIRequestContext> {
   return request.newContext({
@@ -119,7 +119,7 @@ test("owner: Share button in the workspace header shares a project", async ({
   const owner = await ownerApi();
   const projects = await (await owner.get("/api/projects")).json();
   const target = projects.find((p: any) => p.owner_email === OWNER);
-  const guest = `pw.guest.${Date.now()}@databricks.com`;
+  const guest = `pw.guest.${Date.now()}@example.com`;
 
   const ctx = await browser.newContext({
     baseURL: UI,
@@ -141,7 +141,7 @@ test("owner: Share button in the workspace header shares a project", async ({
 
     // Dialog opens; fill it in, choose Editor, share.
     await expect(page.getByRole("heading", { name: "Share Project" })).toBeVisible();
-    await page.getByPlaceholder("colleague@databricks.com").fill(guest);
+    await page.getByPlaceholder("colleague@example.com").fill(guest);
     await page.getByRole("button", { name: /Editor/ }).click();
     await page.getByRole("button", { name: "Share", exact: true }).last().click();
 

@@ -1,0 +1,10 @@
+{
+  "id": "cpg-trade-promotion-roi",
+  "name": "Retail & CPG — Trade Promotion Post-Event ROI & Re-planning Copilot",
+  "customer": "Crestwood Snacks Co.",
+  "industry": "Retail & CPG",
+  "narrative": "Elena Marsh runs Revenue Growth Management at Crestwood Snacks, a salty-snacks maker selling through five retailers. Next quarter's draft promo calendar repeats last year's \"best\" events: four deep BOGOs at ValuMax Stores that tripled volume. A UC-registered ML baseline model says what each SKU would have sold without a promotion, and the post-event analysis nets every past event for pantry loading, cannibalization of sister SKUs and forward buying on off-invoice deals: the 11 ValuMax BOGOs lifted volume +240% yet lost $514K, an ROI of −63%.\n\nThe aha comes in the Trade Promo Copilot. It flags the four planned BOGOs (−$177K forecast) with that evidence, checks the trade guidelines and the ValuMax joint business plan through the Genie agent, which searches the policy documents, and proposes keeping every event slot but switching to scan-based Feature + Display: +$268K of forecast profit, $183K less trade spend and more net volume. On approval it writes the re-plan and the retailer notices back to Lakebase; finance follows trade spend vs ROI in an AI/BI dashboard and Genie.",
+  "dbdemos_tracker": {
+    "app_id": "cpg-trade-promotion-roi"
+  }
+}

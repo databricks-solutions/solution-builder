@@ -69,7 +69,7 @@ Genie walks the data: weekly returns trend → spots the 3x spike → finds the 
 
 > *"This is **AI/BI Genie** — natural language over Unity Catalog. Claire didn't write a JOIN, didn't open a notebook, didn't tag anyone in Slack. She asked. The same **Unity Catalog** that powers the dashboard powers Genie — same data, same permissions, same numbers. No glue to maintain."*
 >
-> *"The incident note sits as a text column on the lot, and Genie quotes it directly. When you have unstructured incident reports (PDFs, Confluence pages, scanned scans), the same pattern moves into a **Knowledge Assistant** without changing how the operator asks."*
+> *"The incident note sits as a text column on the lot, and Genie quotes it directly. When you have unstructured incident reports (PDFs, Confluence pages, scanned scans), the same pattern moves into a **documents volume attached to the Genie agent** without changing how the operator asks."*
 
 ---
 
@@ -85,7 +85,7 @@ In the assistant dock at the bottom right, **Claire types:** `Why do I have so m
 
 > *"This is **Databricks Apps + Lakebase** — a full-stack React + Node app, hosted on Databricks, with OAuth and resource bindings built in. The operational state — the queue, approvals, the audit trail — lives in **Lakebase**, a serverless Postgres under the same Unity Catalog governance as the lakehouse. The dashboard tables get synced into Lakebase so the queue reflects fresh data instantly."*
 >
-> *"The assistant is a single tool-using agent over **AI/BI Genie** — one tool, one offer, one approval. Add a Knowledge Assistant, a Multi-Agent Supervisor, or an ML classifier when the business asks for them."*
+> *"The assistant is a single tool-using agent over **AI/BI Genie** — one tool, one offer, one approval. Add document Q&A (PDFs attached to the same Genie agent) or an ML classifier when the business asks for them."*
 
 ---
 
@@ -103,7 +103,7 @@ Show the same dashboard from Databricks One; ask Genie the same `Why so many ret
 
 ### Closing
 
-> Even the simplest demo here — one dashboard, one Genie space, one optional app — sits on top of **the same governed data the rest of your platform reads.** When you're ready, you layer in **SDP** for proper bronze→silver→gold transformations, **Knowledge Assistant** for unstructured-doc lookup, **Multi-Agent Supervisor** to orchestrate across them, and **ML models** for behavioral classification — all without re-stitching the data each time. That's what makes Databricks the place to start AND the place to scale.
+> Even the simplest demo here — one dashboard, one Genie space, one optional app — sits on top of **the same governed data the rest of your platform reads.** When you're ready, you layer in **SDP** for proper bronze→silver→gold transformations, **PDF documents** in a volume the same Genie agent searches, and **ML models** for behavioral classification — all without re-stitching the data each time. That's what makes Databricks the place to start AND the place to scale.
 >
 > **Ingest once. Build a dashboard in an hour. Add an app in a day. Add ML and agents when the business demands them. Same governance covers everything.**
 

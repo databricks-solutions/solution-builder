@@ -38,8 +38,14 @@ except NameError:
     SCHEMA  = os.environ.get("DEMO_SCHEMA")  or "luxebeauty_demo"
 
 MODEL_NAME = f"{CATALOG}.{SCHEMA}.customer_premium_classifier"
-# Per-user experiment path keeps each deploy's MLflow experiment isolated.
-EXPERIMENT_PATH = f"/Shared/{CATALOG}_{SCHEMA}_premium_classifier"
+# Training experiment. The DAB job passes <workspace_folder>/premium_classifier_experiment so it lives in the demo
+# folder; standalone runs fall back to a per-catalog/schema /Shared path.
+try:
+    dbutils.widgets.text("experiment_path", "", "MLflow experiment path")  # noqa: F821
+    EXPERIMENT_PATH = dbutils.widgets.get("experiment_path")  # noqa: F821
+except NameError:
+    EXPERIMENT_PATH = ""
+EXPERIMENT_PATH = EXPERIMENT_PATH or f"/Shared/{CATALOG}_{SCHEMA}_premium_classifier"
 
 # UC registry + experiment (parent folder pre-created externally — see SKILL.md)
 mlflow.set_registry_uri("databricks-uc")
@@ -51,7 +57,10 @@ mlflow.set_experiment(EXPERIMENT_PATH)
 
 # COMMAND ----------
 
-features_pdf = spark.table(f"{CATALOG}.{SCHEMA}.gold_customer_features").toPandas()
+# Sorted: toPandas() row order is not stable across runs, and train_test_split(random_state=42) depends on it —
+# unsorted, every setup-job run would train a different model and flag different "hidden premium" customers.
+features_pdf = (spark.table(f"{CATALOG}.{SCHEMA}.gold_customer_features").toPandas()
+                .sort_values("customer_id").reset_index(drop=True))
 labeled = features_pdf[features_pdf["premium_status"].notna()].copy()
 unlabeled = features_pdf[features_pdf["premium_status"].isna()].copy()
 print(f"Total: {len(features_pdf)} | Labeled: {len(labeled)} | Unlabeled: {len(unlabeled)}")

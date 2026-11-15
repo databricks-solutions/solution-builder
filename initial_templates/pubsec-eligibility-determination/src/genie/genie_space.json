@@ -1,0 +1,250 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "086f5ec499f84cb9a6eda38f269c61d0",
+        "question": [
+          "How has Tamarack's on-time rate changed over the last 9 months?"
+        ]
+      },
+      {
+        "id": "28f3356fbe6c49688514b0bb9fa5a67b",
+        "question": [
+          "Which county is furthest below the 30-day SNAP standard over the last 3 complete months?"
+        ]
+      },
+      {
+        "id": "5c1190a4f0254256a1fdc67170074a2a",
+        "question": [
+          "Compare procedural denial rates by county"
+        ]
+      },
+      {
+        "id": "bd6a93a3eb91412bb9df9d6ecfb6163b",
+        "question": [
+          "How many open cases per caseworker does each county have?"
+        ]
+      },
+      {
+        "id": "d0cb1302dd674ab091a329f4abb26923",
+        "question": [
+          "Are approval rates different by race or ethnicity?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "Can a pay stub dated more than 30 days before filing be used to verify income, and how many days must a household get to respond to a verification request?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "public_sector.eligibility_copilot.counties"
+      },
+      {
+        "identifier": "public_sector.eligibility_copilot.gold_applications",
+        "column_configs": [
+          {
+            "column_name": "county_name",
+            "enable_format_assistance": true
+          },
+          {
+            "column_name": "determination_month",
+            "description": [
+              "Month of determination (YYYY-MM)"
+            ]
+          },
+          {
+            "column_name": "is_determined",
+            "description": [
+              "Boolean: true if determined"
+            ]
+          },
+          {
+            "column_name": "is_open",
+            "description": [
+              "Boolean: true if still open"
+            ]
+          },
+          {
+            "column_name": "is_procedural_denial",
+            "description": [
+              "Boolean: true if procedural denial"
+            ]
+          },
+          {
+            "column_name": "met_timeliness",
+            "description": [
+              "Boolean: true if met standard"
+            ]
+          },
+          {
+            "column_name": "program",
+            "enable_format_assistance": true
+          },
+          {
+            "column_name": "race_ethnicity",
+            "enable_format_assistance": true
+          }
+        ]
+      },
+      {
+        "identifier": "public_sector.eligibility_copilot.gold_county_backlog",
+        "description": [
+          "Today's open caseload per county: open_cases, overdue_cases (past the 7/30/45-day standard), awaiting_verification, avg_days_open, caseworker_fte (current county-office eligibility workers), caseworker_fte_prior_year, open_cases_per_worker."
+        ]
+      },
+      {
+        "identifier": "public_sector.eligibility_copilot.gold_county_monthly"
+      },
+      {
+        "identifier": "public_sector.eligibility_copilot.program_rules"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "99ec79cb19b64b66b52a8e3ec98a7ca9",
+        "content": [
+          "Westbrook Department of Human Services (fictional state of Westbrook) processes SNAP and Medicaid applications in 8 counties: urban Harbor, Capitol; suburban Lakeview, Maple Grove, Riverbend; rural Cedar Falls, Tamarack, Pine Ridge.\n",
+          "FEDERAL TIMELINESS STANDARDS: SNAP must be decided within 30 days of filing, expedited SNAP within 7 days, Medicaid within 45 days. gold_applications.timeliness_standard_days holds the applicable standard and met_timeliness says whether a determined application met it.\n",
+          "ON-TIME RATE = share of DETERMINED applications (is_determined = true) with met_timeliness = true. When the user asks about 'the 30-day standard' use program = 'SNAP'. Group by determination_month. The current month is partial: for 'last N months' use the last N COMPLETE months (determination_month >= add_months(date_trunc('MONTH', current_date()), -N) AND determination_month < date_trunc('MONTH', current_date())). Do NOT filter on timeliness_standard_days or expedited: the SNAP on-time rate covers ALL SNAP applications, each measured against its own standard (7 or 30 days).\n",
+          "determination values are UPPERCASE: 'APPROVED', 'DENIED', 'WITHDRAWN' (NULL while open). APPROVAL RATE = COUNT_IF(determination = 'APPROVED') / COUNT_IF(determination IN ('APPROVED','DENIED')).\n",
+          "PROCEDURAL DENIAL = denial_reason = 'failure_to_provide_verification' (is_procedural_denial = true): the household did not return verification documents in time \u2014 likely-eligible people losing benefits over paperwork. PROCEDURAL DENIAL RATE = COUNT_IF(is_procedural_denial) / COUNT_IF(is_determined).\n",
+          "BACKLOG / CASELOAD: use gold_county_backlog for today's open cases, overdue cases and open_cases_per_worker (open cases / county-office caseworker_fte). Do NOT count distinct caseworker_id in gold_applications for staffing. open_cases_per_worker is a snapshot of TODAY only (there is no monthly history of caseload per worker): when asked for it by month or over time, report today's value from gold_county_backlog (Tamarack vs the rest of the state) and say it is today's backlog \u2014 never derive a monthly per-caseworker figure from gold_applications.\n",
+          "CONTEXT: Tamarack's paper mill closed about 150 days ago (applications +60%) and its office went from 7 to 4 caseworkers about 120 days ago; the State Surge Team (caseworker_unit = 'State surge team') was sent to help. race_ethnicity is self-reported and used only for civil-rights monitoring; rural counties apply by mail more often (channel = 'mail').\n",
+          "EQUITY QUESTIONS: when comparing by race/ethnicity, combine SNAP + Medicaid (unless a program is named), return approval rate, procedural-denial rate AND the number of decisions per group, and call out groups with fewer than 200 decisions as too small to compare reliably. Then contrast Tamarack with the rest of the state on the same measures \u2014 the gap to look for is geographic.\n",
+          "When no period is given for a timeliness / approval / denial comparison, use the last 3 COMPLETE months and return every county (ranked), not just the worst one.\n",
+          "Round percentages to 1 decimal and always say which months the answer covers.",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "089b04ca6e0749ba866021dfe846c9a7",
+        "question": [
+          "How has Tamarack's SNAP on-time rate changed month by month?"
+        ],
+        "sql": [
+          "SELECT determination_month, ROUND(100 * AVG(CASE WHEN county_name = 'Tamarack' THEN CAST(met_timeliness AS INT) END), 1) AS tamarack_on_time_pct, ROUND(100 * AVG(CASE WHEN county_name <> 'Tamarack' THEN CAST(met_timeliness AS INT) END), 1) AS rest_of_state_on_time_pct FROM public_sector.eligibility_copilot.gold_applications WHERE program = 'SNAP' AND is_determined AND determination_month >= add_months(date_trunc('MONTH', current_date()), -9) AND determination_month < date_trunc('MONTH', current_date()) GROUP BY determination_month ORDER BY determination_month"
+        ]
+      },
+      {
+        "id": "372441f4b0174887a88ba8dbf6037faf",
+        "question": [
+          "Compare procedural denial rates by county"
+        ],
+        "sql": [
+          "SELECT county_name, ROUND(100 * COUNT_IF(is_procedural_denial) / COUNT_IF(is_determined), 1) AS procedural_denial_pct, COUNT_IF(is_procedural_denial) AS procedural_denials FROM public_sector.eligibility_copilot.gold_applications WHERE is_determined AND determination_month >= add_months(date_trunc('MONTH', current_date()), -3) AND determination_month < date_trunc('MONTH', current_date()) GROUP BY county_name ORDER BY procedural_denial_pct DESC"
+        ]
+      },
+      {
+        "id": "7178e25136bc4517a79e658c1a2ade0b",
+        "question": [
+          "How many open cases per caseworker does each county have?"
+        ],
+        "sql": [
+          "SELECT county_name, open_cases, overdue_cases, caseworker_fte, caseworker_fte_prior_year, open_cases_per_worker FROM public_sector.eligibility_copilot.gold_county_backlog ORDER BY open_cases_per_worker DESC"
+        ]
+      },
+      {
+        "id": "a7f4666d55634ba6a643543e3ecba2dd",
+        "question": [
+          "Are approval rates different by race or ethnicity?"
+        ],
+        "sql": [
+          "SELECT race_ethnicity, ROUND(100 * COUNT_IF(determination = 'APPROVED') / COUNT_IF(determination IN ('APPROVED','DENIED')), 1) AS approval_pct, COUNT_IF(determination IN ('APPROVED','DENIED')) AS decided FROM public_sector.eligibility_copilot.gold_applications GROUP BY race_ethnicity ORDER BY approval_pct DESC"
+        ]
+      },
+      {
+        "id": "dbe289470ccc40dd8b1315b8035e5db1",
+        "question": [
+          "Which county is furthest below the 30-day SNAP standard over the last 3 months?"
+        ],
+        "sql": [
+          "SELECT county_name, ROUND(100 * AVG(CAST(met_timeliness AS INT)), 1) AS snap_on_time_pct, COUNT(*) AS determinations FROM public_sector.eligibility_copilot.gold_applications WHERE program = 'SNAP' AND is_determined AND determination_month >= add_months(date_trunc('MONTH', current_date()), -3) AND determination_month < date_trunc('MONTH', current_date()) GROUP BY county_name ORDER BY snap_on_time_pct"
+        ]
+      }
+    ]
+  },
+  "benchmarks": {
+    "questions": [
+      {
+        "id": "19cb42ca4f2b4637897932f8627f5099",
+        "question": [
+          "Are approval rates different by race or ethnicity?"
+        ],
+        "answer": [
+          {
+            "format": "SQL",
+            "content": [
+              "SELECT race_ethnicity, program, ROUND(100.0 * COUNT(*) FILTER (WHERE determination = 'Approved') / NULLIF(COUNT(*) FILTER (WHERE is_determined), 1), 1) as approval_pct FROM gold_applications WHERE is_determined GROUP BY race_ethnicity, program ORDER BY race_ethnicity, program"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "2e3638356fd74b7d9b766d0affb5859b",
+        "question": [
+          "How has Tamarack's on-time rate changed month by month over the last 9 months?"
+        ],
+        "answer": [
+          {
+            "format": "SQL",
+            "content": [
+              "SELECT determination_month, ROUND(100.0 * COUNT(*) FILTER (WHERE met_timeliness AND program = 'SNAP') / NULLIF(COUNT(*) FILTER (WHERE program = 'SNAP'), 1), 1) as on_time_pct FROM gold_applications WHERE county_name = 'Tamarack' AND is_determined AND program = 'SNAP' GROUP BY determination_month ORDER BY determination_month DESC LIMIT 9"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "42906eaf2e8e49f8ae0b9657f30ad882",
+        "question": [
+          "How many open cases per caseworker does each county have?"
+        ],
+        "answer": [
+          {
+            "format": "SQL",
+            "content": [
+              "SELECT county_name, COUNT(*) FILTER (WHERE is_open) as open_cases, COUNT(DISTINCT caseworker_id) as active_workers, ROUND(1.0 * COUNT(*) FILTER (WHERE is_open) / NULLIF(COUNT(DISTINCT caseworker_id), 0), 1) as cases_per_worker FROM gold_applications GROUP BY county_name ORDER BY cases_per_worker DESC"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "c2a93fb0fff145d5b13ab9a2de1f7449",
+        "question": [
+          "Compare procedural denial rates by county"
+        ],
+        "answer": [
+          {
+            "format": "SQL",
+            "content": [
+              "SELECT county_name, ROUND(100.0 * COUNT(*) FILTER (WHERE is_procedural_denial) / NULLIF(COUNT(*) FILTER (WHERE is_determined), 1), 2) as procedural_denial_pct FROM gold_applications WHERE is_determined GROUP BY county_name ORDER BY procedural_denial_pct DESC"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ebcee2d189784a8d9a91220d21d0c822",
+        "question": [
+          "Which county is furthest below the 30-day SNAP timeliness standard over the last 3 months?"
+        ],
+        "answer": [
+          {
+            "format": "SQL",
+            "content": [
+              "SELECT county_name, ROUND(100.0 * COUNT(*) FILTER (WHERE met_timeliness AND program = 'SNAP') / NULLIF(COUNT(*) FILTER (WHERE program = 'SNAP'), 1), 1) as on_time_pct FROM gold_applications WHERE is_determined AND program = 'SNAP' AND determination_month >= date_format(add_months(current_date(), -3), 'yyyy-MM') GROUP BY county_name ORDER BY on_time_pct ASC LIMIT 1"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+    "short_description": "A winter storm shuts an airline hub and the legacy auto-rebooker strands the passengers who need help most. The IROPS Copilot (Databricks App on Lakebase) re-accommodates every cancelled flight in priority order — unaccompanied minors, wheelchairs, long-haul connections, urgent messages read by AI Functions, a UC detractor-risk model — inside cost guardrails, cites EU261 / DOT / UMNR policy from a Genie agent, drafts personalised notifications, and commits the rebookings after Duty Manager approval, written back to Delta for the ops dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "metric-views",
+            "ml-training",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "zerobus",
+            "unstructured-documents",
+            "mlflow-tracing",
+            "databricks-one"
+        ]
+    },
+    "created_resources": {}
+}

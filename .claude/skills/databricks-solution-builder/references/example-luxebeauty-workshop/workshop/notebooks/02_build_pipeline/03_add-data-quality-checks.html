@@ -1,0 +1,23 @@
+<h2>2/ Add data quality checks</h2>
+<div class="dq">
+  <h4>Silver · expectations</h4>
+  <div class="dq-card">
+    <div class="med-tbl"><i data-icon="table"></i>silver_returns<span class="dq-ok" title="Data quality checks passing" style="margin-left:auto; display:inline-flex; width:15px; height:15px; border-radius:50%; background:#1f8a4c; align-items:center; justify-content:center; flex:none;"><i data-icon="check-mini"></i></span></div>
+    <div class="dq-rules"><span class="dq-rule">refund_amount_usd &gt; 0</span><span class="dq-rule">return_id NOT NULL</span><span class="dq-rule">product_id NOT NULL</span><span class="dq-rule">anger_score 0.1–1.0</span></div>
+  </div>
+  <div class="dq-card">
+    <div class="med-tbl"><i data-icon="table"></i>silver_order_items<span class="dq-ok" title="Data quality checks passing" style="margin-left:auto; display:inline-flex; width:15px; height:15px; border-radius:50%; background:#1f8a4c; align-items:center; justify-content:center; flex:none;"><i data-icon="check-mini"></i></span></div>
+    <div class="dq-rules"><span class="dq-rule">line_total_usd &gt;= 0</span><span class="dq-rule">order_id NOT NULL</span></div>
+  </div>
+  <div class="dq-legend"><span class="dq-ok" title="Data quality checks passing" style="display:inline-flex; width:15px; height:15px; border-radius:50%; background:#1f8a4c; align-items:center; justify-content:center; flex:none;"><i data-icon="check-mini"></i></span> checked on every run · warn only</div>
+</div>
+<p>Before rolling up to gold, guard the silver layer with <strong>expectations</strong> — SDP's built-in data quality rules. Each is a <code>CONSTRAINT … EXPECT(…)</code> SDP checks on every run and reports in the <strong>data quality panel</strong>. We'll only <em>warn</em>, so nothing leaves the tables:</p>
+<blockquote class="prompt" style="clear:both;">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Add warn-only data quality expectations to my silver tables (don't drop or fail rows) so I can see them in the pipeline's data quality panel:<br><br>
+  • <strong>silver_returns</strong> — <code>refund_amount_usd</code> &gt; 0, <code>return_id</code> and <code>product_id</code> never null, <code>anger_score</code> between 0.1 and 1.0<br>
+  • <strong>silver_order_items</strong> — <code>line_total_usd</code> &gt;= 0, <code>order_id</code> never null<br><br>
+  Then re-run the pipeline and show me the data quality results for each table.</p>
+</blockquote>
+<blockquote class="note"><p>💡 <strong>Expectations</strong> are unique to declarative pipelines — declare a rule once, SDP tracks pass/fail on every run. Add <code>ON VIOLATION DROP ROW</code> to quarantine bad rows or <code>FAIL UPDATE</code> to stop the pipeline.</p></blockquote>

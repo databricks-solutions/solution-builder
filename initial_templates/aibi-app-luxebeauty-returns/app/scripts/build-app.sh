@@ -3,18 +3,17 @@
 # `artifacts.default.build` so a single `databricks bundle deploy` does:
 #
 #   1. npm install (with dev deps for the build) — uses the caller's
-#      ~/.npmrc registry (Databricks internal proxy on VPN, public off-VPN).
+#      ~/.npmrc registry (a private registry mirror, if configured).
 #   2. npm run build:source → produces dist/ (server) and client/dist/
 #      (vite client).
 #   3. Rewrite package-lock.json `resolved` URLs to the PUBLIC registry.
-#      On VPN your ~/.npmrc points at npm-proxy.dev.databricks.com and npm
-#      bakes those URLs into the lockfile; the Apps container can't reach
-#      the proxy, so its install hangs ~8 min and dies with the misleading
-#      "Exit handler never called!". No-op when already public (off-VPN).
+#      If your ~/.npmrc points at a private registry mirror, npm bakes its URLs into
+#      the lockfile; the Apps container can't reach it and the install hangs, then
+#      dies with the misleading "Exit handler never called!". No-op when already public.
 #
 # Env var injection: NOT done here. The setup job's final task
 # (patch_app_env.py) POSTs a new app deployment with the full env list
-# (bundle-resolved IDs + task-value Genie/KA/MAS IDs). Doing it post-job
+# (bundle-resolved IDs + the task-value Genie Agent ID). Doing it post-job
 # keeps everything in one place AND lets us include task-value-derived
 # data the bundle can't know at deploy time.
 set -euo pipefail
@@ -40,19 +39,14 @@ npm run db:generate
 echo "[build-app] building server + client…"
 npm run build:source
 
-# Rewrite ANY Databricks npm-proxy URL → public registry, in place. The App
-# container can't reach the internal proxy, and different dev environments pin
-# different proxy hosts in the lockfile (npm-proxy.dev.databricks.com on VPN,
-# npm-proxy.cloud.databricks.com elsewhere) — so match them all, not just one.
-# Missing even one host leaves proxy URLs that 404 on the container (e.g.
-# whatwg-url-5.0.0.tgz not mirrored on the cloud proxy). `sed -i.bak` works on
-# both BSD (macOS) and GNU sed.
-PROXY_RE="https://npm-proxy[.-][a-z0-9.-]*databricks\.com/"
+# Point the lockfile's `resolved` URLs at the public npm registry. A lockfile generated
+# behind a private registry mirror bakes that mirror's host into every URL, and the App
+# container can't reach it. Any non-public host is rewritten; a public lockfile is a no-op.
 PUBLIC_URL="https://registry.npmjs.org/"
-count=$(grep -cE "$PROXY_RE" "$LOCKFILE" || true)
+count=$(grep -E '"resolved": "https://' "$LOCKFILE" | grep -vc 'registry\.npmjs\.org/' || true)
 if [[ "$count" -gt 0 ]]; then
-    echo "[build-app] rewriting $count proxy URLs → public registry"
-    sed -i.bak -E "s|$PROXY_RE|$PUBLIC_URL|g" "$LOCKFILE"
+    echo "[build-app] rewriting $count non-public resolved URLs → public registry"
+    sed -i.bak -E "s|\"resolved\": \"https://[^/]+/|\"resolved\": \"${PUBLIC_URL}|g" "$LOCKFILE"
     rm -f "$LOCKFILE.bak"
 else
     echo "[build-app] lockfile already on public registry — no rewrite needed"

@@ -92,10 +92,17 @@ return_agg AS (
          AVG(anger_score) AS avg_anger_score_lifetime
   FROM silver_returns GROUP BY customer_id
 ),
+-- The data is a snapshot (story clock pinned by the generator): anchor every
+-- relative window to the data's as-of date (day after the latest return), never
+-- the wall clock — otherwise the 90-day window empties as the calendar moves and
+-- the premium classifier's features (and its predictions) drift between runs.
+as_of AS (
+  SELECT DATE_ADD(MAX(CAST(return_date AS DATE)), 1) AS d FROM silver_returns
+),
 anger_90d AS (
   SELECT customer_id, AVG(anger_score) AS avg_anger_score_last_90d
-  FROM silver_returns
-  WHERE return_date >= DATEADD(day, -90, current_date())
+  FROM silver_returns CROSS JOIN as_of
+  WHERE return_date >= DATEADD(day, -90, as_of.d)
   GROUP BY customer_id
 )
 SELECT
@@ -103,7 +110,7 @@ SELECT
   c.region,
   c.country,
   c.loyalty_tier,
-  DATEDIFF(current_date(), CAST(c.registration_date AS DATE)) / 30 AS tenure_months,
+  DATEDIFF(as_of.d, CAST(c.registration_date AS DATE)) / 30 AS tenure_months,
   c.premium_status,
   COALESCE(oa.total_orders_lifetime, 0)         AS total_orders_lifetime,
   COALESCE(oa.total_spend_lifetime, 0.0)        AS total_spend_lifetime,
@@ -113,8 +120,9 @@ SELECT
        ELSE 0.0
   END                                           AS lifetime_return_rate,
   COALESCE(a90.avg_anger_score_last_90d, 0.0)   AS avg_anger_score_last_90d,
-  DATEDIFF(current_date(), oa.last_order_date)  AS days_since_last_order
+  DATEDIFF(as_of.d, oa.last_order_date)  AS days_since_last_order
 FROM read_files('/Volumes/${catalog}/${schema}/raw_data/customers', format => 'parquet') c
 LEFT JOIN order_agg  oa  ON c.customer_id = oa.customer_id
 LEFT JOIN return_agg ra  ON c.customer_id = ra.customer_id
-LEFT JOIN anger_90d  a90 ON c.customer_id = a90.customer_id;
+LEFT JOIN anger_90d  a90 ON c.customer_id = a90.customer_id
+CROSS JOIN as_of;

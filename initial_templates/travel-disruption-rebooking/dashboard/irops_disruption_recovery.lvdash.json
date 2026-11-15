@@ -1,0 +1,1401 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Harlan headline KPIs",
+      "queryLines": [
+        "SELECT COUNT(*) AS disrupted_pax,\n",
+        "       AVG(CAST(autoprotect_same_day AS INT)) AS ap_same_day_rate,\n",
+        "       SUM(CAST(special_assistance AND autoprotect_overnight AS INT)) AS ssr_overnight,\n",
+        "       SUM(CAST(autoprotect_misconnect AS INT)) AS ap_misconnects,\n",
+        "       SUM(CAST(desk_committed AS INT)) AS desk_rebooked,\n",
+        "       AVG(CAST(current_same_day AS INT)) AS current_same_day_rate\n",
+        "FROM v_harlan_pax_status\n"
+      ]
+    },
+    {
+      "name": "ds_flights",
+      "displayName": "Harlan cancelled flights",
+      "queryLines": [
+        "SELECT flight_number, CONCAT(origin, ' → ', destination) AS route, pax, special_assistance_pax, umnr_pax, onward_long_haul_pax,\n",
+        "       ap_same_day, ap_day_plus_2, ap_special_assistance_overnight, ap_misconnects, ap_split_party_pax, escalated_messages,\n",
+        "       ap_special_assistance_overnight + ap_misconnects AS harm_score, COALESCE(eu_uk_261, 'US DOT') AS rights_regime\n",
+        "FROM gold_harlan_flight_status\n"
+      ]
+    },
+    {
+      "name": "ds_outcome_mix",
+      "displayName": "AutoProtect outcome mix by need",
+      "queryLines": [
+        "SELECT CASE WHEN unaccompanied_minor THEN 'Unaccompanied minors' WHEN special_assistance THEN 'Special assistance'\n",
+        "  WHEN onward_long_haul THEN 'Onward long-haul' WHEN loyalty_tier IN ('Platinum','Diamond') THEN 'Platinum / Diamond' ELSE 'Everyone else' END AS passenger_group,\n",
+        "  ROUND(100.0 * AVG(CASE WHEN autoprotect_same_day THEN 0 ELSE 1 END), 1) AS left_overnight_pct, COUNT(*) AS passengers\n",
+        "FROM v_harlan_pax_status GROUP BY 1 ORDER BY left_overnight_pct DESC\n"
+      ]
+    },
+    {
+      "name": "ds_messages",
+      "displayName": "Passenger messages (AI Functions)",
+      "queryLines": [
+        "SELECT CASE intent WHEN 'rebook_request' THEN 'Rebook request' WHEN 'refund_request' THEN 'Refund request' WHEN 'connection_at_risk' THEN 'Connection at risk' WHEN 'hotel_or_care' THEN 'Hotel or care' WHEN 'special_assistance' THEN 'Special assistance' WHEN 'baggage' THEN 'Baggage' WHEN 'complaint' THEN 'Complaint' WHEN 'praise' THEN 'Praise' ELSE intent END AS intent, CASE urgency WHEN 'urgent_life_event' THEN 'Urgent life event' WHEN 'vulnerable_passenger' THEN 'Vulnerable passenger' WHEN 'missed_onward_connection' THEN 'Missed onward connection' WHEN 'routine' THEN 'Routine' ELSE urgency END AS urgency, sentiment, COUNT(*) AS messages, SUM(CAST(escalate AS INT)) AS escalated\n",
+        "FROM message_insights GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_recovery",
+      "displayName": "Desk plans committed (write-back)",
+      "queryLines": [
+        "SELECT flight_number, destination, pax, ap_same_day,\n",
+        "  CASE WHEN desk_same_day IS NULL THEN 'Not yet planned' ELSE CAST(desk_same_day AS STRING) END AS desk_same_day\n",
+        "FROM v_harlan_recovery ORDER BY desk_plan_committed DESC, ap_special_assistance_overnight + ap_misconnects DESC\n"
+      ]
+    },
+    {
+      "name": "ds_decisions",
+      "displayName": "Special-assistance passengers: AutoProtect vs desk (write-back)",
+      "queryLines": [
+        "SELECT flight_number, pnr, first_name || ' ' || last_name AS passenger, ssr_codes,\n",
+        "  autoprotect_flight, CASE WHEN autoprotect_same_day THEN 'Today' WHEN autoprotect_nights = 1 THEN 'Tomorrow' ELSE 'Sunday' END AS autoprotect_when,\n",
+        "  COALESCE(desk_flight, 'Not yet planned') AS desk_flight,\n",
+        "  CASE WHEN desk_arrival IS NULL THEN 'Not yet planned' ELSE date_format(desk_arrival, 'EEE HH:mm') END AS desk_arrival,\n",
+        "  CASE WHEN desk_committed AND desk_same_day THEN 'Today' WHEN desk_committed THEN 'Next day' ELSE 'Not yet planned' END AS desk_when\n",
+        "FROM v_harlan_pax_status WHERE special_assistance\n",
+        "ORDER BY desk_committed DESC, unaccompanied_minor DESC, flight_number\n"
+      ]
+    },
+    {
+      "name": "ds_monthly",
+      "displayName": "IROPS outcomes by month and handling method",
+      "queryLines": [
+        "SELECT CAST(month AS DATE) AS month, CASE handling_method WHEN 'AUTOPROTECT' THEN 'AutoProtect' ELSE 'DEN desk pilot' END AS handling_method, SUM(disrupted_pax) AS disrupted_pax,\n",
+        "  SUM(same_day_rate * disrupted_pax) / SUM(disrupted_pax) AS same_day_rate,\n",
+        "  SUM(cost_per_pax_usd * disrupted_pax) / SUM(disrupted_pax) AS cost_per_pax_usd,\n",
+        "  SUM(misconnects) AS misconnects\n",
+        "FROM gold_irops_monthly WHERE CAST(month AS DATE) < DATE'2026-02-01' GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_method",
+      "displayName": "AutoProtect vs desk-priority pilot (since Dec 2025)",
+      "queryLines": [
+        "SELECT CASE handling_method WHEN 'AUTOPROTECT' THEN 'AutoProtect' ELSE 'DEN desk pilot' END AS handling,\n",
+        "       COUNT(*) AS disrupted_pax,\n",
+        "       AVG(CAST(same_day_reaccommodated AS INT)) AS same_day_rate,\n",
+        "       SUM(CAST(misconnect AS INT)) / NULLIF(SUM(CAST(onward_long_haul AS INT)), 0) AS misconnect_rate,\n",
+        "       AVG(total_cost_usd) AS cost_per_pax_usd,\n",
+        "       100 * (AVG(CAST(promoter AS INT)) - AVG(CAST(detractor AS INT))) AS nps\n",
+        "FROM irops_history WHERE event_date >= '2025-12-01' GROUP BY 1\n"
+      ]
+    },
+    {
+      "name": "ds_events",
+      "displayName": "IROPS events",
+      "queryLines": [
+        "SELECT e.event_date, e.event_name, e.hub, e.cause_category, CASE e.handling_method WHEN 'AUTOPROTECT' THEN 'AutoProtect' ELSE 'DEN desk pilot' END AS handling_method, COUNT(h.history_pax_id) AS disrupted_pax,\n",
+        "       AVG(CAST(h.same_day_reaccommodated AS INT)) AS same_day_rate, AVG(h.total_cost_usd) AS cost_per_pax_usd,\n",
+        "       100 * (AVG(CAST(h.promoter AS INT)) - AVG(CAST(h.detractor AS INT))) AS nps\n",
+        "FROM irops_events e JOIN irops_history h ON h.event_id = e.event_id GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_harm_top",
+      "displayName": "Harm Top",
+      "queryLines": [
+        "SELECT flight_number, ap_special_assistance_overnight + ap_misconnects AS harm_score\n",
+        "FROM gold_harlan_flight_status ORDER BY harm_score DESC LIMIT 12\n"
+      ],
+      "catalog": "retail_consumer_goods",
+      "schema": "travel_disruption_rebooking"
+    }
+  ],
+  "pages": [
+    {
+      "name": "harlan",
+      "displayName": "Winter Storm Harlan — live",
+      "layout": [
+        {
+          "widget": {
+            "name": "t1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Aeralis IROPS — Winter Storm Harlan (ORD, Fri 13 Feb 2026)\n",
+                "A 05:40-12:30 CT ground stop cancelled **36 flights**. The legacy auto-rebooker **AutoProtect** (first-booked-first-served, own metal only) re-accommodated only a sixth of passengers the same day and left most **special-assistance passengers, unaccompanied minors and long-haul connectors overnight**. The IROPS desk re-plans flight by flight with the IROPS Copilot; every committed plan is written back here."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "disrupted_pax",
+                      "expression": "`disrupted_pax`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "disrupted_pax",
+                  "displayName": "Passengers disrupted"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Passengers disrupted"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "ap_same_day_rate",
+                      "expression": "`ap_same_day_rate`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ap_same_day_rate",
+                  "displayName": "AutoProtect: home today",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "AutoProtect: home today"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "ssr_overnight",
+                      "expression": "`ssr_overnight`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ssr_overnight",
+                  "displayName": "Special assistance left overnight"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Special assistance left overnight"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "ap_misconnects",
+                      "expression": "`ap_misconnects`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "ap_misconnects",
+                  "displayName": "Missed long-haul connections"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Missed long-haul connections"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "desk_rebooked",
+                      "expression": "`desk_rebooked`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "desk_rebooked",
+                  "displayName": "Desk rebookings committed (0 until the desk commits)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Desk rebookings committed (0 until the desk commits)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "mix",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_outcome_mix",
+                  "fields": [
+                    {
+                      "name": "passenger_group",
+                      "expression": "`passenger_group`"
+                    },
+                    {
+                      "name": "left_overnight_pct",
+                      "expression": "`left_overnight_pct`"
+                    },
+                    {
+                      "name": "passengers",
+                      "expression": "`passengers`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "passenger_group",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Passenger need"
+                },
+                "x": {
+                  "fieldName": "left_overnight_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Left overnight (%)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Left overnight by AutoProtect, by passenger need (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "flights_harm",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_harm_top",
+                  "fields": [
+                    {
+                      "name": "flight_number",
+                      "expression": "`flight_number`"
+                    },
+                    {
+                      "name": "harm_score",
+                      "expression": "`harm_score`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "flight_number",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Flight"
+                },
+                "x": {
+                  "fieldName": "harm_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Harm score (SSR overnight + misconnects)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top 12 flights where AutoProtect hurt most"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 9,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "flights_tbl",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_flights",
+                  "fields": [
+                    {
+                      "name": "flight_number",
+                      "expression": "`flight_number`"
+                    },
+                    {
+                      "name": "route",
+                      "expression": "`route`"
+                    },
+                    {
+                      "name": "pax",
+                      "expression": "`pax`"
+                    },
+                    {
+                      "name": "special_assistance_pax",
+                      "expression": "`special_assistance_pax`"
+                    },
+                    {
+                      "name": "umnr_pax",
+                      "expression": "`umnr_pax`"
+                    },
+                    {
+                      "name": "ap_same_day",
+                      "expression": "`ap_same_day`"
+                    },
+                    {
+                      "name": "ap_day_plus_2",
+                      "expression": "`ap_day_plus_2`"
+                    },
+                    {
+                      "name": "ap_special_assistance_overnight",
+                      "expression": "`ap_special_assistance_overnight`"
+                    },
+                    {
+                      "name": "ap_misconnects",
+                      "expression": "`ap_misconnects`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "flight_number",
+                    "displayName": "Flight"
+                  },
+                  {
+                    "fieldName": "route",
+                    "displayName": "Route"
+                  },
+                  {
+                    "fieldName": "pax",
+                    "displayName": "Pax"
+                  },
+                  {
+                    "fieldName": "special_assistance_pax",
+                    "displayName": "Special assist."
+                  },
+                  {
+                    "fieldName": "umnr_pax",
+                    "displayName": "UMNR"
+                  },
+                  {
+                    "fieldName": "ap_same_day",
+                    "displayName": "AutoProtect today"
+                  },
+                  {
+                    "fieldName": "ap_day_plus_2",
+                    "displayName": "AutoProtect Sunday"
+                  },
+                  {
+                    "fieldName": "ap_special_assistance_overnight",
+                    "displayName": "SSR overnight"
+                  },
+                  {
+                    "fieldName": "ap_misconnects",
+                    "displayName": "Misconnects"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cancelled flights — AutoProtect outcome"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 8
+          }
+        },
+        {
+          "widget": {
+            "name": "msg",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_messages",
+                  "fields": [
+                    {
+                      "name": "intent",
+                      "expression": "`intent`"
+                    },
+                    {
+                      "name": "sum(messages)",
+                      "expression": "SUM(`messages`)"
+                    },
+                    {
+                      "name": "urgency",
+                      "expression": "`urgency`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "y": {
+                  "fieldName": "intent",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  },
+                  "displayName": "Intent"
+                },
+                "x": {
+                  "fieldName": "sum(messages)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Messages"
+                },
+                "color": {
+                  "fieldName": "urgency",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Urgent life event",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Vulnerable passenger",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "Missed onward connection",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Routine",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Urgency"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Passenger messages by intent and urgency (AI Functions)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "rec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_recovery",
+                  "fields": [
+                    {
+                      "name": "flight_number",
+                      "expression": "`flight_number`"
+                    },
+                    {
+                      "name": "destination",
+                      "expression": "`destination`"
+                    },
+                    {
+                      "name": "pax",
+                      "expression": "`pax`"
+                    },
+                    {
+                      "name": "ap_same_day",
+                      "expression": "`ap_same_day`"
+                    },
+                    {
+                      "name": "desk_same_day",
+                      "expression": "`desk_same_day`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "flight_number",
+                    "displayName": "Flight"
+                  },
+                  {
+                    "fieldName": "destination",
+                    "displayName": "To"
+                  },
+                  {
+                    "fieldName": "pax",
+                    "displayName": "Pax"
+                  },
+                  {
+                    "fieldName": "ap_same_day",
+                    "displayName": "AutoProtect today"
+                  },
+                  {
+                    "fieldName": "desk_same_day",
+                    "displayName": "Desk today"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Recovery by flight: desk plans committed in the app (live)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 24,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "dec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "flight_number",
+                      "expression": "`flight_number`"
+                    },
+                    {
+                      "name": "pnr",
+                      "expression": "`pnr`"
+                    },
+                    {
+                      "name": "passenger",
+                      "expression": "`passenger`"
+                    },
+                    {
+                      "name": "ssr_codes",
+                      "expression": "`ssr_codes`"
+                    },
+                    {
+                      "name": "autoprotect_flight",
+                      "expression": "`autoprotect_flight`"
+                    },
+                    {
+                      "name": "autoprotect_when",
+                      "expression": "`autoprotect_when`"
+                    },
+                    {
+                      "name": "desk_flight",
+                      "expression": "`desk_flight`"
+                    },
+                    {
+                      "name": "desk_arrival",
+                      "expression": "`desk_arrival`"
+                    },
+                    {
+                      "name": "desk_when",
+                      "expression": "`desk_when`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "flight_number",
+                    "displayName": "Flight"
+                  },
+                  {
+                    "fieldName": "pnr",
+                    "displayName": "PNR"
+                  },
+                  {
+                    "fieldName": "passenger",
+                    "displayName": "Passenger"
+                  },
+                  {
+                    "fieldName": "ssr_codes",
+                    "displayName": "SSR codes"
+                  },
+                  {
+                    "fieldName": "autoprotect_flight",
+                    "displayName": "AutoProtect"
+                  },
+                  {
+                    "fieldName": "autoprotect_when",
+                    "displayName": "AutoProtect timing"
+                  },
+                  {
+                    "fieldName": "desk_flight",
+                    "displayName": "Desk rebooking"
+                  },
+                  {
+                    "fieldName": "desk_arrival",
+                    "displayName": "Desk arrival"
+                  },
+                  {
+                    "fieldName": "desk_when",
+                    "displayName": "Desk timing"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Special-assistance passengers: AutoProtect vs the desk (live)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 31,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "history",
+      "displayName": "IROPS history",
+      "layout": [
+        {
+          "widget": {
+            "name": "t2",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# IROPS history — AutoProtect vs priority re-accommodation\n",
+                "18 IROPS events, Jan 2025 - Feb 2026, ~38.7K disrupted passengers with post-trip NPS surveys. From December the **DEN desk piloted priority re-accommodation** (special assistance and connections first, partner seats, parties kept together): **more passengers home the same day, at a lower cost per disrupted passenger, with a far better NPS** — the case for the IROPS Copilot."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "l1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "same_day_rate",
+                      "expression": "`same_day_rate`"
+                    },
+                    {
+                      "name": "handling_method",
+                      "expression": "`handling_method`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "same_day_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Same-day rate (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "handling_method",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "AutoProtect",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "DEN desk pilot",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Handling method"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Same-day re-accommodation rate by month"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "l2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "cost_per_pax_usd",
+                      "expression": "`cost_per_pax_usd`"
+                    },
+                    {
+                      "name": "handling_method",
+                      "expression": "`handling_method`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "cost_per_pax_usd",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cost per passenger (USD)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "handling_method",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "AutoProtect",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "DEN desk pilot",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Handling method"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost per disrupted passenger by month (USD)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "m1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_method",
+                  "fields": [
+                    {
+                      "name": "handling",
+                      "expression": "`handling`"
+                    },
+                    {
+                      "name": "avg(same_day_rate)",
+                      "expression": "AVG(`same_day_rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Handling method"
+                },
+                "y": {
+                  "fieldName": "avg(same_day_rate)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Same-day rate (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "AutoProtect",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "DEN desk pilot",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Handling method"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Same day (since Dec 2025)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "m2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_method",
+                  "fields": [
+                    {
+                      "name": "handling",
+                      "expression": "`handling`"
+                    },
+                    {
+                      "name": "avg(cost_per_pax_usd)",
+                      "expression": "AVG(`cost_per_pax_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Handling method"
+                },
+                "y": {
+                  "fieldName": "avg(cost_per_pax_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Cost per passenger (USD)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "AutoProtect",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "DEN desk pilot",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Handling method"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cost per disrupted passenger"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 9,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "m3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_method",
+                  "fields": [
+                    {
+                      "name": "handling",
+                      "expression": "`handling`"
+                    },
+                    {
+                      "name": "avg(nps)",
+                      "expression": "AVG(`nps`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Handling method"
+                },
+                "y": {
+                  "fieldName": "avg(nps)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "NPS"
+                },
+                "color": {
+                  "fieldName": "handling",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "AutoProtect",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "DEN desk pilot",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Handling method"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "NPS proxy (post-trip survey)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 9,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "ev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_events",
+                  "fields": [
+                    {
+                      "name": "event_date",
+                      "expression": "`event_date`"
+                    },
+                    {
+                      "name": "event_name",
+                      "expression": "`event_name`"
+                    },
+                    {
+                      "name": "hub",
+                      "expression": "`hub`"
+                    },
+                    {
+                      "name": "handling_method",
+                      "expression": "`handling_method`"
+                    },
+                    {
+                      "name": "disrupted_pax",
+                      "expression": "`disrupted_pax`"
+                    },
+                    {
+                      "name": "same_day_rate",
+                      "expression": "`same_day_rate`"
+                    },
+                    {
+                      "name": "cost_per_pax_usd",
+                      "expression": "`cost_per_pax_usd`"
+                    },
+                    {
+                      "name": "nps",
+                      "expression": "`nps`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "event_date",
+                    "displayName": "Date"
+                  },
+                  {
+                    "fieldName": "event_name",
+                    "displayName": "Event"
+                  },
+                  {
+                    "fieldName": "hub",
+                    "displayName": "Hub"
+                  },
+                  {
+                    "fieldName": "handling_method",
+                    "displayName": "Handling method"
+                  },
+                  {
+                    "fieldName": "disrupted_pax",
+                    "displayName": "Disrupted passengers"
+                  },
+                  {
+                    "fieldName": "same_day_rate",
+                    "displayName": "Same day",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cost_per_pax_usd",
+                    "displayName": "Cost / pax",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "nps",
+                    "displayName": "NPS"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "IROPS events"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F5F7FB",
+        "dark": "#0F1419"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "widgetBorderColor": {
+        "light": "#FFFFFF",
+        "dark": "#161B22"
+      },
+      "fontColor": {
+        "light": "#1F2530",
+        "dark": "#E8ECF0"
+      },
+      "selectionColor": {
+        "light": "#2272B4",
+        "dark": "#8ACAFF"
+      },
+      "visualizationColors": [
+        "#094074",
+        "#3C6997",
+        "#5ADBFF",
+        "#FFDD4A",
+        "#FE9000"
+      ],
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

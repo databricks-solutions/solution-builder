@@ -1,0 +1,19 @@
+<h2>1/ Create the dashboard + the KPI counters</h2>
+<p>Start small: create the AI/BI dashboard and give it a first page — <strong>Operations</strong> — with a row of big-number counters, so Claire sees the headline the second she opens it. These come from <code>gold_daily_summary</code>, which holds one row per <strong>day × region × category × affected-lot flag</strong> — so every tile is a <code>SUM(...)</code> across those rows, not a single value. We're building this:</p>
+<div class="kpi-row">
+  <div class="kpi hot"><div class="k-label">Refund $</div><div class="k-num"><span class="k-cur">$</span><span class="k-sk" style="width:62%"></span></div><div class="k-sub">total refunds</div></div>
+  <div class="kpi"><div class="k-label">Returns</div><div class="k-num"><span class="k-sk" style="width:45%"></span></div><div class="k-sub">count</div></div>
+  <div class="kpi"><div class="k-label">Orders</div><div class="k-num"><span class="k-sk" style="width:55%"></span></div><div class="k-sub">count</div></div>
+  <div class="kpi"><div class="k-label">Revenue</div><div class="k-num"><span class="k-cur">$</span><span class="k-sk" style="width:70%"></span></div><div class="k-sub">total</div></div>
+</div>
+<p style="font-size:12px; color:var(--muted); margin-top:2px;">Four tiles, left to right — each filled from your data.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Create an AI/BI dashboard called "LuxeBeauty Operations" with a first page named <strong>Operations</strong>. Across the top, add four big-number counter tiles, all reading from <code>gold_daily_summary</code>:<br><br>
+  • <strong>Refund $</strong> — total of the daily returns dollars (<code>returns_usd</code>)<br>
+  • <strong>Returns</strong> — total of the daily return counts (<code>return_count</code>)<br>
+  • <strong>Orders</strong> — total of the daily order counts (<code>order_count</code>)<br>
+  • <strong>Revenue</strong> — total of the daily revenue (<code>revenue_usd</code>)<br><br>
+  Format the money tiles as currency and the counts as whole numbers. Publish it and give me the link so I can open it.</p>
+</blockquote>

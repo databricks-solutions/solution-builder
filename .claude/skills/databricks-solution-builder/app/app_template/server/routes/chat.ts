@@ -22,10 +22,9 @@ import type { AppDb } from '../db/index.js';
 type Deps = {
   db: AppDb;
   appConfig: {
-    /** MAS endpoint name. Template demo registers `ask_mas` against
-     * this; if your demo uses Genie, replace with `genieSpaceId` here
-     * and in refundops.ts. See server/agent/tools/{mas,genie}.ts. */
-    masEndpointName: string;
+    /** Genie Agent space id. The agent registers `ask_data` against it
+     * (see server/agent/tools/genie.ts). */
+    genieSpaceId: string;
     agentModel?: string;
   };
 };

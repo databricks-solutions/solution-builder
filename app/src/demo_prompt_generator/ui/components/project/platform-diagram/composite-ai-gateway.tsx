@@ -33,7 +33,8 @@ export const AIGatewayBlock = memo(function AIGatewayBlock({ data, selected }: N
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component);
+  const slide = d.theme === "slide";
+  const nat = baseSize(d.component, d.params, d.theme);
   const AIGateway = DATABRICKS_ICONS.aiGatewayBrand;
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 12 });
 
@@ -75,12 +76,13 @@ export const AIGatewayBlock = memo(function AIGatewayBlock({ data, selected }: N
               <FileSvgIcon key={m.key} iconKey={m.key} className="h-5 w-5 shrink-0" />
             ))}
           </div>
-          {/* Gateway body: brand icon + label, then the editable description. */}
+          {/* Gateway body: brand icon + label, then the editable description.
+              Slide: bigger icon + label, description suppressed. */}
           <div className="flex min-h-0 flex-1 items-center gap-2">
             <AIGateway className="h-6 w-6 shrink-0" />
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
-              <span className="truncate text-[13px] font-semibold text-foreground">{d.component.label}</span>
-              {editingDesc !== null ? (
+              <span className="truncate font-semibold text-foreground text-[15px]">{d.component.label}</span>
+              {!slide && editingDesc !== null ? (
                 <input
                   autoFocus
                   value={editingDesc}
@@ -89,17 +91,17 @@ export const AIGatewayBlock = memo(function AIGatewayBlock({ data, selected }: N
                   onKeyDown={(e) => { if (e.key === "Enter") commitDesc(); else if (e.key === "Escape") setEditingDesc(null); e.stopPropagation(); }}
                   onClick={(e) => e.stopPropagation()}
                   placeholder="Description"
-                  className="mt-0.5 w-full min-w-0 bg-transparent text-[9.5px] font-normal leading-tight text-muted-foreground outline-none"
+                  className="mt-0.5 w-full min-w-0 bg-transparent text-[11px] font-normal leading-tight text-muted-foreground outline-none"
                 />
-              ) : (
+              ) : !slide ? (
                 <span
-                  className="mt-0.5 block truncate text-[9.5px] font-normal leading-tight text-muted-foreground"
+                  className="mt-0.5 block truncate text-[11px] font-normal leading-tight text-muted-foreground"
                   title="Double-click to edit description"
                   onDoubleClick={(e) => { e.stopPropagation(); setEditingDesc(desc === DEFAULT_DESC ? "" : desc); }}
                 >
                   {desc}
                 </span>
-              )}
+              ) : null}
             </span>
           </div>
         </div>

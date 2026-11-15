@@ -5,6 +5,13 @@
  */
 import { createContext } from "react";
 import { Position } from "@xyflow/react";
+import { logoIconRect, logoAnchorPoint, type LogoLook } from "@/lib/platform-architecture";
+
+/** Caption-font look for a logo node: user-sized (explicit w/h) + the theme default.
+ *  The render (annotations.tsx) derives the same look, so anchors match the drawn icon. */
+function logoLookOf(d?: { w?: number; h?: number; theme?: string }): LogoLook {
+  return { sized: d?.w !== undefined || d?.h !== undefined, dflt: d?.theme === "slide" ? 18 : 15 };
+}
 
 export type Side = "t" | "r" | "b" | "l";
 export type Rect = { x: number; y: number; w: number; h: number };
@@ -39,12 +46,24 @@ export function nearestSide(r: Rect, px: number, py: number): Side {
 }
 
 /** Fraction along a side for edge `index` of `count` sharing it. Packed
- *  tightly around the CENTER (0.5) with a small fixed gap, instead of spreading
- *  across the whole side — so multiple lines stay close together near the
- *  middle. 1→0.5; 2→0.43/0.57; 3→0.36/0.5/0.64; clamped to stay on the side. */
+ *  tightly around the CENTER (0.5), instead of spreading across the whole side —
+ *  so multiple lines stay close together near the middle.
+ *
+ *  The per-line gap is DYNAMIC: it starts at 0.18 (the value tuned for 2–3 lines)
+ *  and SHRINKS as more lines converge, so N lines always fit inside the usable
+ *  [0.08, 0.92] band with even spacing instead of the outer ones piling onto the
+ *  clamps (which crowded, e.g., the ~7 edges landing on `bronze@l`). A small floor
+ *  keeps very large fans from collapsing lines onto each other.
+ *  1→0.5; 2→0.41/0.59; 3→0.32/0.5/0.68; 7→evenly across ~0.14–0.86. */
 export function spreadFrac(index: number, count: number): number {
   if (count <= 1) return 0.5;
-  const gap = 0.18; // spacing between adjacent lines, as a fraction of the side
+  const SPAN = 0.92 - 0.08;            // usable band on the side (0.84)
+  const MAX_GAP = 0.18;                // preferred gap for a small fan (unchanged)
+  // Largest gap for which all `count` lines still fit centered inside the band —
+  // capped at MAX_GAP so 2–3 lines keep their tuned spacing, and shrinking below
+  // it as the fan grows so a big fan spans the band edge-to-edge (evenly, ordered)
+  // instead of the outer lines piling onto the clamp.
+  const gap = Math.min(MAX_GAP, SPAN / (count - 1));
   const f = 0.5 + (index - (count - 1) / 2) * gap;
   return Math.min(0.92, Math.max(0.08, f));
 }
@@ -79,6 +98,15 @@ export interface EdgeOps {
   portsOf: (nodeId: string) => { handle: string; x: number; y: number }[];
   /** Set (or clear, with undefined) the manual X of an edge's vertical elbow. */
   setEdgeCenterX: (edgeId: string, centerX: number | undefined) => void;
+  /** Manual label placement along the edge: `t` = fraction of path length,
+   *  `off` = perpendicular px. Undefined restores automatic placement. */
+  setEdgeLabelPos: (edgeId: string, pos: { d?: number; from?: "source" | "target"; off?: number; t?: number } | undefined) => void;
+  /** Enable/disable the automatic/custom cubic Bézier route. */
+  setEdgeBezier: (edgeId: string, enabled: boolean) => void;
+  /** Set or clear custom step waypoints. */
+  setEdgeWaypoints: (edgeId: string, points: { x: number; y: number }[] | undefined) => void;
+  /** Set or clear custom cubic Bézier control points. */
+  setEdgeControlPoints: (edgeId: string, points: [{ x: number; y: number }, { x: number; y: number }] | undefined) => void;
   /** Set (or clear, with "") an edge's mid-line label — used by the double-click
    *  inline editor. */
   setEdgeLabel: (edgeId: string, label: string) => void;
@@ -91,6 +119,46 @@ export const rectOf = (n: { internals: { positionAbsolute: { x: number; y: numbe
   w: n.measured.width ?? 200,
   h: n.measured.height ?? 56,
 });
+
+/** The rect an EDGE should anchor to for a node. For a CAPTIONED LOGO this is the
+ *  ICON square inside the box (via `logoIconRect`), NOT the full box — so a line
+ *  meets the icon it points at instead of the box centre out in the caption
+ *  whitespace. For every other node it's the node's own rect. ONE helper so the
+ *  router, the tile-avoid pass, and the render all anchor to the same point. */
+export function anchorRectOf(
+  n: {
+    internals: { positionAbsolute: { x: number; y: number } };
+    measured: { width?: number; height?: number };
+    data?: { w?: number; h?: number; theme?: string; annotation?: { variant?: string; caption?: "right" | "left" | "top" | "bottom" | "side" | "below"; text?: string; fontSize?: number; showDesc?: boolean; desc?: string } };
+  },
+): Rect {
+  const box = rectOf(n);
+  const a = n.data?.annotation;
+  if (a?.variant === "logo" && a.text) return logoIconRect(box, a, logoLookOf(n.data));
+  return box;
+}
+
+type LogoNode = {
+  internals: { positionAbsolute: { x: number; y: number } };
+  measured: { width?: number; height?: number };
+  data?: { w?: number; h?: number; theme?: string; annotation?: { variant?: string; caption?: "right" | "left" | "top" | "bottom" | "side" | "below"; text?: string; fontSize?: number; showDesc?: boolean; desc?: string } };
+};
+
+/** The exact anchor POINT for an edge end on a node, per side. For a CAPTIONED
+ *  LOGO it's caption-aware (`logoAnchorPoint`): the icon edge on the three
+ *  non-caption sides, the BOX edge on the caption side so a line exits past the
+ *  text (a bottom-captioned logo's downward line starts below the caption/desc,
+ *  not on the icon through the text). Every other node uses the plain
+ *  `sidePoint`. ONE helper so the router, tile-avoid, and render agree. */
+export function sidePointForNode(n: LogoNode, side: Side, frac = 0.5): { x: number; y: number } {
+  const box = rectOf(n);
+  const a = n.data?.annotation;
+  if (a?.variant === "logo" && a.text) {
+    const p = logoAnchorPoint(box, side, frac, a, logoLookOf(n.data));
+    if (p) return p;
+  }
+  return sidePoint(box, side, frac);
+}
 
 /** A ReactFlow measured handle (from `node.internals.handleBounds`). x/y are
  *  node-LOCAL (relative to the node's top-left), width/height the hit box.

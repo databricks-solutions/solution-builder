@@ -16,7 +16,7 @@
  */
 import type { Request } from 'express';
 
-const PLACEHOLDER_EMAIL = 'local_user@databricks.com';
+const PLACEHOLDER_EMAIL = 'local_user@example.com';
 
 export function getCurrentUserEmail(req: Request): string {
   const h = req.headers;

@@ -2,7 +2,7 @@
 
 ## Two stores
 
-- **Delta tables** — lakehouse source of truth, read-only from app. SQL Warehouse queries + MAS read here.
+- **Delta tables** — lakehouse source of truth, read-only from app. SQL Warehouse queries + the Genie Agent read here.
 - **Lakebase Postgres** — OLTP write surface. Chat state + operational mirror of the Delta subset the operator needs.
 
 ## Lakebase schema (`app.*`)

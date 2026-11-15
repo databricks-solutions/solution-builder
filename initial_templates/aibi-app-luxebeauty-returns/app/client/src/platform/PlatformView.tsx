@@ -10,7 +10,7 @@
  *   1. Ingest + Transform — sources → declarative pipeline
  *      (also hosts a compact "Built with Genie Code" strip)
  *   2. Govern + Define     — Unity Catalog as the spine
- *   3. Speak to your data  — Dashboards + Genie + Agent Bricks
+ *   3. Speak to your data  — Dashboards + Genie + Genie Agent
  *   4. Act                 — Lakebase + Apps reaching the operator
  */
 
@@ -424,20 +424,20 @@ function GovernScene() {
 }
 
 // ===========================================================================
-// Scene 3 — Speak to your data + Agent Bricks
-// One scene, four outputs sharing the same governed-data plinth at the bottom:
+// Scene 3 — Speak to your data + Genie Agent
+// One scene, three outputs sharing the same governed-data plinth at the bottom:
 //   • Dashboards  → BI for the eyes
 //   • Genie       → natural language → SQL
-//   • KA          → RAG over your docs
-//   • MAS         → orchestrates all three
-// Agent Bricks add value: bring your data, ground every answer, route across tools.
+//   • Genie Agent → one agent answers from tables AND documents (PDF volume)
+// Genie Agent adds value: bring your data, ground every answer in your documents, cite the source.
 // ===========================================================================
 
 function SpeakToDataScene() {
   // 3 capability chips in a centered row, all fed by a single governed-data
   // plinth below. Each chip is just an icon + label + a one-line value prop.
-  // Knowledge Assistant + Multi-Agent Supervisor are merged into a single
-  // "Agent Bricks" chip to keep the diagram simple.
+  // The Genie Agent answers from both the tables and the documents volume, so
+  // it gets its own chip next to Genie.
+
 
   // 3 chips at width 112 + 14 gap, centered in the 380 viewBox.
   const chipW = 112;
@@ -458,8 +458,8 @@ function SpeakToDataScene() {
       y: 60,
     },
     {
-      label: 'Agent Bricks',
-      sub: 'Agents on your data',
+      label: 'Genie Agent',
+      sub: 'Data + documents, cited',
       icon: Network,
       x: 260,
       y: 60,
@@ -1052,7 +1052,7 @@ function GenieCodeStrip() {
 // Agentic Apps strip — sits inside the Speak-to-data layer.
 // Same visual language as the Genie Code strip: head label + animated demo
 // on the right. The demo here is a user question → specialist agents →
-// grounded answer with sources, conveying KA + MAS in one beat.
+// grounded answer with sources, conveying the Genie Agent in one beat.
 // ===========================================================================
 
 function AgenticAppsStrip() {
@@ -1070,52 +1070,43 @@ function AgenticAppsStrip() {
         </span>
       </div>
 
-      {/* MAS routing flow:
-          question → supervisor fans out to specialists (Genie, KA, custom tool)
-          → answers stream back → grounded synthesis. */}
-      <div className="dx-mas-stage" aria-hidden>
+      {/* Genie Agent flow:
+          question → agent runs SQL and searches documents → grounded answer. */}
+      <div className="dx-agent-stage" aria-hidden>
         {/* User question — types itself, then routing fires */}
-        <div className="dx-mas-question">
-          <span className="dx-mas-question-chev">?</span>
-          <span className="dx-mas-question-text">
-            <span className="dx-mas-question-typed">Why are refunds up?</span>
-            <span className="dx-mas-question-caret" />
+        <div className="dx-agent-question">
+          <span className="dx-agent-question-chev">?</span>
+          <span className="dx-agent-question-text">
+            <span className="dx-agent-question-typed">Why are refunds up?</span>
+            <span className="dx-agent-question-caret" />
           </span>
         </div>
 
-        {/* Supervisor router */}
-        <div className="dx-mas-router">
-          <span className="dx-mas-router-icon">
+        {/* Genie Agent router */}
+        <div className="dx-agent-router">
+          <span className="dx-agent-router-icon">
             <Network className="size-3.5" />
           </span>
-          <span className="dx-mas-router-label">Supervisor</span>
+          <span className="dx-agent-router-label">Genie Agent</span>
         </div>
 
-        {/* Three specialist agents, lit sequentially */}
-        <div className="dx-mas-agents">
-          <div className="dx-mas-agent dx-mas-agent-1">
-            <span className="dx-mas-agent-icon">
+        {/* Two specialist searches inside the Genie Agent, lit sequentially */}
+        <div className="dx-agent-items">
+          <div className="dx-agent-item dx-agent-item-1">
+            <span className="dx-agent-item-icon">
               <BarChart3 className="size-3" />
             </span>
-            <span className="dx-mas-agent-name">Genie</span>
-            <span className="dx-mas-agent-task">querying sales data…</span>
+            <span className="dx-agent-item-name">Genie · SQL</span>
+            <span className="dx-agent-item-task">querying sales data…</span>
           </div>
-          <div className="dx-mas-agent dx-mas-agent-2">
-            <span className="dx-mas-agent-icon">
+          <div className="dx-agent-item dx-agent-item-2">
+            <span className="dx-agent-item-icon">
               <BookOpen className="size-3" />
             </span>
-            <span className="dx-mas-agent-name">Knowledge Assistant</span>
-            <span className="dx-mas-agent-task">searching refund policy…</span>
-          </div>
-          <div className="dx-mas-agent dx-mas-agent-3">
-            <span className="dx-mas-agent-icon">
-              <Box className="size-3" />
-            </span>
-            <span className="dx-mas-agent-name">Entity extraction</span>
-            <span className="dx-mas-agent-task">parsing customer claims…</span>
+            <span className="dx-agent-item-name">Documents</span>
+            <span className="dx-agent-item-task">searching refund policy…</span>
           </div>
         </div>
-
       </div>
     </div>
   );

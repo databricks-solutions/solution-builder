@@ -243,6 +243,7 @@ export const RESOURCE_TYPE_TO_ICON: Record<string, DatabricksIconName> = {
   genie_space: "genie",
   sql_warehouse: "sqlWarehouse",
   app: "databricksApps",
+  documents_volume: "unstructuredData",
   knowledge_assistant: "knowledgeAssistant",
   knowledge_assistant_endpoint: "modelServing",
   multi_agent_supervisor: "multiAgentSupervisor",

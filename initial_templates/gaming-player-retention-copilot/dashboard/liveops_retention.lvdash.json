@@ -1,0 +1,1395 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "WITH r AS (\n",
+        "  SELECT round(sum(CASE WHEN install_season='Season 6' THEN d7_retained END)/sum(CASE WHEN install_season='Season 6' AND d7_retained IS NOT NULL THEN installs END),4) d7_pre,\n",
+        "         round(sum(CASE WHEN install_season='Season 7' THEN d7_retained END)/sum(CASE WHEN install_season='Season 7' AND d7_retained IS NOT NULL THEN installs END),4) d7_post\n",
+        "  FROM gold_retention_cohorts),\n",
+        "a AS (SELECT round(sum(CASE WHEN activity_date BETWEEN DATE'2026-07-14' AND DATE'2026-08-10' THEN revenue_usd END)/sum(CASE WHEN activity_date BETWEEN DATE'2026-07-14' AND DATE'2026-08-10' THEN dau END),3) arpdau_pre,\n",
+        "             round(sum(CASE WHEN activity_date >= DATE'2026-08-25' THEN revenue_usd END)/sum(CASE WHEN activity_date >= DATE'2026-08-25' THEN dau END),3) arpdau_post FROM gold_daily_kpis),\n",
+        "s AS (SELECT sum(at_risk_ltv_usd) at_risk_ltv, sum(players_at_risk) players_at_risk, sum(whales_at_risk) whales_at_risk FROM gold_risk_segments),\n",
+        "q AS (SELECT count(*) scheduled FROM liveops_schedule)\n",
+        "SELECT * FROM r, a, s, q\n"
+      ]
+    },
+    {
+      "name": "ds_arpdau_region_weekly",
+      "displayName": "Weekly ARPDAU by region",
+      "queryLines": [
+        "SELECT date_trunc('WEEK', activity_date) AS week, region,\n  SUM(revenue_usd) / SUM(dau) AS arpdau\nFROM gold_daily_kpis\nGROUP BY date_trunc('WEEK', activity_date), region\nHAVING COUNT(DISTINCT activity_date) = 7\nORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_arpdau_weekly",
+      "displayName": "Weekly ARPDAU",
+      "queryLines": [
+        "SELECT date_trunc('WEEK', activity_date) AS week,\n  SUM(revenue_usd) / SUM(dau) AS arpdau\nFROM gold_daily_kpis\nGROUP BY date_trunc('WEEK', activity_date)\nHAVING COUNT(DISTINCT activity_date) = 7\nORDER BY week"
+      ]
+    },
+    {
+      "name": "ds_d7_weekly",
+      "displayName": "Weekly D7 retention",
+      "queryLines": [
+        "SELECT date_trunc('WEEK', install_date) AS install_week,\n  SUM(d7_retained) / SUM(CASE WHEN d7_retained IS NOT NULL THEN installs END) AS d7\nFROM gold_retention_cohorts\nGROUP BY date_trunc('WEEK', install_date)\nHAVING COUNT(d7_retained) > 0\nORDER BY install_week"
+      ]
+    },
+    {
+      "name": "ds_cohorts",
+      "displayName": "Retention cohorts by install week",
+      "queryLines": [
+        "SELECT date_trunc('WEEK', install_date) AS install_week, region, install_season,\n  sum(installs) installs, sum(d1_retained)/sum(CASE WHEN d1_retained IS NOT NULL THEN installs END) d1_rate,\n  sum(d7_retained)/sum(CASE WHEN d7_retained IS NOT NULL THEN installs END) d7_rate,\n  sum(d30_retained)/sum(CASE WHEN d30_retained IS NOT NULL THEN installs END) d30_rate\nFROM gold_retention_cohorts WHERE install_date BETWEEN DATE'2026-05-04' AND DATE'2026-09-20' GROUP BY ALL\nHAVING sum(installs) >= 100\n"
+      ]
+    },
+    {
+      "name": "ds_daily",
+      "displayName": "Daily DAU + ARPDAU",
+      "queryLines": [
+        "SELECT activity_date, region, season, dau, revenue_usd, new_installs, arpdau_usd FROM gold_daily_kpis\n"
+      ]
+    },
+    {
+      "name": "ds_stage",
+      "displayName": "Season 7 stage funnel",
+      "queryLines": [
+        "SELECT concat(stage_id, ' ', stage_name) AS stage, stage_id, players_attempted, attempts, clears, attempt_clear_rate, players_stuck,\n  CASE WHEN attempt_clear_rate < 0.25 THEN 'Wall (under 25% clear)' ELSE 'Other stages' END AS stage_status\nFROM gold_stage_funnel WHERE season LIKE 'S7%' ORDER BY stage_id\n"
+      ]
+    },
+    {
+      "name": "ds_queue",
+      "displayName": "Ranked queue wait by region",
+      "queryLines": [
+        "SELECT activity_date, region, queues, avg_queue_wait_sec, round(avg_queue_wait_sec/60, 2) AS avg_wait_min, abandon_rate FROM gold_matchmaking_daily\n"
+      ]
+    },
+    {
+      "name": "ds_churn",
+      "displayName": "Weekly 14-day churn by cohort",
+      "queryLines": [
+        "SELECT week_start, region, player_type, tenure_band, sum(active_players) active_players, sum(churned_14d) churned_14d,\n",
+        "  sum(churned_14d)/sum(active_players) churn_rate FROM gold_churn_weekly GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_risk",
+      "displayName": "At-risk LTV by segment",
+      "queryLines": [
+        "SELECT segment_id, segment_name, initcap(churn_driver) AS churn_driver, region, players_at_risk, critical_players, whales_at_risk, avg_churn_probability, CAST(ROUND(at_risk_ltv_usd) AS BIGINT) AS at_risk_ltv_usd FROM gold_risk_segments\n"
+      ]
+    },
+    {
+      "name": "ds_tox",
+      "displayName": "Chat moderation queue by AI label",
+      "queryLines": [
+        "SELECT date_trunc('WEEK', sent_date) AS week, toxicity_label, is_harmful, count(*) messages FROM chat_insights GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_history",
+      "displayName": "Past interventions (holdout-measured)",
+      "queryLines": [
+        "SELECT concat(intervention_code, ' · ', season) AS run, intervention_code, strategy, target_driver, players_targeted, lift_pp, cost_usd, players_retained_incremental, cost_per_retained_player FROM liveops_history\n"
+      ]
+    },
+    {
+      "name": "ds_calendar",
+      "displayName": "Live-ops calendar",
+      "queryLines": [
+        "SELECT 'Scheduled' AS status, start_date, intervention_code, intervention_name, churn_driver, region, players_targeted, CAST(ROUND(cost_usd) AS BIGINT) AS cost_usd, expected_players_retained AS players_retained, scheduled_by AS owner FROM liveops_schedule\nUNION ALL\nSELECT 'Completed (measured)', h.start_date, h.intervention_code, c.intervention_name, h.target_driver, 'ALL', h.players_targeted, CAST(ROUND(h.cost_usd) AS BIGINT) AS cost_usd, h.players_retained_incremental, h.season\nFROM liveops_history h JOIN intervention_catalog c USING (intervention_code)\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "liveops",
+      "displayName": "Season 7 Live-Ops",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Hollowspire — Season 7 Live-Ops & Player Retention\n",
+                "\n",
+                "Season 7 *The Drowned Crown* launched **2026-08-18**. New-player **D7 retention fell from ~29% to ~20%**. Three problems, not one: the **stage 7-4 Drowned Warden** boss wall, **5-8 minute ranked queues in APAC and OCE** after the queue split, and **harassment of new players** in the cross-play Raid Finder (labelled by AI Functions). Holdout tests show driver-matched fixes retain far more players per dollar than the blanket 50% gem sale."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 9,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "fr_ds_cohorts",
+                "query": {
+                  "datasetName": "ds_cohorts",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "fr_ds_daily",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "fr_ds_queue",
+                "query": {
+                  "datasetName": "ds_queue",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "fr_ds_churn",
+                "query": {
+                  "datasetName": "ds_churn",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "fr_ds_risk",
+                "query": {
+                  "datasetName": "ds_risk",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "fr_ds_cohorts"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "fr_ds_daily"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "fr_ds_queue"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "fr_ds_churn"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "fr_ds_risk"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "d7_pre",
+                      "expression": "`d7_pre`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "d7_pre",
+                  "displayName": "D7 retention — Season 6 installs",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "D7 retention — Season 6 installs"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_d7_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(d7)",
+                      "expression": "SUM(`d7`)"
+                    },
+                    {
+                      "name": "weekly(install_week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `install_week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(d7)",
+                  "displayName": "D7 retention",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(install_week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "D7 retention, latest install week (was 28.9%)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_arpdau_weekly",
+                  "fields": [
+                    {
+                      "name": "sum(arpdau)",
+                      "expression": "SUM(`arpdau`)"
+                    },
+                    {
+                      "name": "weekly(week)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(arpdau)",
+                  "displayName": "ARPDAU",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 3
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ARPDAU, latest full week (was $0.43)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "at_risk_ltv",
+                      "expression": "`at_risk_ltv`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "at_risk_ltv",
+                  "displayName": "LTV at risk (12 mo)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "LTV at risk (12 mo)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "players_at_risk",
+                      "expression": "`players_at_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "players_at_risk",
+                  "displayName": "Players at risk (14 days)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Players at risk (14 days)"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "scheduled",
+                      "expression": "`scheduled`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "scheduled",
+                  "displayName": "Interventions scheduled",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Interventions scheduled"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "d7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_cohorts",
+                  "fields": [
+                    {
+                      "name": "install_week",
+                      "expression": "`install_week`"
+                    },
+                    {
+                      "name": "install_season",
+                      "expression": "`install_season`"
+                    },
+                    {
+                      "name": "avg(d7_rate)",
+                      "expression": "AVG(`d7_rate`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "install_week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Install week"
+                },
+                "y": {
+                  "fieldName": "avg(d7_rate)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "D7 retention (avg of regions)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "install_season",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Install season"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "New-player D7 retention by install week — Season 7 cohorts fall off"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "arpdau",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_daily",
+                  "fields": [
+                    {
+                      "name": "activity_date",
+                      "expression": "`activity_date`"
+                    },
+                    {
+                      "name": "sum(dau)",
+                      "expression": "SUM(`dau`)"
+                    },
+                    {
+                      "name": "sum(revenue_usd)",
+                      "expression": "SUM(`revenue_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "activity_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fields": [
+                    {
+                      "fieldName": "sum(dau)",
+                      "displayName": "DAU"
+                    }
+                  ],
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Daily active players (season launches on Jun 9 and Aug 18)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "rev",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_arpdau_region_weekly",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "arpdau",
+                      "expression": "`arpdau`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "arpdau",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "ARPDAU (USD), weekly",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ARPDAU by region, weekly"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "churn",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_churn",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "tenure_band",
+                      "expression": "`tenure_band`"
+                    },
+                    {
+                      "name": "churn",
+                      "expression": "SUM(`churned_14d`) / SUM(`active_players`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "churn",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "14-day churn rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "tenure_band",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Cohort"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Churn by cohort — share of weekly actives who never came back within 14 days"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "stage",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_stage",
+                  "fields": [
+                    {
+                      "name": "stage",
+                      "expression": "`stage`"
+                    },
+                    {
+                      "name": "attempt_clear_rate",
+                      "expression": "`attempt_clear_rate`"
+                    },
+                    {
+                      "name": "stage_status",
+                      "expression": "`stage_status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "attempt_clear_rate",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Attempt clear rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "stage",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Season 7 stage"
+                },
+                "color": {
+                  "fieldName": "stage_status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Wall (under 25% clear)",
+                        "color": "#FF7E5C"
+                      },
+                      {
+                        "value": "Other stages",
+                        "color": "#1C1740"
+                      }
+                    ]
+                  },
+                  "displayName": "Stage"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Season 7 stage clear rate: 7-4 The Drowned Warden is a wall"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "queue",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_queue",
+                  "fields": [
+                    {
+                      "name": "activity_date",
+                      "expression": "`activity_date`"
+                    },
+                    {
+                      "name": "avg_wait_min",
+                      "expression": "`avg_wait_min`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "activity_date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Day"
+                },
+                "y": {
+                  "fieldName": "avg_wait_min",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg ranked queue wait (min)"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Ranked queue wait by region — APAC and OCE explode after the Season 7 queue split"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 18,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "risk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk",
+                  "fields": [
+                    {
+                      "name": "churn_driver",
+                      "expression": "`churn_driver`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "sum(at_risk_ltv_usd)",
+                      "expression": "SUM(`at_risk_ltv_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "churn_driver",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Churn driver (SHAP)"
+                },
+                "y": {
+                  "fieldName": "sum(at_risk_ltv_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "LTV at risk",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "LTV at risk by churn driver × region (churn probability × predicted 12-month LTV)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 24,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "tox",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_tox",
+                  "fields": [
+                    {
+                      "name": "week",
+                      "expression": "`week`"
+                    },
+                    {
+                      "name": "toxicity_label",
+                      "expression": "`toxicity_label`"
+                    },
+                    {
+                      "name": "sum(messages)",
+                      "expression": "SUM(`messages`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "week",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week"
+                },
+                "y": {
+                  "fieldName": "sum(messages)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Flagged messages"
+                },
+                "color": {
+                  "fieldName": "toxicity_label",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "AI label"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Chat moderation queue by AI label — harassment surges with the Raid Finder"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 24,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "hist",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_history",
+                  "fields": [
+                    {
+                      "name": "intervention_code",
+                      "expression": "`intervention_code`"
+                    },
+                    {
+                      "name": "strategy",
+                      "expression": "`strategy`"
+                    },
+                    {
+                      "name": "avg(lift_pp)",
+                      "expression": "AVG(`lift_pp`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg(lift_pp)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "14-day retention lift vs holdout (pts)"
+                },
+                "y": {
+                  "fieldName": "intervention_code",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "value"
+                    }
+                  },
+                  "displayName": "Intervention"
+                },
+                "color": {
+                  "fieldName": "strategy",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Strategy"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Seasons 3-6: driver-matched fixes vs the blanket gem sale (holdout lift)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 31,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "cal",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_calendar",
+                  "fields": [
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    },
+                    {
+                      "name": "start_date",
+                      "expression": "`start_date`"
+                    },
+                    {
+                      "name": "churn_driver",
+                      "expression": "`churn_driver`"
+                    },
+                    {
+                      "name": "players_retained",
+                      "expression": "`players_retained`"
+                    },
+                    {
+                      "name": "cost_usd",
+                      "expression": "`cost_usd`"
+                    },
+                    {
+                      "name": "intervention_name",
+                      "expression": "`intervention_name`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "status",
+                    "displayName": "Status"
+                  },
+                  {
+                    "fieldName": "start_date",
+                    "displayName": "Start"
+                  },
+                  {
+                    "fieldName": "churn_driver",
+                    "displayName": "Driver"
+                  },
+                  {
+                    "fieldName": "players_retained",
+                    "displayName": "Retained",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "cost_usd",
+                    "displayName": "Cost",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "intervention_name",
+                    "displayName": "Intervention"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Live-ops calendar — interventions scheduled from the console (+ past measured runs)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 31,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "segs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk",
+                  "fields": [
+                    {
+                      "name": "segment_name",
+                      "expression": "`segment_name`"
+                    },
+                    {
+                      "name": "players_at_risk",
+                      "expression": "`players_at_risk`"
+                    },
+                    {
+                      "name": "critical_players",
+                      "expression": "`critical_players`"
+                    },
+                    {
+                      "name": "whales_at_risk",
+                      "expression": "`whales_at_risk`"
+                    },
+                    {
+                      "name": "avg_churn_probability",
+                      "expression": "`avg_churn_probability`"
+                    },
+                    {
+                      "name": "at_risk_ltv_usd",
+                      "expression": "`at_risk_ltv_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "segment_name",
+                    "displayName": "Segment"
+                  },
+                  {
+                    "fieldName": "players_at_risk",
+                    "displayName": "Players at risk",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "critical_players",
+                    "displayName": "Critical players",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "whales_at_risk",
+                    "displayName": "Whales at risk",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "avg_churn_probability",
+                    "displayName": "Avg churn probability",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "at_risk_ltv_usd",
+                    "displayName": "LTV at risk",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "At-risk segments (top churn driver × region)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 38,
+            "width": 12,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

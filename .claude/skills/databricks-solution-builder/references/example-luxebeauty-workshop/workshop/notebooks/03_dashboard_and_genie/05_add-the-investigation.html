@@ -1,0 +1,15 @@
+<h2>4/ Add the Investigation Dashboard page</h2>
+<p>The Operations page shows <em>that</em> something's wrong. Add a second page — <strong>Investigation</strong> — that shows <em>why</em>, drilling from category down to the one bad lot.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Add a second page called <strong>Investigation</strong>, all from <code>gold_returns</code>:<br><br>
+  • <strong>Category → product → lot (sankey)</strong> — three levels: <code>category</code> → <code>product_id</code> → <code>lot_id</code>, with the flow width = <code>SUM(refund_amount_usd)</code>. To keep it readable, limit to the top few products/lots by refund $ so it visibly collapses to one lot.<br>
+  • <strong>Affected vs Everyday by country (grouped bar)</strong> — X = <code>country</code>, Y = <code>COUNT(*)</code> of returns, grouped/colored by the Source split (<code>is_bad_lot</code> → "Affected lot" / "Everyday").<br>
+  • <strong>Affected vs Everyday by reason (grouped bar)</strong> — same split, but X = <code>return_reason</code>.<br>
+  • <strong>Sentiment (bar)</strong> — bucket <code>anger_score</code> into three bands (≥0.7 = Angry, 0.4–0.7 = Neutral, &lt;0.4 = Happy), X = bucket, Y = <code>COUNT(*)</code>.<br>
+  • <strong>Angriest comments (table)</strong> — columns <code>customer_comment</code>, <code>product_id</code>, <code>lot_id</code>, <code>anger_score</code>; sort by <code>anger_score</code> descending; limit to ~50 rows.<br>
+  • <strong>Returns by city (table)</strong> — group by <code>city</code>, <code>country</code>; columns city, country, <code>COUNT(*)</code> as returns, <code>SUM(refund_amount_usd)</code> as refund $; sort by refund $ descending.<br><br>
+  Apply the same global filters here too, and republish.</p>
+</blockquote>
+<p><strong>Open it and confirm</strong> the sankey collapses to <strong>Skincare → 3 SKUs → 1 lot</strong> and the comments table surfaces the texture complaints (grainy / separated / watery).</p>

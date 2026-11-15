@@ -2,7 +2,7 @@
 /**
  * render-arch.mjs — render a standalone architecture HTML to a PNG, headless.
  *
- *   node render-arch.mjs <architecture.html> [out.png]
+ *   node render-arch.mjs <architecture.html | architecture.md> [out.png]
  *
  * Drives the lightweight `chromium-headless-shell` (or any Chrome/Chromium) via
  * the Chrome DevTools Protocol over a WebSocket — no puppeteer/playwright
@@ -17,70 +17,28 @@
  * → iterate.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { findChrome, freePort, guardBrowser, resolveArchInput, SPAWN_OPTS } from "./browser-lifecycle.mjs";
 import { resolve, isAbsolute } from "node:path";
-import { homedir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+// The one copy of the in-page measurement (arch-browser.js, next to this script).
+const BROWSER_SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "arch-browser.js"), "utf8").trim();
 
 // --- args -------------------------------------------------------------------
 const [, , inArg, outArg] = process.argv;
 if (!inArg) {
-  console.error("usage: node render-arch.mjs <architecture.html> [out.png]");
+  console.error("usage: node render-arch.mjs <architecture.html | architecture.md> [out.png]");
   process.exit(1);
 }
-const htmlPath = isAbsolute(inArg) ? inArg : resolve(process.cwd(), inArg);
-if (!existsSync(htmlPath)) { console.error(`not found: ${htmlPath}`); process.exit(1); }
-const outPath = outArg
-  ? (isAbsolute(outArg) ? outArg : resolve(process.cwd(), outArg))
-  : htmlPath.replace(/\.html?$/i, "") + ".png";
+const inPath = isAbsolute(inArg) ? inArg : resolve(process.cwd(), inArg);
+if (!existsSync(inPath)) { console.error(`not found: ${inPath}`); process.exit(1); }
+// An architecture.md / .json is rendered through the bundled viewer (see resolveArchInput).
+const { html: htmlPath, png: defaultPng } = resolveArchInput(inPath);
+const outPath = outArg ? (isAbsolute(outArg) ? outArg : resolve(process.cwd(), outArg)) : defaultPng;
 
-// --- find a Chrome/Chromium binary -----------------------------------------
-// Preferred: the lightweight `chromium-headless-shell` Playwright installs
-// (~90MB shell, no full browser). Its cache layout is
-//   <cache>/chromium_headless_shell-<rev>/chrome-headless-shell-<platform>/chrome-headless-shell
-// We also fall back to a full Playwright chromium, then a system Chrome.
-function findChrome() {
-  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
-
-  // 1) Playwright browsers cache — headless-shell first (lightest), then full chromium.
-  const caches = [
-    process.env.PLAYWRIGHT_BROWSERS_PATH,
-    resolve(homedir(), "Library/Caches/ms-playwright"), // macOS
-    resolve(homedir(), ".cache/ms-playwright"),          // linux
-  ].filter(Boolean);
-  // Executable names inside a browser dir, by platform folder.
-  const shellRels = [
-    "chrome-headless-shell-mac-arm64/chrome-headless-shell",
-    "chrome-headless-shell-mac-x64/chrome-headless-shell",
-    "chrome-headless-shell-linux64/chrome-headless-shell",
-    "chrome-headless-shell-win64/chrome-headless-shell.exe",
-  ];
-  const chromiumRels = [
-    "chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-    "chrome-linux/chrome",
-    "chrome-win/chrome.exe",
-  ];
-  for (const cache of caches) {
-    if (!existsSync(cache)) continue;
-    const dirs = readdirSync(cache);
-    // Prefer the newest headless-shell revision, then the newest chromium.
-    const shellDirs = dirs.filter((d) => d.startsWith("chromium_headless_shell-")).sort().reverse();
-    const chromiumDirs = dirs.filter((d) => d.startsWith("chromium-")).sort().reverse();
-    for (const dir of shellDirs)
-      for (const rel of shellRels) { const p = resolve(cache, dir, rel); if (existsSync(p)) return p; }
-    for (const dir of chromiumDirs)
-      for (const rel of chromiumRels) { const p = resolve(cache, dir, rel); if (existsSync(p)) return p; }
-  }
-
-  // 2) A system Chrome/Chromium as a last resort.
-  const system = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser",
-  ];
-  for (const c of system) if (existsSync(c)) return c;
-  return null;
-}
 const chrome = findChrome();
 if (!chrome) {
   console.error(
@@ -92,17 +50,17 @@ if (!chrome) {
 }
 
 // --- CDP helpers (raw WebSocket; node 18+ has global WebSocket) -------------
-const PORT = 9300 + Math.floor((Date.now() % 600)); // vary to avoid clashes
+const PORT = await freePort();
 const proc = spawn(chrome, [
   "--headless=new", `--remote-debugging-port=${PORT}`,
   "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
   "--force-device-scale-factor=2", // crisp PNG
   "--window-size=2400,1600",
   "about:blank",
-], { stdio: "ignore" });
+], SPAWN_OPTS);
 
-function cleanup(code) { try { proc.kill(); } catch {} process.exit(code); }
-process.on("SIGINT", () => cleanup(130));
+// Never leak a browser: see browser-lifecycle.mjs for every exit path this covers.
+const cleanup = guardBrowser(proc, "render");
 
 async function getWsUrl() {
   for (let i = 0; i < 100; i++) {
@@ -157,12 +115,14 @@ async function main() {
     await new Promise((r) => setTimeout(r, 100));
   }
   if (!ready) console.error("warning: ready signal not seen; screenshotting anyway");
+  // A static picture: drop the live flow-animation overlay (see globals.css
+  // `arch-static`) so no particles/beads are captured mid-frame.
+  await evalJs("document.documentElement.classList.add('arch-static')");
   await new Promise((r) => setTimeout(r, 300)); // let the final frame paint
 
-  // Clip to the TIGHT CONTENT BOUNDS — the union of the rendered node elements'
-  // screen rects (+ a small uniform pad), NOT the ReactFlow container. This
-  // matches the in-app PNG/SVG export (export-image.ts) exactly: the output is
-  // the diagram's true extent — no fitView dead margin, nothing cut off.
+  // Clip to the ACTUAL CONTENT BOUNDS — the renderer does not manufacture a
+  // 16:9 or square image by padding a poor composition with whitespace. The
+  // architecture itself must pass inspect-arch's presentation-aspect check.
   //
   // Nodes (incl. annotations) carry `.react-flow__node`; measuring their screen
   // rects and unioning them gives the visible frame directly, so we don't need
@@ -170,39 +130,27 @@ async function main() {
   // screen space). Falls back to the `.react-flow` container box if there are no
   // measurable nodes (empty diagram).
   const PAD = 24; // screen px, mirrors export-image.ts's uniform pad intent
-  const box = await evalJs(`(() => {
-    const pad = ${PAD};
-    const nodes = document.querySelectorAll('.react-flow__node');
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of nodes) {
-      const r = n.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) continue;
-      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
-      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
-    }
-    if (Number.isFinite(minX)) {
-      return { x: Math.max(0, minX - pad), y: Math.max(0, minY - pad),
-               w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
-    }
-    // Fallback: empty diagram — clip to the container so we still emit something.
-    const el = document.querySelector('.react-flow');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.max(0, r.x), y: Math.max(0, r.y), w: r.width, h: r.height };
-  })()`);
+  // The measurement lives in arch-browser.js (shared with inspect-arch and the app's
+  // render tool). It returns null only for a page with no container at all.
+  const box = await evalJs(`${BROWSER_SRC}.contentBox(${PAD})`);
 
-  // scale: 2 → crisp 2× render (mirrors the in-app export's pixelRatio: 2), so
-  // the PNG stays sharp even when the diagram was fitView'd to a small on-screen
-  // size. captureBeyondViewport lets the clip exceed the window if needed.
+  // Output size: the window is rendered at device-scale 2 and the clip multiplies it again,
+  // so the PNG is box × 2 × clip.scale. Target the LONG EDGE at ARCH_MAX_EDGE (default 1568,
+  // the largest side a vision model reads at full detail; a 9000px PNG is downscaled 6x and
+  // its 11px labels become unreadable), capped at 4x for small diagrams. Zoom in on detail
+  // with a crop, not by raising this.
+  const MAX_EDGE = Number(process.env.ARCH_MAX_EDGE || 1568);
+  const totalScale = box && box.w > 1 && box.h > 1 ? Math.min(4, MAX_EDGE / Math.max(box.w, box.h)) : 2;
   const clip = box && box.w > 1 && box.h > 1
-    ? { x: box.x, y: box.y, width: box.w, height: box.h, scale: 2 }
+    ? { x: box.x, y: box.y, width: box.w, height: box.h, scale: totalScale / 2 }
     : undefined;
 
   const shot = await S("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, ...(clip ? { clip } : {}) });
   const buf = Buffer.from(shot.result.data, "base64");
   const { writeFileSync } = await import("node:fs");
   writeFileSync(outPath, buf);
-  console.log(`✓ rendered → ${outPath} (${(buf.length / 1024).toFixed(0)} KB)`);
+  const aspectLabel = box?.aspect ? `, actual aspect ${box.aspect.toFixed(2)}:1` : "";
+  console.log(`✓ rendered → ${outPath} (${(buf.length / 1024).toFixed(0)} KB${aspectLabel})`);
   ws.close();
   cleanup(0);
 }

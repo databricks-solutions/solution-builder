@@ -10,7 +10,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BrandResult } from "@/components/brand/brand-result";
-import { resolveBrand, type BrandOut } from "@/lib/custom-api";
+import { getBrandDiagnostics, resolveBrand, type BrandDiagnostics, type BrandOut } from "@/lib/custom-api";
 import { Loader2, Search, ChevronDown } from "lucide-react";
 
 export const Route = createFileRoute("/brand")({
@@ -88,6 +88,7 @@ function BrandPage() {
             />
             Ignore cached result and re-fetch (updates the cache)
           </label>
+          <ServerDiagnostics />
         </details>
 
         <div className="mt-10 w-full">
@@ -106,5 +107,55 @@ function BrandPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+/** Loads /api/brands/diagnostics on demand: the Playwright install log (why
+ *  screenshots may be off) and the deployed versions of the scraping deps. */
+function ServerDiagnostics() {
+  const [diag, setDiag] = useState<BrandDiagnostics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setDiag(await getBrandDiagnostics());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 pl-5 text-muted-foreground">
+      <Button type="button" variant="outline" size="sm" onClick={load} disabled={loading}>
+        {loading && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+        Server diagnostics
+      </Button>
+      {error && <p className="mt-2 text-destructive">{error}</p>}
+      {diag && (
+        <div className="mt-2 space-y-2">
+          <p>
+            Browsers in <code>{diag.playwright_browsers_path ?? "(PLAYWRIGHT_BROWSERS_PATH unset)"}</code>:{" "}
+            {diag.installed_browsers.length ? diag.installed_browsers.join(", ") : "none"}
+          </p>
+          <p>
+            {Object.entries(diag.packages)
+              .map(([k, v]) => `${k} ${v ?? "missing"}`)
+              .join(" · ")}
+          </p>
+          <p>
+            {diag.os ?? "unknown OS"} · missing browser libs:{" "}
+            {diag.missing_libs.length ? diag.missing_libs.join(", ") : "none"}
+          </p>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border bg-muted/40 p-2 font-mono text-[11px]">
+            {diag.install_log ?? "(no /tmp/pw-install.log — install skipped or never ran)"}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 }

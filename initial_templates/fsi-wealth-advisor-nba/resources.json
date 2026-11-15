@@ -1,0 +1,24 @@
+{
+    "short_description": "A wealth advisor's Morning Book after three rate cuts: CDs renewing at 3.55%, idle sweep cash, refi windows, rollovers and life events are ranked into next-best actions by a propensity model in Unity Catalog, then gated by deterministic Reg BI suitability rules. The model's top pick for a recently widowed client (a structured note) is blocked, and the copilot preps a suitable meeting with the Genie agent over the policy library, drafts compliant outreach and writes the advisor's decision to Lakebase and Delta. The wealth desk sees money in motion, AUM at risk and conversion in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "ml-training-serving",
+            "unity-catalog",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "mlflow-tracing",
+            "ai-gateway",
+            "genie-one"
+        ]
+    },
+    "created_resources": {}
+}

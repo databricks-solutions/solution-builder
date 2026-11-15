@@ -11,9 +11,9 @@ from __future__ import annotations
 from fastapi import Query
 
 from ..core import Dependencies, create_router
-from ..models import BrandOut
+from ..models import BrandDiagnosticsOut, BrandOut
 from ..services.brand_cache import cached_resolve
-from ..services.brand_service import BrandService
+from ..services.brand_service import BrandService, diagnostics
 
 router = create_router()
 
@@ -35,3 +35,10 @@ async def resolve_brand(
     """
     service = BrandService(ws, config)
     return await cached_resolve(session, name, service.resolve, no_cache=no_cache)
+
+
+@router.get("/brands/diagnostics", response_model=BrandDiagnosticsOut, operation_id="brandDiagnostics")
+def brand_diagnostics():
+    """Playwright install log, browsers on disk, and deployed scraping-dep versions —
+    shown on the /brand page to debug missing screenshots / failed page fetches."""
+    return diagnostics()

@@ -1,0 +1,12 @@
+<h2>Before you start — four things you need</h2>
+<p>Two minutes of checking here saves a confusing failure three steps in.</p>
+<table>
+  <thead><tr><th></th><th>What</th><th>How to check</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><strong>A catalog you can create a schema in.</strong> The workshop creates its own <em>schema</em>, but it can't create the <em>catalog</em> above it.</td><td>Ask Genie Code: <em>"which catalogs can I create a schema in?"</em></td></tr>
+    <tr><td>2</td><td><strong>Serverless compute</strong>, for notebooks and jobs. Every step uses it — the pipeline, the AI functions, the data-gen run.</td><td>The compute selector at the top-right should offer <strong>Serverless</strong>.</td></tr>
+    <tr><td>3</td><td><strong>A SQL warehouse</strong>, running. The dashboard and the Genie space both need one.</td><td>SQL Warehouses in the sidebar — start one if it's stopped.</td></tr>
+    <tr><td>4</td><td><strong>The Genie Assistant (<span class="gc-mark"><i data-icon="genie-code"></i></span>)</strong> enabled for your workspace. It's the thing that does the building.</td><td>The <span class="gc-mark"><i data-icon="genie-code"></i></span> panel, top-right of this notebook.</td></tr>
+  </tbody>
+</table>
+<blockquote class="note"><p>Steps 5 (Governance) and 6 (ML) are optional and use preview features — <strong>ABAC</strong> policies, UC <strong>data classification</strong>, and <strong>Discover domains</strong> (which needs <code>MANAGE DISCOVERY</code>). If those aren't enabled in your workspace, steps 0–4 still give you a complete, demoable story.</p></blockquote>

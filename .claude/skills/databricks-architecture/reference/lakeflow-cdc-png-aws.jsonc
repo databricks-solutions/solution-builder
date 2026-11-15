@@ -1,0 +1,92 @@
+// =============================================================================
+// LAKEFLOW CONNECT DIRECT CDC FROM ON-PREMISES SQL SERVER / ORACLE, THROUGH A
+// PRIVATE NETWORK GATEWAY (AWS)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first. The Azure version of the
+// same pattern is reference/lakeflow-cdc-png-azure.jsonc (read its header for what
+// Direct CDC is); this one shows what changes on AWS.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's setup):
+//   • Direct CDC: ONE scheduled serverless Lakeflow Connect pipeline does the snapshot,
+//     the CDC and the replication — no separate ingestion gateway. Being serverless, it
+//     reaches the on-premises database through the Private Network Gateway (PNG).
+//   • PNG on AWS (Private Preview, Enterprise tier): created inside the account's NCC;
+//     Databricks puts a managed network interface in a dedicated /28 subnet of the
+//     customer's VPC — exactly one subnet, so one AZ, in the preview. The customer
+//     creates an IAM role in their AWS account that Databricks uses to create and
+//     manage the PNG in that VPC.
+//   • From the PNG subnet, traffic follows the VPC's routes: to the Transit Gateway,
+//     then the Direct Connect gateway and Direct Connect / Site-to-Site VPN to the data
+//     centre. The workspace VPC is attached to the same Transit Gateway; it is not on
+//     the pipeline's path.
+//   • Limits: Direct CDC is in Private Preview, SQL Server and Oracle only; during the
+//     preview create the connection with SQL if the UI cannot. PNG is API only.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in traffic order: Databricks account → AWS cloud (shared services
+//     VPC → Transit Gateway → Direct Connect gateway) → the data centre. The hops on the red
+//     path carry `track: "t1"`, so the path is one straight line.
+//   • The private link (Direct Connect / S2S VPN) is the data-centre box subtitle (no Site-to-Site VPN
+//     icon on AWS, and no clean label slot between two close borders).
+//   • The IAM role is NOT on the data path: a dashed edge from the PNG says Databricks
+//     uses it to create and manage the PNG. It sits under the VPC, inside the AWS cloud.
+//   • The workspace VPC is one card, joined to the Transit Gateway by a dashed
+//     "attachment" edge.
+//
+// ADAPT IT: name the user's databases. With no Transit Gateway (the PNG VPC itself has
+// the Direct Connect / VPN), drop the Transit Gateway node and the attachment. For the Azure
+// version see lakeflow-cdc-png-azure.jsonc; for no inbound connectivity at all, the
+// on-prem agent (lakeflow-onprem-agent-azure.jsonc).
+// =============================================================================
+[
+  {
+    "name": "Lakeflow Connect Direct CDC via PNG — AWS",
+    "story": "A Lakeflow Connect Direct CDC pipeline ingests change data from SQL Server and Oracle databases in the corporate data centre: one scheduled serverless pipeline for the snapshot, CDC and replication, with no separate gateway. Its connection leaves the serverless plane through the account's Private Network Gateway (PNG), created in the NCC: Databricks places a managed network interface in a dedicated /28 subnet of the shared services VPC, using an IAM role the customer created for it. From there the VPC's routes take the traffic through the Transit Gateway, the Direct Connect gateway and Direct Connect / Site-to-Site VPN to the databases. The workspace VPC is attached to the same Transit Gateway and is not on this path. Direct CDC and PNG on AWS are in Private Preview; Direct CDC supports SQL Server and Oracle only.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Lakeflow Connect Direct CDC through a Private Network Gateway","subtitle":"Serverless CDC from on-premises SQL Server and Oracle · AWS · Private Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "start",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "pipeline", "type": "logo", "icon": "file:databricks-line/lakeflow-connect", "text": "Direct CDC pipeline", "caption": "bottom", "ai_reasoning": "one scheduled serverless Lakeflow Connect pipeline: snapshot, CDC and replication, no separate gateway", "track": "line-pipeline"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "png", "type": "logo", "icon": "file:databricks-line/access-connector", "text": "Private Network Gateway", "caption": "bottom", "track": "line-pipeline"}
+        ] }
+      ] },
+      {"id": "aws", "type": "box", "title": "AWS cloud", "titleIcon": "file:cloud/aws/general/aws-cloud", "layout": "row", "gap": 78, "align": "start", "children": [
+        {"id": "col-nic", "type": "group", "layout": "column", "gap": 72, "align": "center", "children": [
+          {"id": "shared-vpc", "type": "box", "title": "Shared services VPC", "titleIcon": "file:cloud/aws/general/vpc-group", "layout": "column", "children": [
+            {"id": "png-subnet", "type": "box", "title": "PNG subnet", "subtitle": "10.0.0.0/28 · one AZ", "titleIcon": "file:cloud/aws/general/private-subnet", "ai_reasoning": "the preview supports exactly one /28 subnet, so one AZ", "layout": "column", "children": [
+              {"id": "nic", "type": "logo", "icon": "file:cloud/aws/networking/elastic-network-interface", "text": "Managed network interface", "caption": "bottom", "ai_reasoning": "placed by Databricks through the IAM role; serverless traffic leaves with a VPC address", "track": "line-pipeline"}
+            ] }
+          ] },
+          {"id": "iam", "type": "logo", "icon": "file:cloud/aws/security/iam-role", "text": "Cross-account IAM role", "caption": "bottom", "ai_reasoning": "created by the customer; Databricks assumes it to create and manage the PNG in the VPC. Not on the data path"}
+        ] },
+        {"id": "col-tgw", "type": "group", "layout": "column", "gap": 140, "align": "center", "children": [
+          {"id": "tgw", "type": "logo", "icon": "file:cloud/aws/networking/transit-gateway", "text": "Transit Gateway", "caption": "bottom", "track": "line-pipeline"},
+          {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/aws/networking/vpc", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "attached to the Transit Gateway; not on the pipeline's path, so one card"}
+        ] },
+        {"id": "dxgw", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect-gateway", "text": "Direct Connect gateway", "caption": "bottom", "track": "line-pipeline"}
+      ] },
+      {"id": "dc", "type": "box", "title": "Corporate data center", "subtitle": "via Direct Connect / S2S VPN", "titleIcon": "file:cloud/aws/general/corporate-data-center", "ai_reasoning": "the private link is the box subtitle: there is no AWS Site-to-Site VPN icon, a second Direct Connect glyph would read as a duplicate, and an edge label crossing two close borders has no clean slot", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "sqlserver", "type": "logo", "icon": "file:vendor/microsoft-sql-server", "text": "SQL Server", "caption": "bottom", "track": "line-pipeline"},
+        {"id": "oracle", "type": "logo", "icon": "file:vendor/oracle", "text": "Oracle", "caption": "bottom"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "pipeline", "to": "png", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "png", "to": "nic", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e3", "from": "nic", "to": "tgw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "tgw", "to": "dxgw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "dxgw", "to": "sqlserver", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "dxgw@b", "to": "oracle@l", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "png@b", "to": "iam@l", "arrow": "end", "dashed": true, "label": "manages the PNG", "ai_reasoning": "control path, not data: Databricks uses the role to set up the network interface"},
+      {"id": "e8", "from": "tgw@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "TGW attachment", "ai_reasoning": "the workspace VPC is attached to the same Transit Gateway; dashed grey: not used by the pipeline"}
+    ]
+  }
+]

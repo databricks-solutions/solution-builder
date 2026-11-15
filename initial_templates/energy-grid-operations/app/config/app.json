@@ -1,0 +1,27 @@
+{
+  // Grid Ops Copilot config (JSONC). ${VAR} / ${VAR:default} are substituted from env
+  // (app.yaml when deployed, .env locally) before parsing. See server/server.ts.
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:energy-grid-operations}",
+  "genieSpaceId": "${GENIE_SPACE_ID:}",
+  // Needs the Responses API (openai/v1/responses) — GPT endpoints only.
+  "agentModel": "${AGENT_MODEL:databricks-gpt-5-4}",
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+  "dashboardId": "${DASHBOARD_ID:}",
+  "warehouseId": "${DATABRICKS_WAREHOUSE_ID:}",
+  "appUrl": "${APP_URL:}",
+  "data": {
+    "catalog": "${DEMO_CATALOG:energy_utilities}",
+    "schema": "${DEMO_SCHEMA:grid_operations_copilot}"
+  },
+  "branding": { "appName": "MREC Grid Ops Copilot" },
+  "assistantScript": [
+    { "label": "What's at risk?", "prompt": "What is at risk on the grid tomorrow, and why?" },
+    { "label": "Rank my options", "prompt": "Rank my relief options for T-104 by cost, customers affected and thermal risk, and recommend one.", "triggerAfter": ["T-104"] },
+    { "label": "Approve option 1", "prompt": "Approve option 1 — dispatch the demand-response event.", "triggerAfter": ["approve", "Approve"] },
+    { "label": "SAIDI impact", "prompt": "How much did last August's T-104 trip cost us in SAIDI, and what was our 12-month SAIDI and SAIFI?", "triggerAfter": ["ACT-", "dispatched", "Dispatched"] }
+  ]
+}

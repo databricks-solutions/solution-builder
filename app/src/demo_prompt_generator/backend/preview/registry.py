@@ -37,6 +37,13 @@ LOG_BUFFER_LINES = 5000
 # assigned port before we flip to "failed".
 READY_PROBE_TIMEOUT_SECONDS = 180.0
 READY_PROBE_INTERVAL_SECONDS = 0.5
+# How often the shadow detector re-checks whether the child grabbed the parent's
+# port (see _check_for_shadow). A shadow persisting a couple extra seconds is
+# harmless (the guard still kills it well before the 15-min rogue reaper), so we
+# poll every 2s rather than 1s to roughly halve the /proc scans across many
+# concurrent previews. The loop also stops the moment the preview leaves
+# "starting" (ready/failed/stopped), so a healthy preview only polls briefly.
+SHADOW_CHECK_INTERVAL_SECONDS = 2.0
 # Where we record the root subprocess PID so a restarted parent process can
 # find and kill orphans from previous runs. Lives inside the project's app/.
 SERVER_PID_FILENAME = ".preview.server.pid"
@@ -106,6 +113,127 @@ async def _port_is_listening(port: int) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Shadow detection via /proc socket ownership (Linux only).
+#
+# A well-behaved preview child binds 127.0.0.1:<assigned_port> (we inject
+# FLASK_RUN_HOST=127.0.0.1 + DATABRICKS_APP_PORT=<assigned>). An OLD demo whose
+# start.sh resets the port / whose AppKit ignores FLASK_RUN_HOST instead binds
+# 0.0.0.0:<parent_port> — SHADOWING the generator's own external port so the
+# platform load balancer serves the demo on the generator's URL.
+#
+# The definitive, zero-false-positive signal: does a process in the child's OWN
+# process tree hold a LISTENING socket on the parent's port? We answer that from
+# /proc (no HTTP probe, no identity marker, no load fragility, no ambiguity about
+# which child is the culprit). Linux-only; every helper degrades to "can't tell"
+# (empty / False) off Linux or on any read error, so a non-Linux dev box simply
+# relies on the readiness-timeout kill instead.
+# ---------------------------------------------------------------------------
+def _proc_available() -> bool:
+    return os.path.isdir("/proc")
+
+
+def _pids_in_tree(root_pid: int) -> set[int]:
+    """Every PID in the subtree rooted at `root_pid`, built from /proc ppid links.
+
+    The listening socket is usually held by a descendant (node/tsx), not the
+    tracked start.sh pid, so we must consider the whole tree. Best-effort:
+    returns at least {root_pid}; any /proc read failure just yields fewer pids.
+    """
+    children: dict[int, list[int]] = {}
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return {root_pid}
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", "rb") as fh:
+                data = fh.read()
+            # comm (field 2) may contain spaces/parens; ppid is the 2nd field
+            # AFTER the closing paren of comm: "<pid> (<comm>) <state> <ppid> ..."
+            rparen = data.rfind(b")")
+            after = data[rparen + 2:].split()
+            ppid = int(after[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        children.setdefault(ppid, []).append(int(entry))
+    seen = {root_pid}
+    stack = [root_pid]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child not in seen:
+                seen.add(child)
+                stack.append(child)
+    return seen
+
+
+def _socket_inodes_for_pids(pids: set[int]) -> set[int]:
+    """Socket inodes held as open fds by any pid in `pids` (from /proc/<pid>/fd)."""
+    inodes: set[int] = set()
+    for pid in pids:
+        fd_dir = f"/proc/{pid}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue  # process gone / not ours — skip
+        for fd in fds:
+            try:
+                target = os.readlink(f"{fd_dir}/{fd}")
+            except OSError:
+                continue
+            if target.startswith("socket:["):
+                try:
+                    inodes.add(int(target[len("socket:["):-1]))
+                except ValueError:
+                    continue
+    return inodes
+
+
+def _listening_inodes_on_port(port: int) -> set[int]:
+    """Inodes of sockets in TCP LISTEN state bound to `port` (v4 + v6).
+
+    Parses /proc/net/tcp{,6}: the local address is `HEXADDR:HEXPORT`, `st` == 0A
+    is TCP_LISTEN, and field index 9 is the socket inode.
+    """
+    inodes: set[int] = set()
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path, "r") as fh:
+                lines = fh.readlines()
+        except OSError:
+            continue
+        for line in lines[1:]:  # skip header
+            parts = line.split()
+            if len(parts) < 10 or parts[3] != "0A":  # 0A == TCP_LISTEN
+                continue
+            try:
+                if int(parts[1].rsplit(":", 1)[1], 16) != port:
+                    continue
+                inodes.add(int(parts[9]))
+            except (ValueError, IndexError):
+                continue
+    return inodes
+
+
+def _child_holds_listener_on_port(root_pid: int, port: int) -> bool:
+    """True iff a process in `root_pid`'s tree holds a LISTENING socket on `port`.
+
+    This is the definitive shadow signal — proven ownership, not a heuristic. A
+    correctly-bound child (listening on its own assigned loopback port, not the
+    parent's) never matches, so this cannot false-positive on a healthy preview.
+    Off Linux (no /proc), returns False ("can't tell") and the caller falls back
+    to the readiness-timeout kill.
+    """
+    if not _proc_available():
+        return False
+    listen_inodes = _listening_inodes_on_port(port)
+    if not listen_inodes:
+        return False
+    return bool(listen_inodes & _socket_inodes_for_pids(_pids_in_tree(root_pid)))
+
+
 @dataclass
 class PreviewState:
     project_id: str
@@ -117,6 +245,7 @@ class PreviewState:
     log_buffer: LogBuffer = field(default_factory=lambda: LogBuffer(LOG_BUFFER_LINES))
     _process: PreviewProcess | None = None
     _probe_task: asyncio.Task[None] | None = None
+    _shadow_task: asyncio.Task[None] | None = None
     _state_subscribers: set[asyncio.Queue["StateEvent"]] = field(default_factory=set)
 
     # ------------------------------------------------------------------
@@ -335,6 +464,8 @@ class PreviewRegistry:
             state._emit_state()
             if state._probe_task is not None and not state._probe_task.done():
                 state._probe_task.cancel()
+            if state._shadow_task is not None and not state._shadow_task.done():
+                state._shadow_task.cancel()
 
         proc = PreviewProcess(
             app_dir=self.app_dir(state.project_id),
@@ -388,8 +519,69 @@ class PreviewRegistry:
         state._emit_state()
 
         # Spawn the readiness probe: flip to "ready" as soon as something is
-        # accepting TCP connections on the assigned port.
+        # accepting TCP connections on the assigned port. Also spawn a shadow-check
+        # task to detect (and kill) a child that grabbed the generator's own port.
         state._probe_task = asyncio.create_task(self._probe_ready(state, port))
+        state._shadow_task = asyncio.create_task(self._check_for_shadow(state, port))
+
+    async def _check_for_shadow(self, state: PreviewState, assigned_port: int) -> None:
+        """Kill a preview child that grabbed the GENERATOR's own port (a "shadow").
+
+        A child that binds 0.0.0.0:<parent_port> (an old demo whose start.sh reset
+        the port / whose AppKit ignores FLASK_RUN_HOST=127.0.0.1) shadows the
+        generator's external port, so the platform LB serves the demo on the
+        generator's URL. This runs alongside _probe_ready and kills a CONFIRMED
+        shadow in seconds instead of waiting out the 180s readiness timeout.
+
+        Signal: does a process in the child's own tree hold a LISTENING socket on
+        the parent's port (`_child_holds_listener_on_port`, via /proc)? That is
+        proven ownership — it never fires on a healthy child (which listens on its
+        own assigned loopback port), so there is no false-positive risk. The /proc
+        reads are cheap; we run them off the event loop via asyncio.to_thread and
+        poll for the whole "starting" window (a shadow can bind late, after a slow
+        npm install). Off Linux the check is a no-op → readiness timeout is the
+        backstop.
+        """
+        parent_port_str = os.environ.get("DATABRICKS_APP_PORT") or ""
+        parent_port = int(parent_port_str) if parent_port_str.isdigit() else None
+        # Nothing to protect if the parent port is unknown, equals the child's own
+        # assigned port (can't happen — _pick_free_port excludes it — but be safe),
+        # or /proc is unavailable (non-Linux dev): fall back to readiness-timeout.
+        if parent_port is None or parent_port == assigned_port or not _proc_available():
+            return
+
+        deadline = time.monotonic() + READY_PROBE_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if state.status != "starting":
+                return  # ready / failed / stopped via another path
+            proc = state._process
+            pid = proc.pid if proc is not None else None
+            if pid is not None and await asyncio.to_thread(
+                _child_holds_listener_on_port, pid, parent_port
+            ):
+                logger.warning(
+                    "[preview] %s: child process tree holds a listener on the "
+                    "generator's port %d — shadow confirmed, killing preview",
+                    state.project_id, parent_port,
+                )
+                state.log_buffer.append(
+                    "system",
+                    f"child grabbed the generator's port {parent_port} (shadowing "
+                    f"the generator's URL) — killing preview",
+                )
+                if proc is not None:
+                    try:
+                        await proc.stop()
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(
+                            "[preview] %s: failed to kill shadowing child: %r",
+                            state.project_id, e,
+                        )
+                if state.status == "starting":
+                    state.status = "failed"
+                    state._emit_state()
+                return
+            await asyncio.sleep(SHADOW_CHECK_INTERVAL_SECONDS)
 
     async def _probe_ready(self, state: PreviewState, port: int) -> None:
         deadline = time.monotonic() + READY_PROBE_TIMEOUT_SECONDS
@@ -404,11 +596,23 @@ class PreviewRegistry:
                     return
                 await asyncio.sleep(READY_PROBE_INTERVAL_SECONDS)
             # Timed out — the process is up but never opened its port.
+            # A mis-bound/shadowing child would fail this probe, so kill it
+            # before marking failed to prevent it from lingering.
             if state.status == "starting":
                 state.log_buffer.append(
                     "system",
                     f"timed out waiting for port {port} after {READY_PROBE_TIMEOUT_SECONDS:.0f}s",
                 )
+                # Kill the child process tree before marking failed, so a shadowing
+                # child can't persist until the 15-min rogue reaper collects it.
+                if state._process is not None:
+                    try:
+                        await state._process.stop()
+                    except Exception as e:
+                        state.log_buffer.append(
+                            "system",
+                            f"failed to kill process on readiness timeout: {e!r}",
+                        )
                 state.status = "failed"
                 state._emit_state()
         except asyncio.CancelledError:
@@ -426,11 +630,19 @@ class PreviewRegistry:
             return
         proc = state._process
         state.status = "stopped"  # pre-emit so on_exit doesn't flip to failed
+        # Pre-cancel BOTH background tasks (mirror each other) so neither lingers
+        # into a subsequent start on the same PreviewState. (The shadow task would
+        # self-exit on its next status check anyway — and only ever kills a child
+        # that holds the parent's port, so a healthy restart is never at risk —
+        # but cancelling here is tidier and frees the /proc-poll immediately.)
         if state._probe_task is not None and not state._probe_task.done():
             state._probe_task.cancel()
+        if state._shadow_task is not None and not state._shadow_task.done():
+            state._shadow_task.cancel()
         await proc.stop()
         state._process = None
         state._probe_task = None
+        state._shadow_task = None
         state.pid = None
         state.port = None
         self._clear_server_pid(project_id)

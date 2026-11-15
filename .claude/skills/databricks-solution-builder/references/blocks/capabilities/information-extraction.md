@@ -38,7 +38,7 @@ Any "we have thousands of documents to process" conversation. Contracts, invoice
 - Perfect for document-heavy industries: FSI (contracts, loan docs), Healthcare (medical records), Insurance (claims)
 - Show the visual UI: "no regex, no ML training — just show it what you want"
 - Speed: "documents to structured table in 5 minutes"
-- Position alongside Knowledge Assistant: KA answers questions, Information Extraction turns documents into data
+- Position alongside Genie over documents: Genie answers questions about the documents, Information Extraction turns them into data
 - Compliance: "every contract in a queryable table"
 
 ## URL

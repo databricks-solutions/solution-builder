@@ -30,6 +30,7 @@ import {
   Loader2,
   Clock,
   BookOpen,
+  Download,
   Network,
   RefreshCw,
   MessageSquare,
@@ -38,6 +39,7 @@ import {
   Check,
   Database,
   Lock,
+  Presentation,
 } from "lucide-react";
 import { ScrollArea } from "../ui/scroll-area";
 import { Button } from "../ui/button";
@@ -52,10 +54,11 @@ import { estimateBuild, formatMinutes, formatElapsed, elapsedMinutes } from "@/l
 import type { CapabilityBuildStatus, DeployedResourceLink, ProjectFile, Project, WorkspaceInfo } from "@/lib/custom-api";
 import { getProjectFile, getWorkspaceInfo, ucExploreUrl } from "@/lib/custom-api";
 import { BrandCard } from "./brand-card";
-import { detectStageFromFiles, getLifecycleStages } from "./build-stepper";
+import { WORKSHOP_HTML_PATH, detectStageFromFiles, getLifecycleStages } from "./build-stepper";
 import { cn } from "@/lib/utils";
 import { useAppPreview } from "../../preview";
 import { StoryAdaptActions, type StoryAdaptMode } from "./story-adapt-dialog";
+import { hasPovDeck } from "./deck-view";
 
 // ---------------------------------------------------------------------------
 // Capability → display group mapping (kept stable across the redesign).
@@ -100,7 +103,8 @@ const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
 
   // ── AI ──────────────────────────────────────────────────────────────
   // Every interactive AI capability in the diagram lives in the indigo
-  // "ai" tier — KA, Genie, MAS all read the same.
+  // "ai" tier — documents, Genie (and legacy KA/MAS) all read the same.
+  "unstructured-documents": "ai",
   "knowledge-assistant": "ai",
   "supervisor-agent": "ai",
   "ml-training-serving": "ai",
@@ -502,6 +506,55 @@ export const HeaderStatusPill = memo(function HeaderStatusPill({
   return <div className={baseClass}>{inner}</div>;
 });
 
+// The pitch card's deck button. Before a deck exists it generates one (a chat
+// turn, so it waits for the agent); once `deck/pov_deck.html` exists it just
+// opens the Deck tab, which sends nothing and so stays enabled mid-turn.
+function PovDeckButton({
+  hasDeck,
+  onGenerate,
+  onOpen,
+  isStreaming,
+  readmePresent,
+  className,
+}: {
+  hasDeck: boolean;
+  onGenerate?: () => void;
+  onOpen?: () => void;
+  isStreaming: boolean;
+  /** The deck is built from README.md, so Generate waits until it exists. */
+  readmePresent: boolean;
+  className?: string;
+}) {
+  if (hasDeck && onOpen) {
+    return (
+      <Button
+        variant="default"
+        size="sm"
+        onClick={onOpen}
+        title="Open the client deck and its runbook. Rebuild it from the Deck tab's Regenerate."
+        className={cn("h-8 gap-1.5 text-[12px] font-medium", className)}
+      >
+        <Presentation className="h-3.5 w-3.5" />
+        Open POV deck
+      </Button>
+    );
+  }
+  if (!onGenerate) return null;
+  return (
+    <Button
+      variant="default"
+      size="sm"
+      onClick={onGenerate}
+      disabled={isStreaming || !readmePresent}
+      title={isStreaming ? "Available when the agent finishes its current turn" : !readmePresent ? "Available once the story (README.md) is written" : "Build a client-facing deck and its runbook from this story (html-it)"}
+      className={cn("h-8 gap-1.5 text-[12px] font-medium", className)}
+    >
+      <Presentation className="h-3.5 w-3.5" />
+      Generate POV deck
+    </Button>
+  );
+}
+
 // ===========================================================================
 // Hero — magazine-style. The LLM-generated narrative is the focal point.
 // We don't show a title (the page header has it) so the eye lands straight
@@ -513,6 +566,13 @@ interface HeroCardProps {
   isGenerating: boolean;
   readmePresent: boolean;
   onShowFullStory?: () => void;
+  /** Generate the POV deck (html-it). Shown beside "Read the full story". */
+  onGeneratePovDeck?: () => void;
+  /** True once `deck/pov_deck.html` exists: the button opens the Deck tab instead. */
+  hasDeck?: boolean;
+  /** Switch to the Deck tab without a chat turn. Rebuilding lives behind its "Regenerate". */
+  onOpenPovDeck?: () => void;
+  isStreaming?: boolean;
   onRegenerateNarrative?: () => void;
   onOpenChat?: () => void;
 }
@@ -522,6 +582,10 @@ const HeroCard = memo(function HeroCard({
   isGenerating,
   readmePresent,
   onShowFullStory,
+  onGeneratePovDeck,
+  hasDeck = false,
+  onOpenPovDeck,
+  isStreaming = false,
   onRegenerateNarrative,
   onOpenChat,
 }: HeroCardProps) {
@@ -537,6 +601,14 @@ const HeroCard = memo(function HeroCard({
           <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
             Writing the pitch
           </span>
+          <PovDeckButton
+            hasDeck={hasDeck}
+            onGenerate={onGeneratePovDeck}
+            onOpen={onOpenPovDeck}
+            isStreaming={isStreaming}
+            readmePresent={readmePresent}
+            className="ml-auto"
+          />
         </div>
         <div className="space-y-3 max-w-2xl">
           <div className="h-4 rounded bg-muted/60 animate-pulse w-[92%]" />
@@ -619,18 +691,29 @@ const HeroCard = memo(function HeroCard({
           {/* "Read the full story" — moved up here so the card stays
               compact and aligns vertically with the App preview tile on
               the right. */}
-          {readmePresent && onShowFullStory && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onShowFullStory}
-              className="h-8 gap-1.5 text-[12px] font-medium"
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              Read the full story
-              <ChevronRight className="h-3.5 w-3.5 opacity-60" />
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {readmePresent && (
+              <PovDeckButton
+                hasDeck={hasDeck}
+                onGenerate={onGeneratePovDeck}
+                onOpen={onOpenPovDeck}
+                isStreaming={isStreaming}
+                readmePresent={readmePresent}
+              />
+            )}
+            {readmePresent && onShowFullStory && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onShowFullStory}
+                className="h-8 gap-1.5 text-[12px] font-medium"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Read the full story
+                <ChevronRight className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* The narrative fills the card width — no artificial max-width.
@@ -672,19 +755,21 @@ const HeroCard = memo(function HeroCard({
 // Shown during a build; the heavy per-check detail lives in the top BuildStepper.
 // ===========================================================================
 // Per-step copy, mode-aware. The Genie Code workshop doesn't provision
-// resources — it generates notebooks + prompts and loads them into the
-// workspace — so the Build + Distribute steps read differently there.
+// resources — its build step writes the workshop (Genie Code prompts) instead.
 function stepCopy(mode?: string): Record<string, { title: string; desc: string }> {
-  const workshop = mode === "workshop";
+  if (mode === "workshop") {
+    return {
+      STORY_AND_ARCH: { title: "Generate Story", desc: "Draft the customer narrative & pitch" },
+      SPECIFICATION: { title: "Generate Specifications", desc: "Specs + the context Genie Code reads" },
+      DATA: { title: "Generate the data", desc: "Synthetic data, tested in your workspace" },
+      RESOURCES: { title: "Build the workshop", desc: "The Genie Code pages your team runs live" },
+    };
+  }
   return {
     STORY_AND_ARCH: { title: "Generate Story", desc: "Draft the customer narrative & pitch" },
     SPECIFICATION: { title: "Generate Specifications", desc: "Detailed plans for each resource" },
-    RESOURCES: workshop
-      ? { title: "Create Genie Code Prompts", desc: "Author the notebooks + prompts to build it live" }
-      : { title: "Build resources", desc: "Create the Databricks resources in your workspace" },
-    DAB: workshop
-      ? { title: "Load on workspace", desc: "Load the Genie workshop in your workspace" }
-      : { title: "Distribute (optional)", desc: "Package as a DAB for repeatable deployment" },
+    RESOURCES: { title: "Build resources", desc: "Create the Databricks resources in your workspace" },
+    DAB: { title: "Distribute (optional)", desc: "Package as a DAB for repeatable deployment" },
   };
 }
 
@@ -719,6 +804,19 @@ function StepArt({ stepKey, active }: { stepKey: string; active: boolean }) {
       </svg>
     );
   }
+  if (stepKey === "DATA") {
+    // a table filling with rows
+    return (
+      <svg viewBox="0 0 40 28" className="h-7 w-10" fill="none" aria-hidden>
+        <rect x="7" y="4" width="26" height="20" rx="2" stroke={stroke} strokeWidth="1.6" opacity="0.8" />
+        <rect x="7" y="4" width="26" height="5" rx="2" fill={stroke} opacity="0.85" />
+        {[12, 16, 20].map((y, i) => (
+          <rect key={y} x="10" y={y} width="20" height="2" rx="1" fill={stroke} opacity="0.65"
+            className={active ? `animate-step-write-${i + 1}` : ""} />
+        ))}
+      </svg>
+    );
+  }
   if (stepKey === "RESOURCES") {
     // blocks dropping into place / stacking
     return (
@@ -746,51 +844,32 @@ function StepArt({ stepKey, active }: { stepKey: string; active: boolean }) {
   );
 }
 
-// Workshop mode: the deliverable is a set of notebooks (Genie Code prompts),
-// not provisioned resources. List the generated notebooks; while the agent is
-// still streaming and none exist yet, show a "generating" placeholder.
-const WORKSHOP_NB_LABELS: Record<string, string> = {
-  "00_introduction": "Introduction",
-  "01_setup_and_explore": "Setup & Explore",
-  "02_build_pipeline": "Build the pipeline",
-  "03_dashboard_and_genie": "Dashboard & Genie",
-  "04_governance": "Governance",
-  "05_ml": "ML",
-};
-
-const WorkshopNotebooks = memo(function WorkshopNotebooks({
-  files,
+// Workshop mode: the deliverable is one self-contained workshop HTML
+// (notebooks_html/workshop.html). Until it exists, a generating placeholder;
+// once it does, a card that opens the Workshop tab or downloads the kit.
+const WorkshopReady = memo(function WorkshopReady({
+  ready,
   isStreaming,
-  workspaceUrl,
+  onOpen,
+  onDownloadKit,
 }: {
-  files: ProjectFile[];
+  ready: boolean;
   isStreaming: boolean;
-  /** Deep-link to the workspace folder the notebooks were uploaded to
-   *  (from resources.json → created_resources.workspace_folder). Null until
-   *  the agent has loaded the workshop into the workspace. */
-  workspaceUrl?: string | null;
+  onOpen?: () => void;
+  onDownloadKit?: () => void;
 }) {
-  const notebooks = useMemo(
-    () =>
-      files
-        .filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py"))
-        .map((f) => f.path.slice("notebooks/".length).replace(/\.py$/, ""))
-        .sort(),
-    [files],
-  );
-
-  if (notebooks.length === 0) {
+  if (!ready) {
     return (
       <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-[13px] text-muted-foreground">
         {isStreaming ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            Generating the workshop notebooks…
+            Generating the workshop…
           </>
         ) : (
           <>
             <BookOpen className="h-4 w-4" />
-            The workshop notebooks will appear here once generated.
+            The workshop will appear here once generated.
           </>
         )}
       </div>
@@ -798,54 +877,38 @@ const WorkshopNotebooks = memo(function WorkshopNotebooks({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Run-it band — the notebooks live in the workspace; this is the one
-          obvious "go here to run the workshop" affordance. Only rendered once
-          the folder link is available (agent has uploaded + recorded it). */}
-      {workspaceUrl && !isStreaming && (
-        <div className="flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-foreground">
-              Your workshop is loaded in Databricks
-            </div>
-            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-              Open the folder, start with{" "}
-              <span className="font-medium text-foreground">00_introduction</span>, prime
-              the Assistant (✨) with <span className="font-medium text-foreground">CONTEXT.md</span>,
-              then work each notebook top-to-bottom — pasting its prompts to build the demo live.
-            </p>
-          </div>
-          <Button
-            asChild
-            size="default"
-            className="h-9 shrink-0 gap-1.5 text-[13px] font-medium"
-          >
-            <a href={workspaceUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="h-4 w-4" />
-              Open in workspace
-            </a>
-          </Button>
+    <div className="flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold text-foreground">
+          Your Genie Code workshop is ready
         </div>
-      )}
-
-      <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-        {notebooks.map((nb) => (
-          <div
-            key={nb}
-            className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3.5 py-3 shadow-sm"
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          Open it to walk through, or download the kit for your attendees: a zip
+          to import into the workspace and the page to open in a browser.
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        {onDownloadKit && (
+          <Button
+            variant="outline"
+            size="default"
+            onClick={onDownloadKit}
+            className="h-9 gap-1.5 text-[13px] font-medium"
           >
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-              <BookOpen className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="truncate text-[13px] font-medium text-foreground">
-                {WORKSHOP_NB_LABELS[nb] ?? nb}
-              </div>
-              <div className="truncate text-[11px] text-muted-foreground">{nb}.py</div>
-            </div>
-            <Check className="ml-auto h-4 w-4 shrink-0 text-primary/70" />
-          </div>
-        ))}
+            <Download className="h-4 w-4" />
+            Download the kit
+          </Button>
+        )}
+        {onOpen && (
+          <Button
+            size="default"
+            onClick={onOpen}
+            className="h-9 gap-1.5 text-[13px] font-medium"
+          >
+            <BookOpen className="h-4 w-4" />
+            Open workshop
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -865,13 +928,9 @@ const StageSteps = memo(function StageSteps({
   mode?: string;
 }) {
   const stages = useMemo(() => {
-    const info = detectStageFromFiles(files, liveResourceCount);
-    // Workshop mode: the build stage is "done" by notebook count, not resources.
-    const workshopNotebooks =
-      mode === "workshop"
-        ? files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length
-        : null;
-    return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming, workshopNotebooks);
+    const workshop = mode === "workshop";
+    const info = detectStageFromFiles(files, liveResourceCount, workshop);
+    return getLifecycleStages(info, liveResourceCount, expectedResourceCount, isStreaming, workshop);
   }, [files, liveResourceCount, expectedResourceCount, isStreaming, mode]);
   const copyMap = useMemo(() => stepCopy(mode), [mode]);
 
@@ -1452,7 +1511,14 @@ export interface ProjectOverviewProps {
   isStreaming: boolean;
   onOpenChat?: () => void;
   onShowFullStory?: () => void;
+  onGeneratePovDeck?: () => void;
+  /** Open the Deck tab (shown instead of "Generate" once a deck exists). */
+  onOpenPovDeck?: () => void;
   onShowArchitecture?: () => void;
+  /** Workshop projects: open the Workshop tab. */
+  onShowWorkshop?: () => void;
+  /** Workshop projects: download the attendee kit zip. */
+  onDownloadWorkshopKit?: () => void;
   onShowApp?: () => void;
   /** Kept for future re-introduction of a manual description editor. */
   onEditDescription?: () => void;
@@ -1484,7 +1550,11 @@ export const ProjectOverview = memo(function ProjectOverview({
   isStreaming,
   onOpenChat,
   onShowFullStory,
+  onGeneratePovDeck,
+  onOpenPovDeck,
   onShowArchitecture,
+  onShowWorkshop,
+  onDownloadWorkshopKit,
   onShowApp,
   isForkedProject,
   onAdaptStory,
@@ -1544,25 +1614,17 @@ export const ProjectOverview = memo(function ProjectOverview({
   // the build journey again — a follow-up chat streams but must not resurrect
   // the "AI is working" banner + steps. `buildActive` = the initial-build view.
   // Workshop mode: we don't provision Databricks resources — the deliverable is
-  // a set of notebooks. So the "resources ready" panel doesn't apply; instead
-  // we track how many workshop notebooks have been generated. The backend's
-  // BUILT stage keys off resource IDs (which never populate here), so workshop
-  // "done" is its own signal: at least one notebook exists AND we're idle.
+  // the workshop HTML. The backend's BUILT stage keys off resource IDs (which
+  // never populate here), so workshop "done" is its own signal: the workshop
+  // file exists AND we're idle.
   const isWorkshop = project?.mode === "workshop";
-  const notebookCount = useMemo(
-    () => files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length,
+  const workshopReady = useMemo(
+    () => files.some((f) => f.path === WORKSHOP_HTML_PATH),
     [files],
-  );
-  // Workshop deliverable link: the workspace folder the notebooks were
-  // uploaded to (backend builds this from resources.json.workspace_folder).
-  const workshopWorkspaceUrl = useMemo(
-    () =>
-      (deployedResources ?? []).find((r) => r.resource_type === "workspace_folder")?.url ?? null,
-    [deployedResources],
   );
 
   const buildComplete = isWorkshop
-    ? notebookCount > 0 && !isStreaming
+    ? workshopReady && !isStreaming
     : project?.stage === "BUILT" || project?.stage === "BUNDLED";
   const buildActive = isStreaming && !buildComplete;
 
@@ -1629,6 +1691,10 @@ export const ProjectOverview = memo(function ProjectOverview({
           isGenerating={isGeneratingNarrative || (isStreaming && !hasReadme)}
           readmePresent={hasReadme}
           onShowFullStory={onShowFullStory}
+          onGeneratePovDeck={onGeneratePovDeck}
+          hasDeck={hasPovDeck(files)}
+          onOpenPovDeck={onOpenPovDeck}
+          isStreaming={isStreaming}
           onRegenerateNarrative={onRegenerateNarrative}
           onOpenChat={onOpenChat}
         />
@@ -1706,7 +1772,7 @@ export const ProjectOverview = memo(function ProjectOverview({
           </section>
         )}
 
-        {hasAnyResources && (
+        {(hasAnyResources || isWorkshop) && (
           <section className="rounded-2xl border border-border/60 bg-card p-7">
             <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-5">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1714,9 +1780,8 @@ export const ProjectOverview = memo(function ProjectOverview({
                   {isWorkshop ? "Genie Code workshop" : "Databricks resources"}
                 </h2>
                 {isWorkshop ? (
-                  <span className="text-[12px] text-muted-foreground tabular-nums">
-                    <span className="text-foreground font-semibold">{notebookCount}</span>
-                    <span className="text-muted-foreground/70"> notebook{notebookCount === 1 ? "" : "s"} generated</span>
+                  <span className="text-[12px] text-muted-foreground">
+                    {workshopReady ? "Ready" : "Generating…"}
                   </span>
                 ) : (
                   <span className="text-[12px] text-muted-foreground tabular-nums">
@@ -1731,7 +1796,8 @@ export const ProjectOverview = memo(function ProjectOverview({
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 {buildActive && (
                   <>
-                    <BuildTimer buildable={buildable} deployed={deployed} capabilities={deployedCapabilities} createdAt={createdAt} />
+                    {/* Workshops provision nothing, so the resource-build countdown does not apply: elapsed only. */}
+                    <BuildTimer buildable={isWorkshop ? [] : buildable} deployed={deployed} capabilities={isWorkshop ? undefined : deployedCapabilities} createdAt={createdAt} />
                     <span className="hidden items-center gap-1.5 text-[12px] text-muted-foreground xl:inline-flex">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                       The AI is working for you — please wait.
@@ -1784,12 +1850,13 @@ export const ProjectOverview = memo(function ProjectOverview({
               <BrandCard project={project} onUpdated={onBrandUpdated} className="mb-5" />
             )}
             {isWorkshop ? (
-              /* Workshop mode: the deliverable is notebooks, not provisioned
-                 resources — list the generated notebooks instead of resource tiles. */
-              <WorkshopNotebooks
-                files={files}
+              /* Workshop mode: the deliverable is the workshop HTML, not
+                 provisioned resources — offer it instead of resource tiles. */
+              <WorkshopReady
+                ready={workshopReady}
                 isStreaming={isStreaming}
-                workspaceUrl={workshopWorkspaceUrl}
+                onOpen={onShowWorkshop}
+                onDownloadKit={onDownloadWorkshopKit}
               />
             ) : (
               <>

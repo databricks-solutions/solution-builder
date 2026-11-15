@@ -35,8 +35,14 @@ import os
 
 # Notebook at {bundle_root}/src/deploy/upload_pdfs;
 # PDFs at  {bundle_root}/src/documents/pdf/.
-notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-bundle_root   = os.path.dirname(os.path.dirname(os.path.dirname(notebook_path)))
+# Bundle files root: the job passes ${workspace.file_path}; fallback = 3 levels above this notebook.
+dbutils.widgets.text("files_root", "", "Bundle files root")
+_files_root = dbutils.widgets.get("files_root")
+if _files_root:
+    bundle_root = _files_root.removeprefix("/Workspace")
+else:
+    notebook_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
+    bundle_root   = os.path.dirname(os.path.dirname(os.path.dirname(notebook_path))).removeprefix("/Workspace")
 pdf_source    = f"/Workspace{bundle_root}/src/documents/pdf"
 print(f"PDF source: {pdf_source}")
 

@@ -5,14 +5,17 @@
  * and the drop-target context.
  */
 import { createContext, useContext, useRef, type CSSProperties } from "react";
-import { Handle, Position, NodeResizeControl, useStore } from "@xyflow/react";
-import { naturalSize, medallionSize, governanceSize, type PlatformComponent, type BandId, type FlowStyle, type NodePosition } from "@/lib/platform-architecture";
+import { Handle, Position, NodeResizeControl, ViewportPortal, useInternalNode, useNodeId, useStore } from "@xyflow/react";
+import { naturalSize, medallionSize, governanceSize, multiSourceSize, wrapDescExtraH, VERTICAL_SOURCE_SIZE, verticalSourceSize, type ArchitectureTheme, type PlatformComponent, type BandId, type FlowStyle, type NodePosition, type MultiSourceItem } from "@/lib/platform-architecture";
 
 export type { FlowStyle };
+// Re-export so the node/composite components keep importing wrap-desc sizing from
+// here (single source of truth lives in the lib layer).
+export { wrapDescExtraH };
 // Re-exported so the composite + node components keep importing it from here
 // (the size formula itself now lives in platform-architecture.ts, so symbolic
 // layout and the rendered box can't diverge). See `medallionSize` there.
-export { medallionSize };
+export { medallionSize, VERTICAL_SOURCE_SIZE, verticalSourceSize };
 
 // ---------------------------------------------------------------------------
 // Node data + props
@@ -27,6 +30,8 @@ export interface NodeData {
    *  for which component this is. `nodeId` is a free-form instance handle and need
    *  NOT equal `type`. The catalog resolve + serialize key off this, not the id. */
   type: string;
+  /** Diagram-wide visual preset; `slide` is the generated default. */
+  theme: ArchitectureTheme;
   component: PlatformComponent;
   bandId: BandId;
   bandColor: string;
@@ -42,6 +47,13 @@ export interface NodeData {
   /** Resize callback (from NodeResizer) — w/h are the un-rotated card size.
    *  Optional `scale` (corner-drag) is stored so content scales with the box. */
   onResize: (id: string, w: number, h: number, scale?: number, center?: { x: number; y: number }) => void;
+  /** Wrap-desc AUTO-HEIGHT: the card measures its real rendered content height and
+   *  reports it here so the box tracks the content exactly (no estimate). Only a
+   *  wrap tile with no explicit user height calls it. Optional. */
+  onAutoHeight?: (id: string, h: number) => void;
+  /** The measured content height (px) for a wrap-desc auto-height tile — the box
+   *  renders at this once measured; falls back to the estimate before first paint. */
+  autoH?: number;
   /** Rotation in degrees (0/90/180/270). */
   rot: number;
   /** User-resized footprint (px); undefined → natural size. */
@@ -54,6 +66,8 @@ export interface NodeData {
   opacity?: number;
   fillColor?: string;
   fontColor?: string;
+  /** Box title-strip fill (hex) — `style.headerFill`. Unset → the title strip is unfilled. */
+  headerFill?: string;
   /** Label font size (px). Sources + logo annotations only; undefined → the
    *  node's default. */
   fontSize?: number;
@@ -85,6 +99,9 @@ export interface NodeData {
    *  text (string options, e.g. the medallion's `*_desc` layer captions). See
    *  PlatformComponent.options. */
   params?: Record<string, boolean | string>;
+  /** multi-source group: the listed source systems ({icon,label,note}). A
+   *  first-class array like the file field (see FileNode.sources). */
+  sources?: MultiSourceItem[];
   /** Render as a STACK of N cards (blank offset copies peeking bottom-right) to
    *  signal "many of these". 1/undefined = single card. See RotatableCard. */
   stack?: number;
@@ -102,11 +119,16 @@ export interface NodeData {
    *  render use it as the box width so grouped cards match + icons align. Not
    *  persisted (recomputed on parse) — flowToLayout drops it. */
   laneW?: number;
+  /** DERIVED title font for a title-only card in a same-size group (cardGroupFonts). Not persisted. */
+  cardFont?: number;
   /** Editable description line under the title. For catalog product tiles this
    *  overrides the CATALOG default; for sources it's the only source. */
   desc?: string;
   /** Whether the description line is shown (undefined → default resolution). */
   showDesc?: boolean;
+  /** Whether the description wraps to multiple lines (box auto-grows) instead of
+   *  the default single-line truncate. */
+  wrapDesc?: boolean;
   [key: string]: unknown;
 }
 
@@ -114,17 +136,39 @@ export interface NodeData {
  *  `PlatformEdge` style fields). Declared once so the edge renderer, the
  *  context menu, and the save serializer all agree on the field types. */
 export interface EdgeData {
+  theme?: ArchitectureTheme;
+  /** Edge-label chip font size (px) — the tab's `options.edgeLabelSize`. The renderer and the
+   *  placement solver both read it through label-chip, so they measure the same pill.
+   *  Unset → EDGE_LABEL_FONT. */
+  labelFontSize?: number;
   animated?: boolean;
   dashed?: boolean;
+  /** Edge colour (hex): stroke, arrowhead and label chip. Unset → neutral grey. */
+  color?: string;
   shape?: "smooth" | "straight" | "step";
   flowStyle?: FlowStyle;
-  /** Static arrowheads on the line. Undefined/"auto" → auto-decide: an arrow
-   *  for relationship edges (touching the user persona or Genie One), else a
-   *  normal flow line. "none" forces no arrow; "end"/"start"/"both" force one.
-   *  An arrow edge is a static relationship line (no data-flow animation). */
+  /** Static arrowheads on the line. Undefined/"auto" → auto-decide direction:
+   *  relationship edges (touching the user persona or Genie One), UC Model
+   *  Registry outflows, AND process-flow edges (either end is a `shape` node)
+   *  get an arrow toward their target; ordinary data-flow edges between
+   *  components get none (the animation shows direction). "none" forces no arrow;
+   *  "end"/"start"/"both" force one (override auto for a return/feedback edge). */
   arrow?: "auto" | "none" | "end" | "start" | "both";
   /** Manual X of the vertical elbow segment (px, flow coords); undefined → auto. */
   centerX?: number;
+  /** Custom cubic Bézier control points in flow coordinates. */
+  controlPoints?: [{ x: number; y: number }, { x: number; y: number }];
+  /** Whether the smooth edge uses its custom Bézier controls. */
+  bezier?: boolean;
+  /** Custom points for an orthogonal/step edge, in flow coordinates. */
+  waypoints?: { x: number; y: number }[];
+  /** Manual label placement set by dragging the chip. `d` is the arc distance in
+   *  px from the `from` end of the path, `off` a perpendicular nudge. Measuring
+   *  from the NEARER end (rather than storing a fraction) keeps the chip put when
+   *  the far end of the edge moves. `t` is the legacy fractional form, still read
+   *  for files saved before the change. Presence opts the edge out of automatic
+   *  placement — see `label-layout`'s MANUAL guard. */
+  labelPos?: { d?: number; from?: "source" | "target"; off?: number; t?: number };
 }
 
 /** A per-node style patch from the right-click menu (applied to 1 or many). */
@@ -184,7 +228,10 @@ export function cardStyle(
   // Per-node override (d.*) always wins; otherwise the caller's default (e.g. a
   // composite that wants no border/shadow), otherwise the global fallback.
   const w = d.borderWidth ?? defaults.borderWidth ?? 1;
-  const level = shadowLevel(d.shadow ?? defaults.shadow);
+  // Slide diagrams are deliberately flat like a deck graphic. Per-node and
+  // component-specific shadow overrides still win; technical keeps old depth.
+  const inheritedShadow = defaults.shadow ?? (d.theme === "slide" ? 0 : undefined);
+  const level = shadowLevel(d.shadow ?? inheritedShadow);
   return {
     hasFill: !!d.fillColor,
     // Kept for API compat (callers spread card.style for the shadow now); true
@@ -249,10 +296,11 @@ export function nodeTypeFor(c: PlatformComponent): string {
   if (c.kind === "genie-code") return "genieCode";
   if (c.kind === "governance") return "governance";
   if (c.kind === "lakeflow-genie") return "lakeflowGenie";
-  if (c.kind === "agent-bricks") return "agentBricks";
+  if (c.kind === "databricks-agent") return "agentBricks";
   if (c.kind === "db-platform") return "dbPlatform";
   if (c.kind === "genie-one") return "genieOne";
   if (c.kind === "ai-gateway") return "aiGateway";
+  if (c.kind === "multi-source") return "multiSource";
   if (c.kind === "medallion-table") return "medallion";
   return "component";
 }
@@ -260,7 +308,10 @@ export function nodeTypeFor(c: PlatformComponent): string {
 /** Base (un-rotated) footprint of each node type — needed so the rotatable
  *  shell can swap W/H for 90°/270° and ReactFlow's handles land on the real
  *  rotated edges (not the original box). */
-export function baseSize(c: PlatformComponent, params?: Record<string, boolean | string>): { w: number; h: number } {
+export function baseSize(c: PlatformComponent, params?: Record<string, boolean | string>, _theme?: ArchitectureTheme, sources?: MultiSourceItem[]): { w: number; h: number } {
+  // The BOX is theme-invariant — slide changes only what's drawn INSIDE a node,
+  // never its footprint (so a theme toggle never reflows). `_theme` is kept for
+  // the signature but no longer switches the size.
   // Single source of truth lives in the lib layer (naturalSize), keyed by the
   // component's composite kind / id. A composite kind takes priority over the
   // id (naturalSize keys composites by their catalog id, but a runtime
@@ -271,11 +322,12 @@ export function baseSize(c: PlatformComponent, params?: Record<string, boolean |
   const lfDesc = !!(layerDescParam(params, "bronze") || layerDescParam(params, "silver") || layerDescParam(params, "gold"));
   if (c.kind === "lakeflow") return lfDesc ? { w: 312, h: 176 } : { w: 268, h: 148 };
   if (c.kind === "lakeflow-genie") return lfDesc ? { w: 380, h: 232 } : { w: 360, h: 208 };
-  if (c.kind === "agent-bricks") return { w: 230, h: 170 };
+  if (c.kind === "databricks-agent") return { w: 230, h: 170 };
   if (c.kind === "genie-code") return { w: 360, h: 112 };
   if (c.kind === "governance") return governanceSize(params);
   if (c.kind === "db-platform") return { w: 380, h: 60 };
   if (c.kind === "ai-gateway") return { w: 240, h: 104 };
+  if (c.kind === "multi-source") return multiSourceSize(sources, params);
   if (c.kind === "medallion-table") return medallionSize(params);
   return naturalSize(c.id, params);
 }
@@ -286,12 +338,6 @@ function layerDescParam(params: Record<string, boolean | string> | undefined, la
   const v = params?.[`${layer}_desc`];
   return typeof v === "string" && v.trim() ? v : undefined;
 }
-
-/** Default box for a SOURCE tile with a vertical caption (top/bottom) — the
- *  icon+label stack needs a taller, narrower tile than the default wide row.
- *  Shared by nodeFootprint (the ReactFlow node box) and component-node (the
- *  card) so the selection frame + edge anchors match the visual. */
-export const VERTICAL_SOURCE_SIZE = { w: 132, h: 96 };
 
 // --- Positioned-icon-tile sizing (logo annotations + captioned sources) ------
 // A labelled icon tile (icon + caption on a chosen side) auto-fits its box to
@@ -304,11 +350,11 @@ export const LOGO_PAD = 9;   // inner padding so a filled/bordered tile breathes
  *  Uses canvas measureText (same font as the rendered caption) — synchronous,
  *  so callers can size the node in the SAME commit as the change (no
  *  measure-after-render pass). */
-export function logoFitSize(text: string, horizontal: boolean, fontSize = 13, bold = false): { w: number; h: number } {
+export function logoFitSize(text: string, horizontal: boolean, fontSize = 15, bold = false): { w: number; h: number } {
   const ctx = document.createElement("canvas").getContext("2d");
   let tw = 40;
   if (ctx) {
-    // Mirrors the caption: text-[13px] font-medium on the app's sans stack.
+    // Mirrors the caption: 15px font-medium on the app's sans stack.
     ctx.font = `${bold ? 700 : 500} ${fontSize}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
     tw = Math.ceil(ctx.measureText(text || " ").width);
   }
@@ -324,34 +370,49 @@ export function logoFitSize(text: string, horizontal: boolean, fontSize = 13, bo
  *  `sourceCaption` (top/bottom) switches an unsized source to the taller box. */
 export function nodeFootprint(
   c: PlatformComponent,
-  pos: { w?: number; h?: number; rot?: number; sourceCaption?: "right" | "left" | "top" | "bottom"; laneW?: number; params?: Record<string, boolean | string> },
+  pos: { w?: number; h?: number; rot?: number; theme?: ArchitectureTheme; sourceCaption?: "right" | "left" | "top" | "bottom"; laneW?: number; params?: Record<string, boolean | string>; sources?: MultiSourceItem[]; desc?: string; showDesc?: boolean; wrapDesc?: boolean; autoH?: number },
 ): { w: number; h: number } {
   const vertical = pos.sourceCaption === "top" || pos.sourceCaption === "bottom";
   // Size from params so the ReactFlow node box (this) matches the composite's
-  // render as it grows: the medallion with its fork options, and the lakeflow
-  // blocks with layer captions (baseSize reads params for both; ignores them
-  // for kinds that don't).
-  const nat = c.kind === "medallion-table" ? medallionSize(pos.params)
-    : vertical ? VERTICAL_SOURCE_SIZE : baseSize(c, pos.params);
+  // render as it grows: the medallion with its fork options, the lakeflow blocks
+  // with layer captions, and the multi-source group with its row count (baseSize
+  // reads params/sources for those; ignores them for kinds that don't).
+  const nat = vertical ? verticalSourceSize() : baseSize(c, pos.params, pos.theme, pos.sources);
   // A same-lane captioned group imposes a uniform width (step 2.5's `laneW`) so
   // the cards match + icons align. An explicit user w/h still wins; `laneW` only
   // fills in for an unsized (symbolic) horizontal-caption tile.
   const w = pos.w ?? (!vertical && pos.laneW ? pos.laneW : nat.w);
-  const h = pos.h ?? nat.h;
+  // Wrap-description AUTO-GROW: a wrapped desc runs to multiple lines, so the box
+  // must be taller or it clips. `wrapDescExtraH` gives the extra height for the
+  // wrapped lines (shared with sizeOf + the rendered card so all three agree).
+  // The content height is a FLOOR the box can't go under — so even a tile with an
+  // explicit `h` (e.g. an authored `size:[300,56]`) grows to fit its wrapped text
+  // rather than clipping. Without wrap, explicit `pos.h` wins as before.
+  const wrapExtra = wrapDescExtraH({ desc: pos.desc, showDesc: pos.showDesc, wrapDesc: pos.wrapDesc, vertical, theme: pos.theme }, w);
+  const contentH = nat.h + wrapExtra;
+  // AUTO-HEIGHT: a wrap-desc tile sizes to its MEASURED content (`autoH`) — even one
+  // with an authored `size` height, since a fixed height would clip/pad the wrapped
+  // text. Before first paint (autoH unset) fall back to the estimate seed (or the
+  // authored height, whichever is taller, so it never clips pre-measure). Without
+  // wrap, explicit `pos.h` wins exactly as before.
+  const h = wrapExtra > 0
+    ? (pos.autoH ?? Math.max(pos.h ?? 0, contentH))
+    : (pos.h ?? nat.h);
   const q = (((pos.rot ?? 0) % 360) + 360) % 360;
   return q === 90 || q === 270 ? { w: h, h: w } : { w, h };
 }
 
+
 // Resize-grip geometry — ONE source of truth for how far every grip (corners
 // AND sides) floats outside the box and how big it is, so they can't drift.
 const GRIP_LEN = 15; // grip SVG box size (px)
-// Distance from the box border to the grip's INK center (px). Pushed out far
-// enough to CLEAR the connection dots, which are the other thing floating just
-// outside the border: a dot centers at ConnectionDot.OUT (8px) out with radius
-// ~5, so its outer edge reaches ~13px — the side resize handle sits on the same
-// edge-midpoint as a side dot, so the grip center must sit past that with a few
-// px of breathing room.
-const GRIP_OUT = 18;
+// Distance from the box border to EVERY grip's ink center (px) — corners and
+// sides share this one ring, so the 8 grips outline a single rectangle. It must
+// clear the connection dots, which hug the border on the side midpoints (a dot
+// spans the border to ~8px out): the side bar's ink band (stroke 5.5) then sits
+// ~10-16px out, a couple of px past the dot, while staying close enough to the
+// node that the corner brackets don't reach into neighbouring edge labels.
+const GRIP_OUT = 13;
 // ReactFlow's <NodeResizeControl> renders a fixed CTRL×CTRL element whose
 // top-left it anchors to the node edge/corner (near sides at 0, far sides at
 // dim − CTRL, centered sides at (dim − CTRL)/2). Our GRIP_LEN SVG is a child
@@ -431,6 +492,7 @@ export function RotatableCard({
   stack = 1,
   stackRadius,
   stackBorderColor,
+  deprecated = false,
   onContext,
   onResize,
   onScale,
@@ -448,6 +510,10 @@ export function RotatableCard({
   /** Border color for the stack shadow cards — pass the front card's own border
    *  so the peeking cards read as the same component (defaults to a subtle line). */
   stackBorderColor?: string;
+  /** The component is deprecated (catalog `deprecated`). Draws a small
+   *  "Deprecated" marker in edit mode only; it is hidden in static exports
+   *  (`arch-static`) and never affects the box geometry (absolutely positioned). */
+  deprecated?: boolean;
   /** Natural (un-resized) content size. Accepted for callers' convenience but
    *  no longer used for sizing — the box (w×h) drives the visible size and
    *  `scale` (--cs) scales the inner content. */
@@ -504,6 +570,12 @@ export function RotatableCard({
   // (the lasso lag). One handle can't resize a group anyway.
   const singleSel = useContext(SingleSelectionContext);
   const showResize = editMode && selected && singleSel;
+  // The grips render through a ViewportPortal above every node: inside the node they
+  // inherit its stacking order, so a background band (z -2) had its grips covered by
+  // the band drawn after it and by its own content. The node itself keeps its depth
+  // (elevateNodesOnSelect stays off), only the selection chrome is lifted.
+  const nodeId = useNodeId();
+  const inode = useInternalNode(nodeId ?? "");
   // Shift-drag a resize handle = keep the aspect ratio. We capture the ratio at
   // drag start (onResizeStart) and, while Shift is held, constrain h to w.
   const ratioRef = useRef(1);
@@ -522,11 +594,15 @@ export function RotatableCard({
           scale uniformly; others just lock w:h). SIDES stretch one axis. All
           drawn as thin round-capped grips (L-brackets on corners, bars on sides)
           pushed just outside the border, above the connection anchors (z:21). */}
-      {showResize && (["top-left", "top-right", "bottom-right", "bottom-left"] as const).map((corner) => {
+      {showResize && nodeId && inode && (
+        <ViewportPortal>
+          <div style={{ position: "absolute", transform: `translate(${inode.internals.positionAbsolute.x}px, ${inode.internals.positionAbsolute.y}px)`, width: inode.measured.width, height: inode.measured.height, zIndex: 1000, pointerEvents: "none" }}>
+      {(["top-left", "top-right", "bottom-right", "bottom-left"] as const).map((corner) => {
         // Ink centered in the GRIP_LEN box (see GripStroke) → place every grip's
         // ink center on a symmetric ring GRIP_OUT outside the border. The near
         // (left/top) and far (right/bottom) edges need different pushes because
-        // RF anchors their control boxes differently (see gripShift).
+        // RF anchors their control boxes differently (see gripShift). Corners and
+        // side bars share the ring, so the brackets and bars line up.
         const [oy, ox] = corner.split("-") as ["top" | "bottom", "left" | "right"];
         const dx = ox === "left" ? gripShift.near : gripShift.far;
         const dy = oy === "top" ? gripShift.near : gripShift.far;
@@ -553,13 +629,14 @@ export function RotatableCard({
               if ((e as { shiftKey?: boolean })?.shiftKey) { const r = shiftResize(p); if (r) onResize(r[0], r[1]); }
               else onResize(p.width, p.height);
             }}
-            style={{ background: "transparent", border: "none", zIndex: 21, transform: `translate(${dx}px, ${dy}px)` }}
+            nodeId={nodeId}
+            style={{ background: "transparent", border: "none", zIndex: 21, pointerEvents: "auto", transform: `translate(${dx}px, ${dy}px)` }}
           >
             <GripStroke shape={corner} />
           </NodeResizeControl>
         );
       })}
-      {showResize && (["top", "right", "bottom", "left"] as const).map((side) => {
+      {(["top", "right", "bottom", "left"] as const).map((side) => {
         // Same ring as the corners: push the ink center GRIP_OUT out along the
         // normal (near/far) and center it on the parallel axis (gripShift.mid).
         // All in px — RF's own transform is fully overridden by ours, so we can't
@@ -582,12 +659,16 @@ export function RotatableCard({
             // persist the resulting size (one axis stretches, content unscaled).
             onResize={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
             onResizeEnd={(e, p) => { const [w, h] = lockRatio(e as { shiftKey?: boolean }, p.width, p.height); onResize(w, h); }}
-            style={{ background: "transparent", border: "none", zIndex: 21, transform }}
+            nodeId={nodeId}
+            style={{ background: "transparent", border: "none", zIndex: 21, pointerEvents: "auto", transform }}
           >
             <GripStroke shape={sideAxis ? "v" : "h"} />
           </NodeResizeControl>
         );
       })}
+          </div>
+        </ViewportPortal>
+      )}
       {!hideHandles && <NodeHandles editMode={editMode} selected={selected} forceDots={forceDots} />}
       {/* Card box at the node's w×h (un-rotated), rotated about the shell centre
           so its border == the box edges. The children (the bordered card +
@@ -639,6 +720,15 @@ export function RotatableCard({
       >
         {children}
       </div>
+      {deprecated && editMode && (
+        <span
+          title="Deprecated: still renders on this diagram. Use the replacement for new work."
+          className="pointer-events-none absolute -top-2 right-1 z-20 rounded px-1 text-[8px] font-bold uppercase leading-[14px] tracking-wide [.arch-static_&]:hidden"
+          style={{ background: "#FFFBEB", border: "1px solid #D97706", color: "#92400E" }}
+        >
+          Deprecated
+        </span>
+      )}
     </div>
   );
 }

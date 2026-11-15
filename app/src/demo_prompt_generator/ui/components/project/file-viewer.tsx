@@ -7,8 +7,9 @@ import React, { memo, useState, useMemo, useEffect, useCallback, lazy, Suspense 
 import { ScrollArea } from "../ui/scroll-area";
 import { Prose } from "../markdown-prose";
 import { ProjectOverview } from "./project-overview";
+import { WORKSHOP_HTML_PATH } from "./build-stepper";
 import { Skeleton } from "../ui/skeleton";
-import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Server } from "lucide-react";
+import { ChevronRight, ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, FileCode, Braces, Settings, File, Sparkles, RefreshCw, Network, BookOpen, Database, Eye, EyeOff, Code, Globe, Loader2, Presentation, Server, GraduationCap, Download } from "lucide-react";
 import type { StoryAdaptMode } from "./story-adapt-dialog";
 import type { ArchitectureIssue } from "@/lib/platform-architecture";
 import { UnityCatalogIcon } from "../databricks-icons";
@@ -16,6 +17,7 @@ import { Button } from "../ui/button";
 import type { CapabilityBuildStatus, ProjectFile, ProjectFileContent, DeployedResourceLink, Project } from "../../lib/custom-api";
 import { AppPreviewTab } from "../../preview";
 import { cn } from "../../lib/utils";
+import { DeckView, hasPovDeck, POV_DECK_AVAILABLE } from "./deck-view";
 
 // Lazy load the capability-layer platform diagram.
 const PlatformDiagram = lazy(() => import("./platform-diagram"));
@@ -34,7 +36,9 @@ const CodeViewer = lazy(() => import("./code-viewer").then(m => ({ default: m.Co
 //   architecture → the diagram, full-bleed
 //   app          → live preview of the generated Databricks App
 //   files        → raw file tree + content viewer
-type ViewTab = "overview" | "story" | "architecture" | "app" | "files";
+//   workshop     → Genie Code workshop HTML (workshop projects only; replaces
+//                  files + app)
+type ViewTab = "overview" | "story" | "architecture" | "app" | "deck" | "files" | "workshop";
 
 interface ResourcesInfo {
   warehouseName?: string | null;
@@ -62,6 +66,14 @@ interface FileViewerProps {
   isGeneratingNarrative?: boolean;
   /** Trigger a regenerate of the narrative from the current README. */
   onRegenerateNarrative?: () => void;
+  /** Workshop projects: the workshop HTML (notebooks_html/workshop.html) content,
+   *  loaded by the parent. Null until fetched / while not generated yet. */
+  workshopHtml?: string | null;
+  /** Workshop projects: a newer page exists than `workshopHtml` (shown on reload). */
+  workshopUpdatePending?: boolean;
+  onApplyWorkshopUpdate?: () => void;
+  /** Workshop projects: download the attendee kit zip. */
+  onDownloadWorkshopKit?: () => void;
   /** Controlled active tab. Parent (route) owns this and syncs it to a
    *  URL search param so back/forward + bookmarks work. */
   activeTab?: ViewTab;
@@ -140,6 +152,12 @@ interface FileViewerProps {
   onAdaptStory?: (mode: StoryAdaptMode, instructions: string) => Promise<void> | void;
   /** Build the forked demo as-is (keep the story, generate everything). */
   onForkBuildAsIs?: () => void;
+  /** Run the skill's POV deck stage (html-it). Undefined when this user cannot send. */
+  onGeneratePovDeck?: () => void;
+  /** True while the running turn is a deck turn, so the Deck tab may say it is building. */
+  deckTurnRunning?: boolean;
+  /** Apply change notes sent from the deck's edit mode. */
+  onSendDeckEdits?: (text: string) => void;
 }
 
 interface TreeNode {
@@ -200,8 +218,8 @@ const StoryView = memo(function StoryView({ readmeContent, isStreaming }: StoryV
   const body = stripFrontmatter(readmeContent);
   return (
     <ScrollArea className="flex-1">
-      <div className="px-8 py-7 max-w-[1180px] mx-auto">
-        <section className="rounded-2xl border border-border/60 bg-card p-8 lg:p-10">
+      <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-8 sm:py-7">
+        <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-8 lg:p-10">
           <div className="mb-6 pb-4 border-b border-border/50 flex items-center gap-2">
             <BookOpen className="h-4 w-4 text-muted-foreground" />
             <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
@@ -590,7 +608,7 @@ const ExpandedSidebar = memo(function ExpandedSidebar({
   const hasWarehouse = !!resources?.warehouseName;
 
   return (
-    <div className="w-64 h-full shrink-0 border-r border-border bg-muted/30 flex flex-col">
+    <div className="h-full w-full shrink-0 border-r border-border bg-muted/30 flex flex-col md:w-64">
       {/* Header with collapse button - entire row is clickable */}
       <div
         className="p-2.5 border-b border-border flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors"
@@ -718,6 +736,11 @@ interface TabBarProps {
   hasArchitecture: boolean;
   hasApp: boolean;
   showAppTab: boolean;
+  /** True once the POV deck exists (deck/pov_deck.html). */
+  hasDeck: boolean;
+  /** Workshop project: Summary/Story/Architecture/Workshop only (no App/Files). */
+  isWorkshopProject?: boolean;
+  hasWorkshop?: boolean;
   /** Architecture-first project awaiting its build → hide Overview + Story
    *  (there's no story/build yet; the diagram is the whole workspace). */
   architectureFirst?: boolean;
@@ -725,7 +748,7 @@ interface TabBarProps {
 
 function tabClasses(isActive: boolean, isAvailable: boolean): string {
   return cn(
-    "flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors cursor-pointer",
+    "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
     isActive
       ? "bg-background text-foreground shadow-sm"
       : isAvailable
@@ -760,12 +783,15 @@ const TabBar = memo(function TabBar({
   hasArchitecture,
   hasApp,
   showAppTab,
+  hasDeck,
+  isWorkshopProject = false,
+  hasWorkshop = false,
   architectureFirst = false,
 }: TabBarProps) {
   return (
     <div className="shrink-0 border-b border-border bg-muted/30">
-      <div className="flex items-center px-4 py-2">
-        <div className="flex items-center gap-1 bg-muted/50 rounded-md p-0.5" role="tablist" aria-label="View tabs">
+      <div className="flex items-center overflow-x-auto px-3 py-2 sm:px-4">
+        <div className="flex shrink-0 items-center gap-1 rounded-md bg-muted/50 p-0.5" role="tablist" aria-label="View tabs">
           {!architectureFirst && (
           <button
             role="tab"
@@ -775,7 +801,7 @@ const TabBar = memo(function TabBar({
             className={tabClasses(activeTab === "overview", true)}
           >
             <TabIcon Icon={Sparkles} showDot={false} />
-            Overview
+            {isWorkshopProject ? "Summary" : "Overview"}
           </button>
           )}
 
@@ -803,16 +829,42 @@ const TabBar = memo(function TabBar({
             Architecture
           </button>
 
-          {showAppTab && (
+          {isWorkshopProject ? (
             <button
               role="tab"
-              aria-selected={activeTab === "app"}
-              onClick={() => onTabChange("app")}
-              title={hasApp ? "App (generated)" : "App"}
-              className={tabClasses(activeTab === "app", hasApp)}
+              aria-selected={activeTab === "workshop"}
+              onClick={() => onTabChange("workshop")}
+              title={hasWorkshop ? "Genie Code workshop" : "Workshop (being generated)"}
+              className={tabClasses(activeTab === "workshop", hasWorkshop)}
             >
-              <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
-              App
+              <TabIcon Icon={GraduationCap} showDot={hasWorkshop && activeTab !== "workshop"} />
+              Workshop
+            </button>
+          ) : (
+            showAppTab && (
+              <button
+                role="tab"
+                aria-selected={activeTab === "app"}
+                onClick={() => onTabChange("app")}
+                title={hasApp ? "App (generated)" : "App"}
+                className={tabClasses(activeTab === "app", hasApp)}
+              >
+                <TabIcon Icon={Globe} showDot={hasApp && activeTab !== "app"} />
+                App
+              </button>
+            )
+          )}
+
+          {!architectureFirst && (POV_DECK_AVAILABLE || hasDeck) && (
+            <button
+              role="tab"
+              aria-selected={activeTab === "deck"}
+              onClick={() => onTabChange("deck")}
+              title={hasDeck ? "POV deck (generated)" : "POV deck"}
+              className={tabClasses(activeTab === "deck", hasDeck)}
+            >
+              <TabIcon Icon={Presentation} showDot={hasDeck && activeTab !== "deck"} />
+              Deck
             </button>
           )}
 
@@ -833,6 +885,89 @@ const TabBar = memo(function TabBar({
 });
 
 // ---------------------------------------------------------------------------
+// Workshop view — the Genie Code workshop as one self-contained HTML page.
+// ---------------------------------------------------------------------------
+
+const WorkshopView = memo(function WorkshopView({
+  html,
+  hasWorkshop,
+  isStreaming,
+  updatePending,
+  onApplyUpdate,
+  onDownloadKit,
+}: {
+  html: string | null;
+  hasWorkshop: boolean;
+  isStreaming: boolean;
+  /** A newer workshop page exists than the one shown (the agent is still
+   *  streaming, so we hold the shown version steady until the user reloads). */
+  updatePending: boolean;
+  onApplyUpdate?: () => void;
+  onDownloadKit?: () => void;
+}) {
+  if (!hasWorkshop) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+          {isStreaming && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+          {isStreaming ? "Workshop is being generated…" : "The workshop will appear here once it's generated."}
+        </div>
+      </div>
+    );
+  }
+  if (html === null) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between bg-muted/20">
+        <span className="text-sm text-muted-foreground truncate">{WORKSHOP_HTML_PATH}</span>
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {updatePending && onApplyUpdate && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onApplyUpdate}
+              className="h-7 px-2 gap-1 rounded-full"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span className="text-xs">Updated — reload</span>
+            </Button>
+          )}
+          {onDownloadKit && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onDownloadKit}
+              title="The attendee kit: a zip to import into the workspace + the workshop page"
+              className="h-7 px-2 gap-1"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="text-xs">Download the kit</span>
+            </Button>
+          )}
+        </div>
+      </div>
+      {/* No allow-same-origin: the page's JS runs in an opaque origin and can't
+          reach the app's cookies, storage or DOM. Popups/modals are for the
+          workshop's own links; clipboard-write lets its copy buttons work. */}
+      <iframe
+        srcDoc={html}
+        className="flex-1 w-full border-0 bg-white"
+        title="Genie Code workshop"
+        sandbox="allow-scripts allow-popups allow-modals"
+        allow="clipboard-write"
+      />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // File Viewer
 // ---------------------------------------------------------------------------
 
@@ -845,6 +980,10 @@ export const FileViewer = memo(function FileViewer({
   projectCreatedAt,
   isGeneratingNarrative,
   onRegenerateNarrative,
+  workshopHtml,
+  workshopUpdatePending = false,
+  onApplyWorkshopUpdate,
+  onDownloadWorkshopKit,
   activeTab: activeTabProp,
   onTabChange,
   files,
@@ -884,6 +1023,9 @@ export const FileViewer = memo(function FileViewer({
   isForkedProject,
   onAdaptStory,
   onForkBuildAsIs,
+  onGeneratePovDeck,
+  deckTurnRunning,
+  onSendDeckEdits,
 }: FileViewerProps) {
   // The tab is controlled by the parent route when `activeTabProp` is
   // supplied (URL-synced for back/forward). Local state is kept as a
@@ -902,6 +1044,13 @@ export const FileViewer = memo(function FileViewer({
 
   const hasReadme = useMemo(() => files.some((f) => f.path === "README.md"), [files]);
   const hasArchitecture = useMemo(() => files.some((f) => f.path === "architecture.md"), [files]);
+  const hasDeck = useMemo(() => hasPovDeck(files), [files]);
+  // Workshop projects swap Files + App for a single Workshop tab.
+  const isWorkshopProject = project?.mode === "workshop";
+  const hasWorkshop = useMemo(
+    () => files.some((f) => f.path === WORKSHOP_HTML_PATH),
+    [files],
+  );
   const hasSpecifications = useMemo(
     () => files.some((f) => f.path.startsWith("specifications/")),
     [files],
@@ -917,8 +1066,10 @@ export const FileViewer = memo(function FileViewer({
   // Only surface the App tab when an app is part of this project — either
   // selected as a capability in resources.json, or already generated on disk.
   const showAppTab = useMemo(
-    () => hasApp || (capabilities?.buildable ?? []).includes("databricks-apps"),
-    [hasApp, capabilities],
+    () =>
+      !isWorkshopProject
+      && (hasApp || (capabilities?.buildable ?? []).includes("databricks-apps")),
+    [hasApp, capabilities, isWorkshopProject],
   );
 
   // If the app is deselected while the App tab is active, fall back to Overview.
@@ -927,6 +1078,14 @@ export const FileViewer = memo(function FileViewer({
       setActiveTab("overview");
     }
   }, [showAppTab, activeTab]);
+
+  // The Deck tab is hidden on architecture-first projects (no story yet), so a
+  // ?tab=deck link or back/forward there falls back to the first visible tab.
+  useEffect(() => {
+    if (architectureFirst && activeTab === "deck") {
+      setActiveTab("architecture");
+    }
+  }, [architectureFirst, activeTab]);
 
   // Lazy-load architecture content when the Architecture tab is opened.
   useEffect(() => {
@@ -979,7 +1138,7 @@ export const FileViewer = memo(function FileViewer({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-w-0 flex-col">
       <TabBar
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -987,13 +1146,21 @@ export const FileViewer = memo(function FileViewer({
         hasArchitecture={hasArchitecture}
         hasApp={hasApp}
         showAppTab={showAppTab}
+        hasDeck={hasDeck}
+        isWorkshopProject={isWorkshopProject}
+        hasWorkshop={hasWorkshop}
         architectureFirst={architectureFirst}
       />
 
-      <div className="flex flex-1 min-h-0">
-        {/* Files-tab-only sidebar (kept simple — files tab shows tree + content) */}
+      <div className="flex min-h-0 min-w-0 flex-1">
+        {/* Files-tab-only sidebar. On narrow screens the tree becomes a
+            full-width first step; selecting a file drills into the content
+            view so neither column is squeezed into an unusable sliver. */}
         {activeTab === "files" && (
-          <div className="shrink-0 overflow-hidden" style={{ width: "256px" }}>
+          <div className={cn(
+            "shrink-0 overflow-hidden w-full md:w-64",
+            selectedFile && "hidden md:block",
+          )}>
             <ExpandedSidebar
               files={files}
               selectedFile={selectedFile}
@@ -1010,8 +1177,23 @@ export const FileViewer = memo(function FileViewer({
         )}
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {activeTab === "overview" ? (
+        <div className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          activeTab === "files" && !selectedFile && "hidden md:flex",
+        )}>
+          {activeTab === "files" && selectedFile && (
+            <button
+              type="button"
+              onClick={() => onSelectFile("")}
+              className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              All files
+            </button>
+          )}
+          {/* Until the workshop page exists, the Workshop tab shows the same build
+              journey as the Summary tab (steps + brand card). */}
+          {activeTab === "overview" || (activeTab === "workshop" && !hasWorkshop) ? (
             <ProjectOverview
               projectId={projectId}
               project={project}
@@ -1034,17 +1216,31 @@ export const FileViewer = memo(function FileViewer({
               isStreaming={isStreaming}
               onOpenChat={onOpenChat}
               onShowFullStory={() => setActiveTab("story")}
+              onOpenPovDeck={() => setActiveTab("deck")}
               onShowArchitecture={() => setActiveTab("architecture")}
+              onShowWorkshop={() => setActiveTab("workshop")}
+              onDownloadWorkshopKit={onDownloadWorkshopKit}
               onShowApp={() => setActiveTab("app")}
               onEditDescription={onEditDescription}
               isForkedProject={isForkedProject}
               onAdaptStory={onAdaptStory}
               onForkBuildAsIs={onForkBuildAsIs}
+              onGeneratePovDeck={onGeneratePovDeck}
             />
           ) : activeTab === "story" ? (
             <StoryView
               readmeContent={readmeContent ?? null}
               isStreaming={isStreaming}
+            />
+          ) : activeTab === "deck" && !architectureFirst ? (
+            <DeckView
+              projectId={projectId}
+              files={files}
+              hasReadme={hasReadme}
+              isStreaming={isStreaming}
+              deckTurnRunning={deckTurnRunning}
+              onGeneratePovDeck={onGeneratePovDeck}
+              onSendDeckEdits={onSendDeckEdits}
             />
           ) : activeTab === "architecture" ? (
             <ArchitectureView
@@ -1062,6 +1258,15 @@ export const FileViewer = memo(function FileViewer({
               defaultLogosOn={defaultLogosOn}
               onShareLive={onShareLive}
               onRequestArchitectureFix={onRequestArchitectureFix}
+            />
+          ) : activeTab === "workshop" ? (
+            <WorkshopView
+              html={workshopHtml ?? null}
+              hasWorkshop={hasWorkshop}
+              isStreaming={isStreaming}
+              updatePending={workshopUpdatePending}
+              onApplyUpdate={onApplyWorkshopUpdate}
+              onDownloadKit={onDownloadWorkshopKit}
             />
           ) : activeTab === "app" ? (
             <AppPreviewTab
@@ -1095,9 +1300,9 @@ export const FileViewer = memo(function FileViewer({
           ) : (
             <div className="flex-1 flex flex-col min-h-0">
               {isRenderable && !isPdf && !isImage && (
-                <div className="shrink-0 px-4 py-2 border-b border-border flex items-center justify-between bg-muted/20">
-                  <span className="text-sm text-muted-foreground truncate">{selectedFile}</span>
-                  <div className="flex items-center gap-1 bg-muted rounded-md p-0.5 flex-shrink-0 ml-2">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/20 px-3 py-2 sm:px-4">
+                  <span className="min-w-0 truncate text-sm text-muted-foreground">{selectedFile}</span>
+                  <div className="ml-auto flex shrink-0 items-center gap-1 rounded-md bg-muted p-0.5">
                     <Button
                       variant={!showRaw ? "secondary" : "ghost"}
                       size="sm"
@@ -1159,7 +1364,7 @@ export const FileViewer = memo(function FileViewer({
                   </ScrollArea>
                 )
               ) : (
-                <div className="flex-1 flex flex-col p-4 min-h-0">
+                <div className="flex min-h-0 min-w-0 flex-1 flex-col p-3 sm:p-4">
                   <Suspense fallback={
                     <div className="flex-1 flex items-center justify-center bg-muted/30 rounded-lg">
                       <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full" />

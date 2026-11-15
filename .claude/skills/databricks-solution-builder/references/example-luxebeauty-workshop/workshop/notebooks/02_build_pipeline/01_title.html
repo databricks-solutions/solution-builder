@@ -1,0 +1,6 @@
+<h1 class="nb-title"><span class="step-logo lg s2"><i data-icon="pipeline"></i><b>2</b></span>Build the pipeline</h1>
+<p>Turn the raw parquet in the Volume into a clean <strong>medallion</strong> — silver, then the gold tables your dashboard + Genie read — as a real <strong>Spark Declarative Pipeline (SDP)</strong>. You'll create the pipeline, add one layer at a time (each as its own SQL source file), and run + verify after every layer. → <a href="#nb-00" data-target="nb-00"><em>Back to the introduction</em></a></p>
+<blockquote class="note">
+  <p>Each step is a prompt you paste into the Assistant (<span class="gc-mark"><i data-icon="genie-code"></i></span>) and iterate on, just like building a real pipeline. It already read the kit docs, so talk at a high level and it fills in the SQL + the SDP wiring.</p>
+  <p><strong>No bronze</strong> — silver reads the raw files straight from the Volume via <code>read_files()</code>. If the Assistant reaches for a bronze layer, tell it to read the parquet directly.</p>
+</blockquote>

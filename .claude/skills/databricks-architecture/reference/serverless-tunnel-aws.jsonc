@@ -1,0 +1,101 @@
+// =============================================================================
+// SERVERLESS → ON-PREMISES ON AWS WITH NO INBOUND FIREWALL PORT: REVERSE SSH TUNNEL
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first. Prefer the Private Network
+// Gateway (serverless-png-aws.jsonc) when it is an option; this is a fallback.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Serverless compute reaches the customer's VPC the same way as the PrivateLink
+//     pattern (serverless-privatelink-nlb-aws.jsonc): a private endpoint rule in the
+//     workspace's NCC → AWS PrivateLink → a VPC endpoint service → a Network Load
+//     Balancer. Here the NLB's targets are proxy EC2 instances.
+//   • On-premises tunnel hosts run autossh and open OUTBOUND SSH connections to the
+//     proxy EC2s, over the existing network path (Transit Gateway + Direct Connect /
+//     Site-to-Site VPN). The corporate firewall never opens an inbound port.
+//   • The proxy EC2s run socat: they accept the tunnels and expose each on-premises
+//     resource's port on their network interface. Serverless traffic arrives at the NLB,
+//     goes to a proxy, through the tunnel, and the tunnel host forwards it to the
+//     resource.
+//   • When to use: PNG is not an option, the resources are reachable from the cloud over
+//     an existing path (Direct Connect, S2S VPN, SD-WAN), but the firewall blocks inbound
+//     traffic from the cloud.
+//   • Watch out: not managed; the customer provisions, monitors and maintains the proxies
+//     and the tunnel hosts. At least two proxies behind the load balancer so one tunnel
+//     failure does not cut connectivity, and a distinct port mapping on each proxy for
+//     each on-premises resource.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The hops run in traffic order: serverless plane → shared services VPC (NLB, then proxies) →
+//     Transit Gateway → the link → the tunnel host → the resources. `track` values line each hop
+//     up with the next across the containers, so the path reads straight.
+//   • Two colours, two meanings: red = serverless traffic in the cloud and the last hop
+//     on-prem; green = the SSH tunnel, which carries that traffic between proxy and tunnel
+//     host. The tunnel's direction (opened from on-prem) is in the tunnel host's `desc` and
+//     the edge label, so every edge can still read left → right.
+//   • Two proxies / two tunnels are ONE tile ("Proxy EC2 ×2") and one tunnel line: the
+//     redundancy is a fact to state, not a reason to double the drawing.
+//   • The PrivateLink + endpoint service hop is folded into the NLB tile's `desc`; the
+//     dedicated reference draws it out when that is the point.
+//
+// ADAPT IT: name the user's resources and ports. With Site-to-Site VPN only, or SD-WAN,
+// rename the link; there is no Direct Connect gateway on this slide's path to add. Azure:
+// the same idea with a Standard Load Balancer + Private Link service and proxy VMs.
+// =============================================================================
+[
+  {
+    "name": "Reverse SSH tunnel — AWS",
+    "story": "When the Private Network Gateway is not an option and the corporate firewall blocks inbound traffic from the cloud, serverless compute can reach on-premises resources through a reverse SSH tunnel. A private endpoint rule in the workspace's NCC connects over AWS PrivateLink to a VPC endpoint service fronting a Network Load Balancer, whose targets are proxy EC2 instances. On-premises tunnel hosts run autossh and open outbound SSH connections to the proxies across the Transit Gateway and Direct Connect / Site-to-Site VPN; the proxies run socat and expose each on-premises resource's port. Serverless traffic flows NLB → proxy → tunnel → tunnel host → resource. The customer runs and maintains the proxies and tunnel hosts: at least two proxies, and a distinct port mapping on each proxy for each resource.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Reverse SSH tunnel on AWS","subtitle":"No inbound port on the corporate firewall · fallback when PNG is not an option"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "layout": "column", "children": [
+          {"id": "rule", "type": "logo", "icon": "file:cloud/aws/networking/vpc-endpoint", "text": "Private endpoint rule", "caption": "bottom", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "aws", "type": "box", "title": "AWS account", "titleIcon": "file:cloud/aws/general/account", "layout": "row", "gap": 78, "align": "start", "children": [
+        {"id": "shared-vpc", "type": "box", "title": "Shared services VPC", "titleIcon": "file:cloud/aws/general/vpc-group", "layout": "row", "gap": 78, "align": "center", "children": [
+          {"id": "nlb-subnets", "type": "box", "title": "NLB subnets", "subtitle": "10.0.0.0/28 · 10.0.0.16/28", "titleIcon": "file:cloud/aws/general/private-subnet", "layout": "column", "children": [
+            {"id": "nlb", "type": "logo", "icon": "file:cloud/aws/networking/network-load-balancer", "text": "Network Load Balancer", "desc": "behind a VPC endpoint service (PrivateLink)", "showDesc": true, "caption": "bottom", "ai_reasoning": "the PrivateLink entry, folded into one tile; its targets are the proxies", "track": "line-nlb"}
+          ] },
+          {"id": "proxy-subnets", "type": "box", "title": "Proxy subnets", "subtitle": "10.0.0.32/28 · 10.0.0.48/28", "titleIcon": "file:cloud/aws/general/private-subnet", "layout": "column", "children": [
+            {"id": "proxy", "type": "logo", "icon": "file:cloud/aws/compute/ec2-instances", "text": "Proxy EC2 ×2", "desc": "socat: one port per on-prem resource", "showDesc": true, "caption": "bottom", "ai_reasoning": "at least two so one tunnel failure does not cut connectivity; drawn once with the count", "track": "line-nlb"}
+          ] }
+        ] },
+        {"id": "col-tgw", "type": "group", "layout": "column", "gap": 140, "align": "center", "children": [
+          {"id": "tgw", "type": "logo", "icon": "file:cloud/aws/networking/transit-gateway", "text": "Transit Gateway", "caption": "bottom", "track": "line-serverless"},
+          {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/aws/networking/vpc", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>"}
+        ] }
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect", "text": "Direct Connect / S2S VPN", "caption": "bottom", "ai_reasoning": "the existing private path; the tunnel needs it, it does not replace it", "track": "line-serverless"},
+      {"id": "dc", "type": "box", "title": "Corporate data center", "titleIcon": "file:cloud/aws/general/corporate-data-center", "layout": "row", "gap": 50, "align": "center", "children": [
+        {"id": "host-subnet", "type": "box", "title": "Host subnet", "titleIcon": "lucide:lock", "layout": "column", "children": [
+          {"id": "host", "type": "logo", "icon": "lucide:terminal", "text": "Tunnel host", "desc": "autossh: opens the tunnels outbound", "showDesc": true, "caption": "bottom", "ai_reasoning": "the on-prem end; only outbound connections, so no inbound firewall rule", "track": "line-nlb"}
+        ] },
+        {"id": "res-subnet", "type": "box", "title": "Resource subnet", "titleIcon": "lucide:lock", "layout": "column", "gap": 26, "align": "center", "children": [
+          {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "track": "line-serverless"},
+          {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+          {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom"}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "rule", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "rule", "to": "nlb", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "over AWS PrivateLink to the customer's endpoint service"},
+      {"id": "e3", "from": "nlb", "to": "proxy", "arrow": "end", "color": "#FF5F46"},
+      {"id": "t1", "from": "proxy", "to": "tgw", "arrow": "none", "color": "#16A34A", "label": "SSH tunnel", "ai_reasoning": "the tunnel, green; it carries the serverless traffic from here to the tunnel host"},
+      {"id": "t2", "from": "tgw", "to": "link", "arrow": "none", "color": "#16A34A"},
+      {"id": "t3", "from": "link", "to": "host", "arrow": "none", "color": "#16A34A", "ai_reasoning": "opened from the tunnel host's side (outbound); stated in the host desc, drawn without an arrow"},
+      {"id": "e4", "from": "host", "to": "op-server", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the host forwards to the resource; database and API are reached the same way"},
+      {"id": "e5", "from": "tgw@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "TGW attachment"}
+    ]
+  }
+]

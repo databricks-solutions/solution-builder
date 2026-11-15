@@ -1,21 +1,25 @@
 """
-LuxeBeauty — Render hand-authored incident HTML files to PDF and upload to UC.
+LuxeBeauty — Render the hand-authored document HTML files to PDF (LOCAL step).
 
-This script is intentionally independent of `data_generation/generate_data.py`:
-the data and the doc bundle change for different reasons and on different
-cadences. Re-running this script does not touch any tables.
+Run before `databricks bundle deploy`. This script ONLY renders; it never
+touches a workspace. The setup job's `upload_pdfs` task copies the rendered
+PDFs into the `manufacturing_reports` UC volume, and `deploy_genie` attaches
+that volume to the Genie agent.
+
+Why local-only: the document bundle is a bundle source artifact (committed
+under src/documents/pdf/), not a workspace resource, and the volume target
+differs per deployment (catalog/schema are bundle vars). Uploading from here
+would hard-code one workspace.
 
 Workflow:
   1. Read every `*.html` under `./html/` (same directory as this script).
   2. Render each to PDF via plutoprint (HTML → PDF, no headless browser).
-  3. Upload each PDF to UC Volume:
-       /Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports/<name>.pdf
-  4. The volume is created if missing.
+  3. Write each PDF to `./pdf/<name>.pdf` (committed, synced by the bundle).
 
-Dependencies: `plutoprint` + the `databricks-sdk` (already in the the demo library venv).
+Dependencies: `plutoprint` (local only; not needed in the job).
 
 Usage:
-  DATABRICKS_CONFIG_PROFILE=WEST python html_to_pdf.py
+  python src/documents/html_to_pdf.py
 """
 
 from __future__ import annotations
@@ -25,19 +29,14 @@ import pathlib
 import sys
 
 import plutoprint
-from databricks.sdk import WorkspaceClient
 
-CATALOG = "retail_consumer_goods"
-SCHEMA  = "luxebeauty_demo"
-VOLUME  = "manufacturing_reports"
-
-HERE         = pathlib.Path(__file__).resolve().parent
-HTML_DIR     = HERE / "html"
-VOLUME_PATH  = f"/Volumes/{CATALOG}/{SCHEMA}/{VOLUME}"
+HERE     = pathlib.Path(__file__).resolve().parent
+HTML_DIR = HERE / "html"
+PDF_DIR  = HERE / "pdf"
 
 
-def html_to_pdf_bytes(html_path: pathlib.Path) -> bytes:
-    """Render one HTML file to a PDF byte string via plutoprint."""
+def render(html_path: pathlib.Path, pdf_path: pathlib.Path) -> int:
+    """Render one HTML file to a PDF file. Returns the PDF size in bytes."""
     book = plutoprint.Book()
     book.set_metadata(plutoprint.PDF_METADATA_TITLE,
                       html_path.stem.replace("_", " ").title())
@@ -45,23 +44,9 @@ def html_to_pdf_bytes(html_path: pathlib.Path) -> bytes:
     book.load_html(html_path.read_text(encoding="utf-8"))
     buf = io.BytesIO()
     book.write_to_pdf_stream(buf)
-    return buf.getvalue()
-
-
-def ensure_volume(wc: WorkspaceClient) -> None:
-    """Create the UC Volume if it doesn't already exist."""
-    full_name = f"{CATALOG}.{SCHEMA}.{VOLUME}"
-    try:
-        wc.volumes.read(full_name)
-    except Exception:
-        from databricks.sdk.service.catalog import VolumeType
-        wc.volumes.create(
-            catalog_name=CATALOG,
-            schema_name=SCHEMA,
-            name=VOLUME,
-            volume_type=VolumeType.MANAGED,
-        )
-        print(f"  created volume {full_name}")
+    data = buf.getvalue()
+    pdf_path.write_bytes(data)
+    return len(data)
 
 
 def main() -> int:
@@ -74,20 +59,14 @@ def main() -> int:
         print(f"ERROR: no .html files in {HTML_DIR}", file=sys.stderr)
         return 1
 
-    print(f"Found {len(html_files)} HTML files in {HTML_DIR}")
-
-    wc = WorkspaceClient()
-    ensure_volume(wc)
-
+    PDF_DIR.mkdir(exist_ok=True)
+    print(f"Rendering {len(html_files)} HTML files → {PDF_DIR}")
     for src in html_files:
-        pdf_bytes = html_to_pdf_bytes(src)
-        target = f"{VOLUME_PATH}/{src.stem}.pdf"
-        wc.files.upload(file_path=target, contents=io.BytesIO(pdf_bytes), overwrite=True)
-        print(f"  ✓ {src.name:55s} → {target}  ({len(pdf_bytes):,} bytes)")
+        target = PDF_DIR / f"{src.stem}.pdf"
+        size = render(src, target)
+        print(f"  ✓ {src.name:55s} → {target.name}  ({size:,} bytes)")
 
-    print(f"\nUploaded {len(html_files)} PDFs to {VOLUME_PATH}")
-    print("The Knowledge Assistant should now re-sync this volume:")
-    print(f"  databricks knowledge-assistants sync-knowledge-sources <ka-id>")
+    print("\nNext: databricks bundle deploy (upload_pdfs copies these into the volume).")
     return 0
 
 

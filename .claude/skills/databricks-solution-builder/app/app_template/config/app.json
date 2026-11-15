@@ -14,14 +14,12 @@
   // CUSTOMIZE per demo: branding, assistantScript, and data.tables names
   // below. Everything else is env-driven and shouldn't need editing.
 
-  // ─ Agent backend: set ONE (via env). masEndpointName → ask_mas tool.
-  //   genieSpaceId → swap to askGenieTool in server/agent/<name>.ts makeTools.
-  //   Both empty → no data tool → agent can't answer "why" questions.
-  //   Template ships with MAS; for a Genie-only demo set GENIE_SPACE_ID, leave
-  //   MAS_ENDPOINT_NAME empty, and swap ask_mas → askGenieTool in refundops.ts
-  //   makeTools. For both: register both with distinct names + tell the model
-  //   in instructions when to prefer each.
-  "masEndpointName": "${MAS_ENDPOINT_NAME:}",
+  // ─ Agent backend: genieSpaceId is the Genie Agent space the ask_data tool
+  // queries (tables + the documents volume in pdfVolumePath). Set via env.
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:}",
   "genieSpaceId":    "${GENIE_SPACE_ID:}",
 
   // Agent LLM. Needs the Responses API (openai/v1/responses). databricks-gpt-5-4
@@ -42,7 +40,6 @@
   // on /platform). Empty id → tile renders inert.
   "pipelineId":        "${PIPELINE_ID:}",
   "warehouseId":       "${WAREHOUSE_ID:}",
-  "kaEndpointName":    "${KA_ENDPOINT_NAME:}",
   "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
   "appUrl":            "${APP_URL:}",
   "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.customer_premium_classifier",

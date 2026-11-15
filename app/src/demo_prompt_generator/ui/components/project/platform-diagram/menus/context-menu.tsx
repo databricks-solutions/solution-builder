@@ -24,7 +24,20 @@ import {
   ArrowLeftRight,
   Slash,
   X,
+  MoveHorizontal,
+  MoveVertical,
+  RotateCcw,
 } from "lucide-react";
+
+const FLOW_STYLE_NAME: Record<FlowStyle, string> = {
+  model: "Model",
+  laser: "Laser",
+  particles: "Particles",
+  docs: "Docs",
+  dot: "Dot",
+};
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 export type CtxMenu =
   | { kind: "node"; id: string; x: number; y: number }
@@ -39,9 +52,12 @@ export const ContextMenu = memo(function ContextMenu({
   onToggleFlow,
   onToggleDashed,
   onSetShape,
+  onSetBezier,
+  onSetWaypoints,
   onSetFlowStyle,
   onSetArrow,
   onSetEdgeLabel,
+  onSetEdgeLabelPos,
   onRemoveEdge,
 }: {
   edge?: Edge;
@@ -49,10 +65,15 @@ export const ContextMenu = memo(function ContextMenu({
   onToggleFlow: () => void;
   onToggleDashed: () => void;
   onSetShape: (s: "smooth" | "straight" | "step") => void;
+  onSetBezier: (enabled: boolean) => void;
+  onSetWaypoints: (points: { x: number; y: number }[] | undefined) => void;
   onSetFlowStyle: (s: FlowStyle | undefined) => void;
   onSetArrow: (a: "auto" | "none" | "end" | "start" | "both") => void;
   /** Set (or clear, with "") the edge's mid-line label. */
   onSetEdgeLabel: (label: string) => void;
+  /** Manual label placement: `t` along the path, `off` across it. Undefined hands
+   *  the label back to automatic placement. */
+  onSetEdgeLabelPos: (pos: { d?: number; from?: "source" | "target"; off?: number; t?: number } | undefined) => void;
   onRemoveEdge: () => void;
 }) {
   const ed = edge?.data as EdgeData | undefined;
@@ -88,17 +109,21 @@ export const ContextMenu = memo(function ContextMenu({
             key={fs}
             type="button"
             onClick={() => onSetFlowStyle(fs)}
-            title={fs}
-            className={`flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 hover:bg-muted ${ed?.flowStyle === fs ? "bg-muted" : ""}`}
+            title={FLOW_STYLE_NAME[fs]}
+            className={`flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-muted ${ed?.flowStyle === fs ? "bg-muted" : ""}`}
           >
+            <span className="w-16 shrink-0 text-left text-[12px] text-foreground">{FLOW_STYLE_NAME[fs]}</span>
             <span className="min-w-0 flex-1"><FlowStylePreview style={fs} /></span>
             {ed?.flowStyle === fs && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
           </button>
         ))}
         <div className="my-1 border-t border-border/60" />
-        <Item icon={<Spline className="h-3.5 w-3.5" />} label="Smooth" onClick={() => onSetShape("smooth")} active={(ed?.shape ?? "smooth") === "smooth"} />
-        <Item icon={<MoveRight className="h-3.5 w-3.5" />} label="Straight" onClick={() => onSetShape("straight")} active={ed?.shape === "straight"} />
-        <Item icon={<CornerDownRight className="h-3.5 w-3.5" />} label="Step" onClick={() => onSetShape("step")} active={ed?.shape === "step"} />
+        <Item icon={<Spline className="h-3.5 w-3.5" />} label="Smooth" onClick={() => { onSetShape("smooth"); onSetBezier(false); onSetWaypoints(undefined); }} active={(ed?.shape ?? "smooth") === "smooth" && !ed?.bezier} />
+        <Item icon={<Spline className="h-3.5 w-3.5" />} label="Bezier (drag controls)" onClick={() => { onSetShape("smooth"); onSetBezier(true); }} active={!!ed?.bezier} />
+        <Item icon={<MoveRight className="h-3.5 w-3.5" />} label="Straight" onClick={() => { onSetShape("straight"); onSetBezier(false); onSetWaypoints(undefined); }} active={ed?.shape === "straight"} />
+        <Item icon={<CornerDownRight className="h-3.5 w-3.5" />} label="Step" onClick={() => { onSetShape("step"); onSetBezier(false); onSetWaypoints(undefined); }} active={ed?.shape === "step" && ed?.waypoints === undefined} />
+        <Item icon={<CornerDownRight className="h-3.5 w-3.5" />} label="Step (drag waypoints)" onClick={() => { onSetShape("step"); onSetBezier(false); onSetWaypoints([]); }} active={ed?.shape === "step" && ed?.waypoints !== undefined} />
+        {ed?.shape === "step" && ed?.waypoints !== undefined && <div className="px-2 py-1 text-[10px] leading-snug text-muted-foreground">Drag a handle, or Shift-double-click the line to add another waypoint.</div>}
         <div className="my-1 border-t border-border/60" />
         <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Arrow</div>
         <Item icon={<Wand2 className="h-3.5 w-3.5" />} label="Auto" onClick={() => onSetArrow("auto")} active={(ed?.arrow ?? "auto") === "auto"} />
@@ -118,6 +143,65 @@ export const ContextMenu = memo(function ContextMenu({
             className="w-full rounded border border-border bg-background px-2 py-1 text-[12.5px] text-foreground outline-none focus:border-primary"
           />
         </div>
+        {/* Label placement. Dragging the chip on the canvas sets both of these at
+            once; the sliders exist because "nudge it 12px above the line" is easier
+            to type than to drag, and because a perpendicular offset is otherwise
+            hard to hit precisely. Both are disabled without a label to place. */}
+        {typeof edge?.label === "string" && !!edge.label && (() => {
+          const pos = ed?.labelPos;
+          const manual = pos !== undefined;
+          return (
+            <>
+              {/* ALONG the line, in px from the anchored end. Absolute px (not a
+                  0..1 fraction) for the same reason the stored value is: a fraction
+                  re-scales whenever the path length changes, so the chip drifts when
+                  an unrelated node moves. 400px covers a lane-spanning edge; a
+                  longer path just clamps at its own midpoint. */}
+              {/* The readout is clamped to the slider's own range: a stored value
+                  outside it (e.g. set by hand in the JSON) would otherwise show a
+                  number the thumb can't reach. */}
+              <div className="flex items-center gap-2 px-2 py-1">
+                <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="w-[68px] shrink-0 text-[11.5px] text-foreground" title="Slide the label ALONG the line (px from the anchored end)">Along line</span>
+                <input
+                  type="range" min={0} max={400} step={2}
+                  value={clamp(pos?.d ?? 0, 0, 400)}
+                  onChange={(e) => onSetEdgeLabelPos({
+                    d: Number(e.target.value), from: pos?.from ?? "source", off: pos?.off,
+                  })}
+                  className="min-w-0 flex-1 accent-primary"
+                  title={`Slide the label ALONG the line (px from the ${pos?.from ?? "source"} end)`}
+                />
+                <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                  {clamp(pos?.d ?? 0, 0, 400)}px
+                </span>
+              </div>
+              <div className="flex items-center gap-2 px-2 py-1">
+                <MoveVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="w-[68px] shrink-0 text-[11.5px] text-foreground" title="Move the label ACROSS the line (px, negative = up/left)">Offset</span>
+                <input
+                  type="range" min={-40} max={40} step={1}
+                  value={clamp(pos?.off ?? 0, -40, 40)}
+                  onChange={(e) => onSetEdgeLabelPos({
+                    d: pos?.d, from: pos?.from, t: pos?.t, off: Number(e.target.value),
+                  })}
+                  className="min-w-0 flex-1 accent-primary"
+                  title="Move the label ACROSS the line"
+                />
+                <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+                  {clamp(pos?.off ?? 0, -40, 40)}px
+                </span>
+              </div>
+              {manual && (
+                <Item
+                  icon={<RotateCcw className="h-3.5 w-3.5" />}
+                  label="Auto-place label"
+                  onClick={() => onSetEdgeLabelPos(undefined)}
+                />
+              )}
+            </>
+          );
+        })()}
         <div className="my-1 border-t border-border/60" />
         <Item icon={<Trash2 className="h-3.5 w-3.5" />} label="Delete line" onClick={onRemoveEdge} />
       </div>

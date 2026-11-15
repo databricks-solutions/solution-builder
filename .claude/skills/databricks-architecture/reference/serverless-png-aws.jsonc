@@ -1,0 +1,100 @@
+// =============================================================================
+// SERVERLESS → PRIVATE / ON-PREMISES NETWORK ON AWS: PRIVATE NETWORK GATEWAY (PNG)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first. The Azure version of the
+// same pattern is serverless-png-azure.jsonc.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Serverless compute runs in the Databricks-managed serverless compute plane, NOT
+//     in the customer's VPC. By default it cannot reach a private database, an on-prem
+//     server or an API behind the corporate firewall.
+//   • A Network Connectivity Configuration (NCC) is an account-level, per-region object
+//     that holds serverless private connectivity (private endpoint rules, and the PNG),
+//     attached to one or more workspaces. Limits: 10 NCCs per region per account, 2 PNGs
+//     per NCC.
+//   • A Private Network Gateway (PNG) is created INSIDE the NCC. Databricks places a
+//     managed network interface in a dedicated /28 subnet of the customer's VPC; serverless
+//     traffic leaves through it as if it originated in that VPC, so it follows the
+//     customer's own routes, DNS and firewalls (which the customer configures for the
+//     targets). On AWS the customer creates an IAM role in their account that Databricks
+//     uses to create and manage the PNG in that VPC.
+//   • Put the PNG subnet in the VPC that already routes to on-prem (here a shared services
+//     VPC attached to a Transit Gateway): traffic then rides the existing Transit Gateway
+//     and Direct Connect / Site-to-Site VPN to the data centre, and to anything
+//     transitively connected. One gateway replaces an endpoint per target resource.
+//   • The workspace VPC (private/public subnets for classic compute, an endpoint subnet) is
+//     attached to the same Transit Gateway. It is not on the serverless path; draw it only
+//     because the customer has it.
+//   • PNG does NOT carry traffic to services reached through interface / gateway endpoints
+//     (S3): those stay on NCC private endpoint rules.
+//   • AWS specifics: Enterprise tier; Private Preview; exactly ONE subnet (one AZ); serverless
+//     DBR workloads only. Provisioned through the API only (no Terraform yet).
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in traffic order: Databricks serverless plane → shared services VPC
+//     (PNG subnet) → Transit Gateway → Direct Connect gateway → the link → corporate data
+//     centre. The hops carry `track: "t1"`, so the red line is straight.
+//   • The IAM role is a control-plane relationship, not traffic: a grey dashed line under
+//     the path, its meaning in the role's `desc`, so it never competes with the red path.
+//   • A VPC with no serverless traffic (the workspace VPC) is ONE card listing its subnets;
+//     the Transit Gateway attachment is dashed grey.
+//
+// ADAPT IT: keep only the networks the user names. With Site-to-Site VPN only, the VPN
+// attaches to the Transit Gateway and there is no Direct Connect gateway: drop that node.
+// With no Transit Gateway, the PNG subnet goes in whichever VPC has the route to the
+// targets. S3 or other AWS services: an NCC private endpoint, not the PNG.
+// =============================================================================
+[
+  {
+    "name": "Private Network Gateway — AWS",
+    "story": "Serverless compute runs in the Databricks-managed serverless plane, outside the customer's network. A Private Network Gateway (PNG), created inside the workspace's Network Connectivity Configuration (NCC), places a managed network interface in a dedicated /28 subnet of the customer's shared services VPC; Databricks creates and manages it through a cross-account IAM role in the customer's AWS account. Serverless traffic leaves through that interface as if it originated in the VPC, so it follows the VPC's routes: through the Transit Gateway and Direct Connect / Site-to-Site VPN to the corporate data centre's databases, servers and APIs. The workspace VPC is attached to the same Transit Gateway and is not on the serverless path. On AWS, PNG is in Private Preview: Enterprise tier, serverless DBR workloads, exactly one subnet in one availability zone.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Private Network Gateway on AWS","subtitle":"Serverless reaches on-premises through your VPC · Private Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Databricks account", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "ai_reasoning": "Databricks-managed; sits outside the customer's AWS account", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "ai_reasoning": "where the traffic starts; on AWS, PNG supports serverless DBR workloads (notebooks, jobs)", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "ai_reasoning": "the PNG is created inside the NCC; the NCC is attached to the workspaces that use it", "layout": "column", "children": [
+          {"id": "png", "type": "logo", "icon": "file:databricks-line/access-connector", "text": "Private Network Gateway", "caption": "bottom", "ai_reasoning": "the PNG is a Databricks object; its data-path presence in the customer VPC is the managed interface on the right", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "aws", "type": "box", "title": "AWS account", "titleIcon": "file:cloud/aws/general/account", "layout": "row", "gap": 78, "align": "start", "children": [
+        {"id": "col-nic", "type": "group", "layout": "column", "gap": 72, "align": "center", "children": [
+          {"id": "shared-vpc", "type": "box", "title": "Shared services VPC", "titleIcon": "file:cloud/aws/general/vpc-group", "ai_reasoning": "the VPC that already routes to on-prem through the Transit Gateway; with no shared VPC it is whichever VPC has the route", "layout": "column", "children": [
+            {"id": "png-subnet", "type": "box", "title": "PNG subnet", "subtitle": "10.0.0.0/28 · one AZ", "titleIcon": "file:cloud/aws/general/private-subnet", "ai_reasoning": "a dedicated /28; the Private Preview supports exactly one subnet in one AZ. CIDR from the source slide", "layout": "column", "children": [
+              {"id": "nic", "type": "logo", "icon": "file:cloud/aws/networking/elastic-network-interface", "text": "Managed interface (PNG)", "caption": "bottom", "ai_reasoning": "placed and managed by Databricks; serverless traffic egresses here with a VPC address. No AWS ENI icon in the bank, so the generic network glyph", "track": "line-serverless"}
+            ] }
+          ] },
+          {"id": "iam", "type": "logo", "icon": "file:cloud/aws/security/iam-role", "text": "Cross-account IAM role", "desc": "Databricks uses it to create and manage the PNG", "showDesc": true, "caption": "bottom", "ai_reasoning": "AWS-only prerequisite; a control-plane permission, so it sits apart from the traffic path.", "track": "line-iam"}
+        ] },
+        {"id": "col-tgw", "type": "group", "layout": "column", "gap": 140, "align": "center", "children": [
+          {"id": "tgw", "type": "logo", "icon": "file:cloud/aws/networking/transit-gateway", "text": "Transit Gateway", "caption": "bottom", "ai_reasoning": "the customer's existing hub; nothing is configured on it for Databricks, PNG traffic follows its routes", "track": "line-serverless"},
+          {"id": "ws-vpc", "type": "card", "title": "Workspace VPC", "icon": "file:cloud/aws/networking/vpc", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "classic compute + endpoints; no serverless traffic crosses it, so one card instead of three subnet boxes", "track": "line-iam"}
+        ] },
+        {"id": "dxgw", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect-gateway", "text": "Direct Connect gateway", "caption": "bottom", "ai_reasoning": "terminates Direct Connect; with Site-to-Site VPN only, the VPN attaches to the Transit Gateway and this node goes away", "track": "line-serverless"}
+      ] },
+      {"id": "link", "type": "logo", "icon": "file:cloud/aws/networking/direct-connect", "text": "Direct Connect / S2S VPN", "caption": "bottom", "ai_reasoning": "the private link to the data centre; either one works with PNG. No AWS VPN icon in the bank", "track": "line-serverless"},
+      {"id": "dc", "type": "box", "title": "Corporate data center", "titleIcon": "file:cloud/aws/general/corporate-data-center", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "track": "line-serverless"},
+        {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+        {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "png", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "png", "to": "nic", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the hop that crosses from the Databricks plane into the customer VPC"},
+      {"id": "e3", "from": "nic", "to": "tgw", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the shared VPC's route table sends on-prem prefixes to the Transit Gateway attachment"},
+      {"id": "e4", "from": "tgw", "to": "dxgw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "dxgw", "to": "link", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "link", "to": "op-server", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "png@b", "to": "iam@l", "arrow": "end", "dashed": true, "ai_reasoning": "Databricks assumes the role to create and manage the PNG's interface; control plane, so grey and dashed"},
+      {"id": "e8", "from": "tgw@b", "to": "ws-vpc@t", "arrow": "both", "dashed": true, "label": "TGW attachment", "ai_reasoning": "the workspace VPC is attached to the same Transit Gateway; not on the serverless path"}
+    ]
+  }
+]

@@ -1,0 +1,169 @@
+{
+  "version": 2,
+  "config": {
+    "sample_questions": [
+      {
+        "id": "16f6bff55526e101c8a772234fc90c48",
+        "question": [
+          "What is the median site activation cycle time by IRB type for CASCADE-CKD?"
+        ]
+      },
+      {
+        "id": "3d92f1cc93a0dd6bf0a816c2515c8fb2",
+        "question": [
+          "How did randomization change at CASCADE-CKD sites that also run the REDWOOD-CKD competing trial?"
+        ]
+      },
+      {
+        "id": "5b4b581ce64f2e369ce8d2c7012a7174",
+        "question": [
+          "What are the top screen failure reasons for CASCADE-CKD?"
+        ]
+      },
+      {
+        "id": "8c727dc55b86284f52c4f8055eab5323",
+        "question": [
+          "How has the share of CASCADE-CKD screen failures caused by SGLT2 inhibitor use changed by quarter?"
+        ]
+      },
+      {
+        "id": "ad37a91e4b06853b8b556fe51bf75b8e",
+        "question": [
+          "Which trial is furthest behind its enrollment plan?"
+        ]
+      },
+      {
+        "id": "d65fca4bac23255f9b0de175b7e07db5",
+        "question": [
+          "Which active CASCADE-CKD sites have randomized zero patients?"
+        ]
+      },
+      {
+        "id": "ffffffff00000000000000000000d0c1",
+        "question": [
+          "Is exclusion E4 (SGLT2 inhibitor within 12 weeks) a safety or an efficacy-design criterion, and how long until an eligibility amendment is effective?"
+        ]
+      }
+    ]
+  },
+  "data_sources": {
+    "tables": [
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.competing_trial_sites"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.competing_trials"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.gold_screen_fail_monthly"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.gold_site_features"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.gold_site_performance"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.gold_trial_enrollment_monthly"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.population_trends"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.protocol_criteria"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.screen_fail_reasons"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.site_activation"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.site_catchment"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.site_scores"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.sites"
+      },
+      {
+        "identifier": "healthcare_lifesciences.trial_site_selection.trials"
+      }
+    ]
+  },
+  "instructions": {
+    "text_instructions": [
+      {
+        "id": "e1403d6e7f5e9a4b9090db9056e5b08a",
+        "content": [
+          "Halcyra Therapeutics (fictional sponsor) runs 5 active trials: CASCADE-CKD (HAL-301, Phase III, T2D + chronic kidney disease, target 1,200 randomized), TIDEWATER-HF (Phase III HFpEF), SENTRY-AF (Phase III atrial fibrillation), LUMEN-MASH (Phase IIb MASH) and ORCHID-1 (Phase I/II oncology). trial_id values are the acronyms, e.g. 'CASCADE-CKD'.\n",
+          "ENROLLMENT VS PLAN: use gold_trial_enrollment_monthly. cum_randomized = cumulative randomized patients; planned_cum_randomized = the protocol plan for that month. 'Today' = the row where month_start = date_trunc('MONTH', current_date()). pct_of_plan = cum_randomized / planned_cum_randomized. For monthly run rates use complete months only (is_complete_month = true).\n",
+          "SCREEN FAILURES: use gold_screen_fail_monthly (or screen_fail_reasons for patient-level rows). criterion_id is the REAL reason: the criterion the site coded, or — when the site coded 'OTHER' — the criterion AI Functions (ai_classify) read from the coordinator's note. site_coded_failures vs ai_recovered_failures shows how much the EDC coding under-counts a criterion. E4 = SGLT2 inhibitor within 12 weeks (exclusion); I3 = UACR; E7 = potassium > 4.8; I2 = eGFR. Share of screen failures = failures for a criterion / all failures of that trial. sglt2i_stable_12wk (screen_fail_reasons) marks E4 failures on a stable SGLT2i dose — the patients a stable-background-SGLT2i amendment would bring back.\n",
+          "SITES: gold_site_performance has one row per trial site (status active / activating / not_activated). A ZERO ENROLLER is is_zero_enroller = true (active ≥ 6 months, 0 randomized). Randomization rate = randomized_per_month. Competing trial overlap: has_competing_trial / competing_trial (REDWOOD-CKD by Nephrexa Bio, opened in January 2026 at Southeast and Texas sites) with rand_per_month_before_competitor (6 months before) vs rand_per_month_since_competitor.\n",
+          "SITE ACTIVATION CYCLE TIME = cycle_time_days (site selected → activated), only for activated sites. irb_type central vs local explains most of the difference. Report medians.\n",
+          "CANDIDATE / RESCUE SITES: site_scores holds site_enrollment_model@champion predictions for every network site: predicted_rate_current vs predicted_rate_amended (randomized/month if E4 is amended), est_activation_months, expected_randomized_12m, rescue_rank (candidates only: not yet selected, no competing DKD trial, ≥ 300 amended-eligible patients). cascade_status = 'candidate' means not selected for CASCADE-CKD.\n",
+          "CATCHMENT: site_catchment has de-identified EHR-network patient counts within 30 miles of each site, criterion by criterion; eligible_current_protocol vs eligible_amended_e4. population_trends has the quarterly share of the T2D+CKD population on an SGLT2 inhibitor by region (the 2023 feasibility assumed ~15%).\n",
+          "Race/ethnicity in screening_log is for diversity-plan monitoring only. Always show percentages rounded to 1 decimal.\n",
+          "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+        ]
+      }
+    ],
+    "example_question_sqls": [
+      {
+        "id": "1e1bfa3c790772a640636265b134a96f",
+        "question": [
+          "How has the share of CASCADE-CKD screen failures caused by SGLT2 inhibitor use changed by quarter?"
+        ],
+        "sql": [
+          "SELECT concat(year(screen_month), '-Q', quarter(screen_month)) AS quarter, SUM(CASE WHEN criterion_id = 'E4' THEN screen_failures ELSE 0 END) AS sglt2i_failures, SUM(screen_failures) AS all_failures, ROUND(100 * SUM(CASE WHEN criterion_id = 'E4' THEN screen_failures ELSE 0 END) / SUM(screen_failures), 1) AS sglt2i_share_pct FROM healthcare_lifesciences.trial_site_selection.gold_screen_fail_monthly WHERE trial_id = 'CASCADE-CKD' GROUP BY 1 ORDER BY 1"
+        ]
+      },
+      {
+        "id": "6822af3975fc0675b3064314d3277428",
+        "question": [
+          "What is the median site activation cycle time by IRB type for CASCADE-CKD?"
+        ],
+        "sql": [
+          "SELECT irb_type, COUNT(*) AS activated_sites, PERCENTILE(cycle_time_days, 0.5) AS median_cycle_days, ROUND(AVG(cycle_time_days)) AS avg_cycle_days FROM healthcare_lifesciences.trial_site_selection.gold_site_performance WHERE trial_id = 'CASCADE-CKD' AND cycle_time_days IS NOT NULL GROUP BY irb_type ORDER BY median_cycle_days DESC"
+        ]
+      },
+      {
+        "id": "68fb2cbb74ac65d113b4ec06926b9611",
+        "question": [
+          "Which trial is furthest behind its enrollment plan?"
+        ],
+        "sql": [
+          "SELECT t.acronym, t.phase, t.target_enrollment, m.cum_randomized AS randomized_to_date, m.planned_cum_randomized AS planned_to_date, ROUND(100 * m.cum_randomized / m.planned_cum_randomized, 1) AS pct_of_plan FROM healthcare_lifesciences.trial_site_selection.gold_trial_enrollment_monthly m JOIN healthcare_lifesciences.trial_site_selection.trials t USING (trial_id) WHERE m.month_start = date_trunc('MONTH', current_date()) ORDER BY pct_of_plan"
+        ]
+      },
+      {
+        "id": "7407837bd72f8eacf052e16ae076dd3b",
+        "question": [
+          "What are the top screen failure reasons for CASCADE-CKD?"
+        ],
+        "sql": [
+          "SELECT criterion_id, MAX(criterion_name) AS criterion, SUM(screen_failures) AS screen_failures, ROUND(100 * SUM(screen_failures) / SUM(SUM(screen_failures)) OVER (), 1) AS share_pct, SUM(site_coded_failures) AS coded_by_sites, SUM(ai_recovered_failures) AS recovered_by_ai FROM healthcare_lifesciences.trial_site_selection.gold_screen_fail_monthly WHERE trial_id = 'CASCADE-CKD' GROUP BY criterion_id ORDER BY screen_failures DESC"
+        ]
+      },
+      {
+        "id": "a6a12e3e966657ea671f0a7afff33092",
+        "question": [
+          "Which active CASCADE-CKD sites have randomized zero patients?"
+        ],
+        "sql": [
+          "SELECT site_name, city, state, activation_date, months_active, screened, randomized, has_competing_trial FROM healthcare_lifesciences.trial_site_selection.gold_site_performance WHERE trial_id = 'CASCADE-CKD' AND is_zero_enroller ORDER BY months_active DESC"
+        ]
+      },
+      {
+        "id": "c43e5f7c779b2b47bd2f67ee874a8400",
+        "question": [
+          "How did randomization change at CASCADE-CKD sites that also run the REDWOOD-CKD competing trial?"
+        ],
+        "sql": [
+          "SELECT has_competing_trial, COUNT(*) AS sites, ROUND(AVG(rand_per_month_before_competitor), 2) AS rand_per_site_month_6m_before, ROUND(AVG(rand_per_month_since_competitor), 2) AS rand_per_site_month_since FROM healthcare_lifesciences.trial_site_selection.gold_site_performance WHERE trial_id = 'CASCADE-CKD' AND status = 'active' AND has_competing_trial GROUP BY has_competing_trial"
+        ]
+      }
+    ]
+  }
+}

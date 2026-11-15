@@ -1,0 +1,8 @@
+<h2>1/ Build the feature table</h2>
+<p>The classifier trains on per-customer behavior. Store it as a Unity Catalog <strong>feature table</strong>: one row per customer, keyed by <code>customer_id</code>, so training and scoring read the exact same features.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Create a Unity Catalog feature table <code>gold_customer_features</code> with <code>FeatureEngineeringClient().create_table</code>, primary key <code>customer_id</code>: one row per customer with spend, orders, tenure, return rate, recency and loyalty tier. Keep the <code>premium_status</code> label out of it. Show me the row count.</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> the table shows up under <strong>Features</strong> in Catalog Explorer, with <code>customer_id</code> as its primary key.</p>

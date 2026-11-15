@@ -44,6 +44,13 @@ def _lock_for(project_id: str) -> asyncio.Lock:
     return lock
 
 
+def forget(project_id: str) -> None:
+    """Drop the per-project regen lock. Called when a project is deleted or its
+    folder is reaped, so `_locks` doesn't grow one entry per project ever opened
+    (an unbounded in-process leak). Lazily re-created on next regen if needed."""
+    _locks.pop(project_id, None)
+
+
 # ---------------------------------------------------------------------------
 # README helpers
 # ---------------------------------------------------------------------------

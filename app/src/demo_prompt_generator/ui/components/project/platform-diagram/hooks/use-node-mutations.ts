@@ -38,6 +38,11 @@ export interface NodeMutations {
    *  annotate→re-render→measure→resize→re-render double pass (the ~100ms lag on
    *  flipping a logo's text position). Pass w/h to also set the box. */
   onAnnotateResize: (id: string, patch: Partial<AnnotationData>, w?: number, h?: number) => void;
+  /** AUTO-HEIGHT: a wrap-desc tile's card measured its real rendered content height
+   *  and reports it here. Sets the node's box height + `data.autoH` so the box,
+   *  selection frame, and edge anchors track the measured content exactly. TRANSIENT
+   *  (DOM-derived) — does NOT scheduleSave, so it never persists or loops. */
+  onAutoHeight: (id: string, h: number) => void;
   /** Refresh the live setNodes/scheduleSave/edges the stable callbacks read. */
   bind: (live: { setNodes: SetNodes; scheduleSave: (nds: Node[], eds: Edge[]) => void; edges: Edge[] }) => void;
 }
@@ -195,5 +200,23 @@ export function useNodeMutations(): NodeMutations {
     });
   }, []);
 
-  return { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, bind };
+  // AUTO-HEIGHT (wrap-desc): stamp the measured content height onto the node's box
+  // + data. NOT saved — it's derived from the live DOM, so persisting it would bake
+  // a viewport-specific pixel height into the file and could loop through save.
+  const onAutoHeight = useCallback((id: string, h: number) => {
+    setNodesRef.current?.((nds) => nds.map((n) => {
+      if (n.id !== id) return n;
+      const dd = n.data as NodeData;
+      if (dd.autoH === h) return n; // no-op if unchanged (loop guard)
+      const q = (((dd.rot ?? 0) % 360) + 360) % 360;
+      const rotated = q === 90 || q === 270;
+      const w = (n.width ?? dd.w ?? 200) as number;
+      // The measured height is the CARD height; the box axis-swaps it when rotated.
+      return rotated
+        ? { ...n, width: h, style: { ...n.style, width: h }, data: { ...dd, autoH: h } }
+        : { ...n, height: h, style: { ...n.style, width: w, height: h }, data: { ...dd, autoH: h } };
+    }));
+  }, []);
+
+  return { onResize, onRename, onSetDescription, onAnnotate, onAnnotateResize, onAutoHeight, bind };
 }

@@ -1,0 +1,24 @@
+{
+    "short_description": "A plant reliability engineer's control room: a UC-registered failure-risk model scores 48 assets from sensor drift, a copilot explains why (maintenance history + the Genie agent over the plant manuals), finds the robots the model can't see yet, and books work orders + parts into Lakebase with the downtime cost avoided. OEE / MTBF dashboard + Genie for the plant manager.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "metric-views",
+            "ml-training-serving",
+            "aibi-dashboards",
+            "genie",
+            "unstructured-documents",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "zerobus",
+            "lakeflow-connect",
+            "sdp",
+            "unity-catalog",
+            "genie-one",
+            "genie-code"
+        ]
+    },
+    "created_resources": {}
+}

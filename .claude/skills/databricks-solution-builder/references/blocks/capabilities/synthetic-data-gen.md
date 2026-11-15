@@ -8,7 +8,7 @@ skill: databricks-synthetic-data-gen
 
 # Synthetic Data Generation
 
-Creates realistic demo datasets using Spark + Faker (or dbldatagen). Produces raw tables the pipeline ingests, encoding specific patterns, anomalies, and distributions needed for dashboards, Genie, and KA to tell a compelling story.
+Creates realistic demo datasets using Spark + Faker (or dbldatagen). Produces raw tables the pipeline ingests, encoding specific patterns, anomalies, and distributions needed for dashboards, Genie, and the documents they cite to tell a compelling story.
 
 ## When to Use
 
@@ -31,14 +31,14 @@ Creates realistic demo datasets using Spark + Faker (or dbldatagen). Produces ra
 - Event too subtle or too obvious — clearly visible on dashboard but requiring investigation for root cause.
 - Foreign key mismatches — generate parent entities first, reference their IDs in children.
 - Insufficient historical baseline — the event only looks anomalous with months of normal data for comparison.
-- Data/document mismatch — if KA doc says "breach on March 8," data must show fraud starting March 10.
+- Data/document mismatch — if a policy document says "breach on March 8," data must show fraud starting March 10.
 
 ## Connections
 
 - **Declarative pipeline:** Generated files placed in volumes, ingested by Bronze streaming tables.
 - **Dashboard:** KPI values directly determined by generated data distributions.
 - **Genie:** Sample question answers depend on data matching expected values.
-- **Knowledge Assistant:** Document cross-references (IDs, dates, amounts) must match data.
+- **Unstructured documents:** Document cross-references (IDs, dates, amounts) must match data.
 - **Model serving:** Training data for the ML model comes from the generated dataset.
 
 ## URL

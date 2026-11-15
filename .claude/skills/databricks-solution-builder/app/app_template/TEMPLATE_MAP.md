@@ -9,7 +9,7 @@ This template is the **action surface** of a Databricks demo — the place where
 **Canonical demo arc** (LuxeBeauty example, but the shape is universal):
 1. User lands on Home, sees a protagonist with a problem (`$X at risk`, anomaly peaked weeks ago).
 2. User clicks a starter chip → opens the chat dock → asks the agent.
-3. Agent's `ask_mas` (or `ask_genie`) tool hits the configured data backend → investigates → identifies the bad batch.
+3. Agent's `ask_data` tool asks the Genie Agent, which queries the tables and searches the documents volume → investigates → identifies the bad batch.
 4. User asks "can you fix it?" → agent drafts a batch action (emails + refunds) and **stops for approval**.
 5. User approves → agent writes to Lakebase → Operations page updates live (KPIs, status flips, timeline grows).
 6. (Optional) User inspects a single row → sees emails + audit trail in a drawer.
@@ -39,6 +39,7 @@ These are load-bearing plumbing. Break them and the app doesn't boot, or a core 
 - **SSE streaming pipeline** (agent-stream → sseWrite → streamChat → useChatTurn → ThinkingPanel) — break this and the chat just hangs.
 - **Delta → Lakebase sync-at-boot + reset endpoint** — without it, a fresh app has no data.
 - **Drizzle migration runner on boot** — schema changes won't apply without it.
+- **dbdemos usage tracker** (`lib/tracker.ts`, registered first in `appkit.server.extend`) — keep it; set a unique `config/app.json` `dbdemosAppId` (`<demo-slug>-<resource_suffix>`, see app.md). Empty = off.
 
 ### Tier 2 — Canonical defaults (the demo's "house style" — change with intent)
 
@@ -51,7 +52,7 @@ These fit the canonical arc (investigate → approve → act). They *usually* su
 | **`triggerAfter` keyword progression** on `assistantScript` | Linear demo script (SA clicks chips in order) | Free-form exploration demo → drop triggers, use plain prompts. |
 | **Append-only audit** (`emails[]` + `aiAuditTrail[]` JSONB on primary entity) | Demo shows "the AI did X at Y" timeline | No timeline tab, no action history needed → drop the JSONB columns. |
 | **`dataMutated` pub-sub** | Operations page should update live when the agent writes | Read-only demo, no writes to react to → harmless but dead weight. |
-| **`ask_mas` (data backend)** | Demo has a MAS endpoint | Genie-only demo → swap to `askGenieTool` from `server/agent/tools/genie.ts` and use `genieSpaceId`. Both → register both factories with distinct names. No data lookup → drop the tool. |
+| **`ask_data` (Genie Agent)** | Demo has a Genie Agent space (the default) | No Genie space → drop the tool and the `genieSpaceId` config. Need a second data backend → register another tool with a distinct name and tell the model when to use each. |
 | **ChatDock + Home chips with script** | SA is the presenter; demo is scripted | End-user-driven demo → surface the chat on its own page, drop the dock's "next chip" mechanic. |
 
 ### Tier 3 — Always rewrite per demo (content, not infra)
@@ -59,13 +60,15 @@ These fit the canonical arc (investigate → approve → act). They *usually* su
 Every demo touches these. They're what makes your demo yours, not LuxeBeauty's.
 
 - **Persona/story/copy** — hardcoded constants at the top of `HomeView.tsx`. Replace wholesale: persona name, headline, situation, goal, starter questions, featured action.
-- **`config/app.json`** — `branding`, `assistantScript` steps, `data.tables`, `dashboardId`, `masEndpointName` OR `genieSpaceId` (one of the two), `mlflowExperimentId`, `agentMlflowExperimentPath`, `agentModel`. Each field has a `_*_help` sibling explaining what it does + which file consumes it.
+- **`config/app.json`** — `branding`, `assistantScript` steps, `data.tables`, `dashboardId`, `genieSpaceId` (Genie Agent space: tables + documents volume), `pdfVolumePath` (the documents volume), `mlflowExperimentId`, `agentMlflowExperimentPath`, `agentModel`. Each field has a `_*_help` sibling explaining what it does + which file consumes it.
+- **Browser-tab title** (`client/index.html` `<title>`) — ships as the placeholder `My Demo App`; set it to the same name as `branding.appName`.
 - **Domain schema** (`server/db/schema.ts`) — the primary entity swaps (returns → tickets → accounts → whatever). If you keep Tier 2 audit columns, their shape is fixed; the surrounding columns are yours.
-- **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`) and the import in `chat-stream/agent-stream.ts` updated. Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved. The data-backend tool comes from `server/agent/tools/{mas,genie}.ts` factories — pick one based on config.
+- **Agent tools** (`server/agent/<name>.ts`) — the file is renamed per demo (`refundops.ts` → `supportops.ts`) and the import in `chat-stream/agent-stream.ts` updated. Tool names and bodies swap; if you keep the 3-phase chain, the *shape* of the tools (read-only discovery tool + batch write tool + pure-function draft helper) is what's preserved. The data tool (`ask_data`) comes from the `askDataTool` factory in `server/agent/tools/genie.ts` — one Genie Agent for SQL + documents.
 - **Domain CRUD** (`server/db/queries/<entity>.ts`, `server/routes/<entity>.ts`).
 - **Operations view** — table columns, drawer tab content, filter dimensions.
 - **Analytics SQL** in `config/queries/` — the template ships LuxeBeauty example queries (returns/refunds/production lots). **Rewrite or delete every file for your demo's domain** — 2–4 queries aligned to your story's key numbers, hitting whatever tables your synth + SDP wrote. The placeholder `ai_demo_gen.demo_demo_project` in the example `FROM` clauses is from the template and points at nothing — until each `.sql` is updated to your real catalog + schema, `/analytics` will log `TABLE_OR_VIEW_NOT_FOUND` on every widget. Also update `client/src/analytics/AnalyticsView.tsx` so its `queryKey` list matches whichever files you keep.
 - **Theme tokens** in `client/src/index.css` — brand palette and, if they exist, tier badges.
+  If you switch the app to a **dark** theme, also change `prose-neutral` → `prose-invert` in `client/src/chat/MessageBubble.tsx` and `client/src/chat/ThinkingPanel.tsx` (otherwise chat answers render dark-on-dark), and replace any light-only Tailwind tints (`bg-*-50`, `text-*-700`) in drawers/panels with token-based colors.
 
 ## Adapting to a reduced capability set
 
@@ -73,16 +76,24 @@ Not every demo has every Databricks capability. Drop surfaces that don't map:
 
 | If demo has no… | Do this |
 |-----------------|---------|
-| **MAS** | Use `askGenieTool` from `server/agent/tools/genie.ts` instead of `askMasTool`. Update AgentContext field (`masEndpointName` → `genieSpaceId`) + config/app.json. Same `ToolProgressEvent` stream → no UI changes needed. |
-| **Genie** | Use `askMasTool` (the template default). |
-| **Both** | Register both factories in `makeTools` with distinct names (`ask_genie`, `ask_mas`); tell the model in agent instructions when to prefer each. |
-| **KA** | Skip the "investigate documents" phase. Arc shortens: discover via data → draft → execute. |
+| **Documents** (no PDFs) | Don't attach a volume (leave `pdfVolumePath` pointing at nothing or drop the `unstructured-documents` capability). The Genie Agent answers from the tables only; skip the "investigate documents" beat. |
 | **ML model (no spec 03)** | Clear `config.data.tables.customerPremium` (empty string). Sync skips the premium query, the predictions mirror stays empty. Drop the `find_lot_premium_breakdown` tool from `makeTools`, collapse `process_return_batch`'s `tier_offers` back to a single `{coupon_code, email_subject_template, email_body_template}`, drop the `final_tier` JOIN in `processReturnBatchForLot`. Agent instructions revert to one email template, one coupon. Drawer's "Premium tier" panel hides itself when `final_tier` is null. |
 | **Dashboard** | Remove `/dashboard` route + nav item + journey card. |
 | **Analytics charts** | Remove `/analytics` route; demo relies on the embedded dashboard instead. |
 | **Write action** (read-only demo) | Skip the bulk-action tool. Arc shortens to discover → answer (no approval step). Much less impressive — only choose this if the story genuinely doesn't need a fix. |
 
 The smallest viable demo: Home + Chat dock + Operations + one agent tool that reads Lakebase. Everything else is additive.
+
+## Resources and env
+
+| Resource | Required? | Env / config | Notes |
+|---|---|---|---|
+| Genie Agent space | Yes (the `ask_data` tool) | `GENIE_SPACE_ID` → `config/app.json` `genieSpaceId` | Agent mode. Lists the data tables and, when present, the documents volume. |
+| Documents volume (PDFs) | Optional: only with the `unstructured-documents` capability | `pdfVolumePath` (`/Volumes/<cat>/<sch>/<vol>`) | Dedicated MANAGED volume, indexed by the Genie Agent. Listed in its `data_sources.volumes`. |
+| SQL warehouse, Lakebase | Yes | `DATABRICKS_WAREHOUSE_ID`, `LAKEBASE_*`, `PG*` | Unchanged. |
+| Dashboard, pipeline, Delta source tables | Optional / per demo | `DASHBOARD_ID`, `PIPELINE_ID`, `data.*` | Unchanged. |
+
+Documents go through the Genie Agent with an attached volume. The app SP needs `READ VOLUME` on the documents volume and `CAN RUN` on the Genie Agent. So does each asking user, through OBO.
 
 ## File structure
 
@@ -94,18 +105,18 @@ config/
   queries/*.sql         [D] Analytics SQL (Delta via SQL Warehouse)
 
 server/
-  server.ts                 Boot: load config → AppKit app → migrations → syncFromDelta → MLflow init → routes
+  server.ts                 Boot: load config → AppKit app → runDbInit (migrations + Delta sync) → MLflow init → routes
   agent/
     refundops.ts        [D] Agent definition, tools, ~700-line system prompt (OpenAI Agents SDK).
                             Renamed per demo (e.g. windops.ts, claimsops.ts). Update import in chat-stream/agent-stream.ts.
     tools/
       types.ts              Shared types for the data-backend tools (ToolProgressEvent, DataCallResult, DataToolContext)
-      mas.ts                askMasTool factory + callMasEndpoint helper — for demos with a MAS endpoint
-      genie.ts              askGenieTool factory + callGenieSpace helper — for demos with a Genie space
+      genie.ts              askDataTool factory + callGenieAgent helper — the Genie Agent (Agent mode, SSE): SQL over tables + search over the documents volume
   db/
     schema.ts           [D] Lakebase tables (Drizzle ORM)
     sync.ts             [D] Delta → Lakebase sync queries
     migrate.ts              Migration runner
+    init.ts                 Boot DB-init policy: migrations FATAL, Delta sync BEST-EFFORT (a missing/rebuilding source table degrades the mirror, never 503s the whole app). Unit-tested in init.test.ts.
     index.ts                DB pool init
     queries/
       chat.ts               Conversation + message CRUD
@@ -167,14 +178,13 @@ One-shot at boot (skips if populated). Pulls via Databricks SQL Statements API �
 
 ## Agent (`server/agent/refundops.ts`)
 
-AgentContext: `{db, userEmail, req, masEndpointName, databricksHost, model, onToolProgress?, modelError?}`. For Genie demos, replace `masEndpointName` with `genieSpaceId`.
+AgentContext: `{db, userEmail, req, genieSpaceId, databricksHost, model, onToolProgress?, modelError?}`.
 
-**Tool flow** (see pattern #5 "Filter-driven bulk writes" below): the agent investigates via the data backend (`ask_mas`/`ask_genie`), calls `find_lot_premium_breakdown` to read the ML model's per-customer premium tier (and the labeled-vs-hidden split) for the lot's pending returns, drafts two emails (premium / standard), and triggers `process_return_batch` with a **filter** (the lot) plus a `tier_offers` dict — not a list of IDs. The SQL re-derives the row set + tier inside the same UPDATE; the agent never has to echo IDs back.
+**Tool flow** (see pattern #5 "Filter-driven bulk writes" below): the agent investigates via the Genie Agent (`ask_data`), calls `find_lot_premium_breakdown` to read the ML model's per-customer premium tier (and the labeled-vs-hidden split) for the lot's pending returns, drafts two emails (premium / standard), and triggers `process_return_batch` with a **filter** (the lot) plus a `tier_offers` dict — not a list of IDs. The SQL re-derives the row set + tier inside the same UPDATE; the agent never has to echo IDs back.
 
 | Tool | Input → Output | Effect |
 |------|---------------|--------|
-| `ask_mas` | `{question}` → `{answer, trace_id}` | Streams MAS supervisor + sub-agents via onToolProgress → ThinkingPanel. From `tools/mas.ts`. |
-| `ask_genie` | `{question}` → `{answer, trace_id}` | Polls Genie REST conversation API; streams reasoning traces (April 2026 release) as narration. From `tools/genie.ts`. Pick this OR `ask_mas`, not both (unless you want both registered). |
+| `ask_data` | `{question}` → `{answer, trace_id}` | Genie Agent (`POST /api/2.0/genie/agents/{id}/responses`, SSE). One turn runs `execute_sql` for numbers and `search_context_files` for documents; streams reasoning, each SQL statement and document search via onToolProgress; returns the markdown answer with `[n](url)` citations to the source files. Keeps a Genie conversation per chat thread (follow-ups). From `tools/genie.ts`. |
 | `find_returns_for_lot` | `{lot}` → pending returns list with `final_tier` + `premium_status_labeled` + `premium_prob` + `anger_score` per row | Read-only Lakebase query joining `app.returns × app.customers × app.customer_premium` — for human confirmation, agent does NOT pass these ids anywhere. |
 | `find_lot_premium_breakdown` | `{lot}` → `{total, premium_count, standard_count, premium_labeled_count, premium_predicted_hidden_count, no_prediction_count, premium_refund_usd, standard_refund_usd, top_countries[]}` | Read-only aggregation of the same JOIN — the "tiering moment". Reports BOTH the overall premium count AND the labeled-vs-hidden split. Agent quotes these in the Phase 2 draft. |
 | `create_coupon` | `{percent_off, reason}` → `{code, ...}` | Pure function, no DB write. Called TWICE in the tiered flow (once per tier). |
@@ -184,7 +194,7 @@ SDK setup: OpenAI client → `${host}/serving-endpoints`, **Responses API** (SDK
 
 > **Model constraint: needs the Responses API.** The Agents SDK defaults to `/responses`, and Databricks gates that route per-model. `databricks-gpt-5-4` is the baseline that works today; a newer GPT endpoint (gpt-5-5, gpt-6, …) is fine **if it has `openai/v1/responses` in its `api_types`** — the version isn't the constraint, the Responses API is. Anthropic models (Sonnet 4.6, etc.) return 400 BAD_REQUEST: *"Responses API passthrough is not supported for model …"*; supporting Claude would require chat-completions + parsing Anthropic thinking blocks ourselves (~60-100 lines, not done). Keep `agentModel` on `databricks-gpt-5-4` or a newer Responses-capable GPT in `config/app.json`.
 
-Instructions: MODE A (investigation — single `ask_mas`/`ask_genie` call) or MODE B (action — 3-phase: discover via ask_data + find_lot_premium_breakdown → draft TWO tiered emails for confirm → execute one tier-aware bulk call after approval).
+Instructions: MODE A (investigation — single `ask_data` call) or MODE B (action — 3-phase: discover via ask_data + find_lot_premium_breakdown → draft TWO tiered emails for confirm → execute one tier-aware bulk call after approval).
 
 ## Routes
 
@@ -229,7 +239,7 @@ Every field has a `_*_help` sibling key in `app.json` that explains the field + 
 ```json
 {
   "_README": "...",
-  "_dataBackend_help": "...", "masEndpointName": "...", "genieSpaceId": "",
+  "_genie_help": "...", "genieSpaceId": "",
   "_agentModel_help": "...", "agentModel": "databricks-gpt-5-4",
   "_mlflow_help": "...", "mlflowExperimentId": "...", "agentMlflowExperimentPath": "" /* empty → app self-derives /Shared/solution_builder/<app_name>-agent-traces */,
   "_dashboard_help": "...", "dashboardId": "...",
@@ -239,7 +249,7 @@ Every field has a `_*_help` sibling key in `app.json` that explains the field + 
 }
 ```
 
-Set ONE of `masEndpointName` / `genieSpaceId` per demo (the other should be empty string). The `_help` keys are ignored at runtime — they're for the LLM customizing this template.
+`genieSpaceId` is the Genie Agent space the `ask_data` tool queries (tables + the documents volume in `pdfVolumePath`). The `_help` keys are ignored at runtime — they're for the LLM customizing this template.
 
 Narrative copy (hero persona, headline, situation, goal, starter questions, featured-action CTA) lives **hardcoded at the top of `client/src/home/HomeView.tsx`** as constants — rewrite those for your demo. Only `assistantScript` + `branding` need to stay in config (script is reused by the chat dock, branding by the shell).
 
@@ -272,7 +282,7 @@ Uses `@openai/agents` SDK. Flow:
 6. Each event → `sseWrite(res, event)` to client
 7. On completion: emit `response.completed` with trace_id, persist thinking[] to message
 
-Data-backend events bubble up via `ctx.onToolProgress`: the data-backend tools (`ask_mas` from `tools/mas.ts`, `ask_genie` from `tools/genie.ts`) emit `ToolProgressEvent` (`mas_narration` | `mas_tool_call{callId, subAgent, query}` | `mas_tool_output{callId, subAgent, snippet}`) — these are SSE-written and pushed to thinking[]. Naming is `mas_*` for historical reasons; both tools use the same shape so the UI is backend-agnostic.
+Data-backend events bubble up via `ctx.onToolProgress`: the data tool (`ask_data` from `tools/genie.ts`) emits `ToolProgressEvent` (`genie_narration` | `genie_tool_call{callId, subAgent: "sql" | "documents", query}` | `genie_tool_output{callId, subAgent, snippet}`) — these are SSE-written and pushed to thinking[]. Persisted thinking names are `genie:sql` / `genie:documents` (older trails may say `mas:*`).
 
 ## Thinking event flow (end-to-end)
 
@@ -305,6 +315,8 @@ When changing `server/db/schema.ts`:
 2. Run `npm run db:generate` → creates new migration SQL in `drizzle/`
 3. Migrations auto-apply on boot (`server/db/migrate.ts`)
 
+`db:generate` (`scripts/db-generate.js`) is incremental when `drizzle/` exists (existing migrations are never renamed) and gives a from-scratch baseline a deterministic identity (`0000_init`, pinned `when`). So a rebuild from a fresh clone never makes an already-migrated DB re-run its `CREATE TABLE`s (the old redeploy 503). A from-scratch baseline is, however, SKIPPED by a DB that applied an older schema (boot logs `[migrate] WARNING … will be SKIPPED`) — once a DB is live, keep `drizzle/` to evolve the schema, or use a fresh DB.
+
 ## Theming & brand (`client/src/index.css`)
 
 All colors are centralized as CSS custom properties in `:root`. No hardcoded color values in components — everything references tokens. To rebrand:
@@ -328,14 +340,15 @@ Components use `var(--token)` via Tailwind arbitrary values (`bg-[var(--success-
 3. **3-phase action chain**: Discover → Draft+confirm (STOP) → Execute. Mandatory approval stop = demo trust moment.
 4. **Narrative split**: script steps + branding live in `config/app.json` (reused by dock/shell); home-page copy (persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` as constants — treat the template content as a reference to replace per demo.
 5. **Filter-driven bulk writes** (the demo's "AI takes action" moment):
-   - **Investigate** via the data backend (`ask_mas` / `ask_genie`) — open-ended SQL + KA reasoning across the warehouse.
+   - **Investigate** via the Genie Agent (`ask_data`) — open-ended SQL + document reasoning across the warehouse and the documents volume.
    - **Show** the affected rows to the user via a read-only lookup tool (`find_returns_for_lot`) — they confirm scope before anything destructive runs.
    - **Write** via a tool whose only inputs are a FILTER (a scalar lot id, status, region — never a list of IDs) plus the per-row template (email subject/body, coupon, etc.). Wrap SELECT + UPDATE in `db.transaction(tx => …)`; use `SELECT … FOR UPDATE OF <primary table>` so a concurrent manual decision / agent retry can't flip rows between read and write; do ONE `UPDATE … FROM (VALUES …) … RETURNING id` re-asserting the same filter so writes can't drift from reads; derive counts/totals from the RETURNING ids (NOT from intent) so the agent's final summary reflects reality.
    - Why this shape: agents echoing back N IDs in `IN (…)`/`ANY (…)` hits param caps, blows up the request, and is easy for the model to miscount. With a scalar filter, the agent only ever holds a string — and the read and write can't disagree because they share the same predicate AND the row lock.
-6. **Data backend as a tool**: `ask_mas` (or `ask_genie`) is registered via factories in `server/agent/tools/{mas,genie}.ts`. Sub-agent / reasoning activity streams to ThinkingPanel via `onToolProgress` → SSE. Same `ToolProgressEvent` shape for both, so the UI doesn't care which backend powers it.
+6. **Data tool**: `ask_data` is registered via `askDataTool` in `server/agent/tools/genie.ts` (one Genie Agent, Agent mode). Its SQL and document-search steps stream to ThinkingPanel via `onToolProgress` → SSE.
 7. **MLflow tracing**: Per-turn spans, tool child spans, trace ID on message → "View trace" link. Thumbs → human assessments.
 8. **Diff-aware pulse on agent writes**: `dataMutated.emit()` triggers a refetch on every subscribing surface. Each surface compares prev-vs-next scalar values via `usePulseOnChange(value)` and only the elements whose value actually changed flash a ring/row highlight for ~1.5s. Wired into KpiCards (counts), ReturnsTable rows (status), CountryPanel rows (totals). The CityMap implements the same idea differently — see below — because CSS keyframes on SVG paths don't survive Leaflet's redraws.
-9. **City bubble map (Leaflet sharp edges)**: `client/src/operations/CityMap.tsx` uses react-leaflet 5 + OSM/CARTO Positron tiles + one CircleMarker per (city, country). Three Leaflet gotchas the file already handles — preserve them:
+9. **City bubble map (Leaflet sharp edges)**: `client/src/operations/CityMap.tsx` uses react-leaflet 5 + keyless OpenStreetMap tiles + one CircleMarker per (city, country). Four Leaflet gotchas the file already handles — preserve them:
+   - **Keyless basemap that sends a Referer**: tiles come from `https://tile.openstreetmap.org/{z}/{x}/{y}.png` with OSM attribution. Do NOT switch to CARTO (`basemaps.cartocdn.com`) — it now needs an API key and every tile renders grey "API KEY REQUIRED". Keep `referrerPolicy="strict-origin-when-cross-origin"` on the `TileLayer`: OSM's tile usage policy requires a Referer and may serve "Access blocked" tiles to requests without one.
    - **CSS load order**: `leaflet/dist/leaflet.css` is imported in `client/src/index.css`, NOT in the component. Importing it in the component races the first paint in dev/HMR and renders broken tile sizes.
    - **Pulse via `setStyle`**: bubble pulse is implemented by toggling `pathOptions.weight` (stroke width) and `fillOpacity` for ~1s. Do NOT add a className-based CSS keyframe pulse to the path — Leaflet's `setStyle` only re-applies CSS-style attributes and ignores `className`, so the keyframe never reaches the SVG after the first paint.
    - **No fitBounds on every refetch**: `FitBoundsOnSetChange` re-fits ONLY when the SET of `country:city` keys changes, not when counts move. Re-fitting on every `dataMutated` would make the map wobble during the demo.

@@ -1,0 +1,26 @@
+{
+    "short_description": "A Phase III diabetic-kidney-disease trial is 44% behind its enrollment plan. The Trial Site Copilot (Databricks App on Lakebase) uses AI Functions to read the screening-log notes the sites coded as OTHER and finds that one exclusion criterion written before SGLT2 inhibitors became standard of care causes 39% of screen failures. The Genie agent, reading the protocol, SAP and SOP, confirms that the criterion can be amended and that the safety criterion must stay. A UC-registered site-enrollment model ranks rescue sites, a deterministic projection moves last-patient-in forward 15 months, and the study manager approves the rescue plan with a write-back to Lakebase. A portfolio AI/BI dashboard and Genie work on the same gold tables.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "ml-training-serving",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "sdp",
+            "genie-one",
+            "mlflow-tracing",
+            "ai-gateway",
+            "clean-rooms"
+        ]
+    },
+    "created_resources": {}
+}

@@ -39,7 +39,12 @@ def _get_databricks_profiles() -> list[DatabricksProfile]:
     config_path = Path.home() / ".databrickscfg"
 
     if not config_path.exists():
-        logger.warning(f"Databricks config not found: {config_path}")
+        # ~/.databrickscfg is a LOCAL-mode convenience (the profile dropdown). In
+        # deployed mode it never exists — auth is the env service principal +
+        # per-project .databrickscfg — so its absence is expected, not a problem.
+        # Debug (not warning) keeps prod logs clean: this fired every few seconds
+        # on the profile-status poll and drowned out real signal.
+        logger.debug(f"Databricks config not found: {config_path}")
         return profiles
 
     try:

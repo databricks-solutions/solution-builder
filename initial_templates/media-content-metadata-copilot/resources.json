@@ -1,0 +1,25 @@
+{
+    "short_description": "A streaming service bought a 420-title library whose vendor metadata is so thin that tag-driven home rows and search barely show it (30% of the catalogue, 10% of impressions) — and some titles sit in the kids row with no content warnings. AI Functions read every title's scenes and propose genres, moods, themes, keywords, a synopsis and evidence-backed content warnings on a governed taxonomy; the Standards Guide is applied as code and cited by the Genie agent from the guide's documents; Vector Search finds look-alikes and promo clips; editors publish the change from a Databricks App on Lakebase with an audit trail, while content strategy tracks the discovery gap and the re-tag lift in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "metric-views",
+            "vector-search",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "ai-parse-document",
+            "unstructured-documents",
+            "databricks-one",
+            "mlflow-tracing"
+        ]
+    },
+    "created_resources": {}
+}

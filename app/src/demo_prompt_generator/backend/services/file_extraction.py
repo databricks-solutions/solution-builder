@@ -21,7 +21,12 @@ from pathlib import Path
 # Extensions we know how to parse. Anything else returns an explicit error
 # from the route so the user sees a readable "unsupported file type" chip
 # instead of a silent empty extraction.
-SUPPORTED_EXTENSIONS = frozenset(
+# Image types carry no extractable text — they ride along as the base64
+# ``original`` so the multimodal agent can SEE the screenshot. extract_text
+# returns empty text for these (no parser runs).
+IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+
+_TEXT_EXTENSIONS = frozenset(
     {
         ".pdf",
         ".xlsx",
@@ -37,6 +42,8 @@ SUPPORTED_EXTENSIONS = frozenset(
         ".log",
     }
 )
+
+SUPPORTED_EXTENSIONS = _TEXT_EXTENSIONS | IMAGE_EXTENSIONS
 
 # Tabular row cap. A CSV/XLSX can be EITHER a raw dataset dump (only a slice
 # matters — infer schema/domain) OR itself a specification: a data dictionary,
@@ -70,6 +77,10 @@ def extract_text(
     ext = Path(filename).suffix.lower()
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"unsupported file type: {ext or '(no extension)'}")
+
+    # Images have no text layer — the base64 original is what the agent reads.
+    if ext in IMAGE_EXTENSIONS:
+        return "", False
 
     # Each parser may raise anything (pypdf → PdfReadError, openpyxl →
     # InvalidFileException, docx → PackageNotFoundError, …). Catch broadly

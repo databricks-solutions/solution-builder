@@ -1,0 +1,50 @@
+{
+  // Tidewell Specialty Insurance — Underwriting Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // app.yaml / bundle app config env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/underwriting.ts): the Genie agent — portfolio + queue analytics over the
+  // tables and the Tidewell underwriting guideline documents (Agent mode). Leave empty to read it at
+  // boot from <catalog>.<schema>.demo_resources (written by the setup job) — see server/services/resources.ts.
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:fsi-commercial-underwriting-copilot}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Writes the file rationale + broker letter in the underwriting review (chat completions).
+  "noticeModel": "${NOTICE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (portfolio view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "mlModelName":       "${DEMO_CATALOG}.${DEMO_SCHEMA}.submission_risk_model",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/submission_docs",
+
+  // Delta source schema for the boot-time Lakebase mirror of today's queue (server/db/sync.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Underwriting Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "Where is the book deteriorating?", "prompt": "Which segment's loss ratio deteriorated the most over the last four quarters, and is it the old roofs?" },
+    { "label": "What should I underwrite first?", "prompt": "Which submission in today's queue should I underwrite first, and why?", "triggerAfter": ["Hail belt", "hail belt", "roof"] },
+    { "label": "Is Cedar Hollow in appetite?", "prompt": "Lone Star Residential's SOV shows Cedar Hollow Apartments in Arlington with a 2004 roof. Is that location in appetite, and what are my options?", "triggerAfter": ["Lone Star", "SUB-26-0417"] },
+    { "label": "Review Brazos Valley", "prompt": "Run the underwriting review on Brazos Valley Cold Storage and tell me if I can quote it within my authority.", "triggerAfter": ["Cedar Hollow", "TSI-UW-B-2026-07"] }
+  ]
+}

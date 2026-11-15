@@ -11,7 +11,7 @@
       {
         "id": "10000000000000000000000000000002",
         "question": [
-          "Why is the fund beating the benchmark \u2014 what's driving the outperformance?"
+          "Why is the fund beating the benchmark — what's driving the outperformance?"
         ]
       },
       {
@@ -23,7 +23,7 @@
       {
         "id": "10000000000000000000000000000004",
         "question": [
-          "Show the portfolio reorganizations \u2014 what did we sell and buy at the major AI pivot on Aug 4 2025?"
+          "Show the portfolio reorganizations — what did we sell and buy at the major AI pivot on Aug 4 2025?"
         ]
       },
       {
@@ -70,6 +70,9 @@
         "identifier": "{{CATALOG}}.{{SCHEMA}}.sector_exposure"
       },
       {
+        "identifier": "{{CATALOG}}.{{SCHEMA}}.securities"
+      },
+      {
         "identifier": "{{CATALOG}}.{{SCHEMA}}.sharpe_analysis"
       },
       {
@@ -85,9 +88,13 @@
           "How is the AI Growth Fund performing versus its benchmark?"
         ],
         "sql": [
-          "SELECT date, (1+cum_port_ret)*100 AS fund_indexed, (1+cum_bench_ret)*100 AS benchmark_indexed\n",
+          "-- Headline: cumulative return over the whole window, fund vs benchmark (one row)\n",
+          "SELECT min(date) AS start_date, max(date) AS end_date,\n",
+          "  round(max_by(cum_port_ret, date) * 100, 1) AS fund_return_pct,\n",
+          "  round(max_by(cum_bench_ret, date) * 100, 1) AS benchmark_return_pct,\n",
+          "  round((max_by(cum_port_ret, date) - max_by(cum_bench_ret, date)) * 100, 1) AS outperformance_pts\n",
           "FROM {{CATALOG}}.{{SCHEMA}}.portfolio_performance\n",
-          "WHERE portfolio_id = 1 ORDER BY date"
+          "WHERE portfolio_id = 1"
         ]
       },
       {
@@ -97,10 +104,16 @@
           "What drove the outperformance?"
         ],
         "sql": [
-          "-- The fund rode the AI rally by repeatedly reorganizing into AI names; show the reorgs\n",
-          "SELECT rebalance_date, rationale, ticker, action, old_weight, new_weight, weight_change\n",
-          "FROM {{CATALOG}}.{{SCHEMA}}.rebalances\n",
-          "ORDER BY rebalance_date, abs(weight_change) DESC"
+          "-- The fund rode the AI rally by repeatedly reorganizing into AI names: net weight moved per reorg, by AI exposure\n",
+          "SELECT r.rebalance_date, r.rationale, s.ai_exposure,\n",
+          "  round(sum(r.weight_change), 1) AS net_weight_change_pts,\n",
+          "  concat_ws(', ', collect_list(CASE WHEN r.weight_change > 0 THEN r.ticker END)) AS bought_or_added,\n",
+          "  concat_ws(', ', collect_list(CASE WHEN r.weight_change < 0 THEN r.ticker END)) AS sold_or_trimmed\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.rebalances r\n",
+          "JOIN {{CATALOG}}.{{SCHEMA}}.securities s ON s.ticker = r.ticker\n",
+          "WHERE r.rebalance_date > DATE'2024-06-03'  -- skip the initial allocation\n",
+          "GROUP BY r.rebalance_date, r.rationale, s.ai_exposure\n",
+          "ORDER BY r.rebalance_date, s.ai_exposure"
         ]
       },
       {
@@ -109,9 +122,12 @@
           "How concentrated is the fund in AI over time?"
         ],
         "sql": [
-          "SELECT date, core_ai_pct, ai_adjacent_pct, non_ai_pct\n",
+          "-- One row per allocation era (weights only change at a reorganization)\n",
+          "SELECT min(date) AS era_start, max(date) AS era_end, core_ai_pct, ai_adjacent_pct, non_ai_pct\n",
           "FROM {{CATALOG}}.{{SCHEMA}}.concentration_timeseries\n",
-          "WHERE portfolio_id = 1 ORDER BY date"
+          "WHERE portfolio_id = 1\n",
+          "GROUP BY core_ai_pct, ai_adjacent_pct, non_ai_pct\n",
+          "ORDER BY era_start"
         ]
       },
       {
@@ -120,10 +136,10 @@
           "What did we sell and buy at the major AI pivot?"
         ],
         "sql": [
-          "SELECT ticker, company, action, old_weight, new_weight, weight_change\n",
+          "SELECT r.ticker, s.company, r.action, r.old_weight, r.new_weight, r.weight_change\n",
           "FROM {{CATALOG}}.{{SCHEMA}}.rebalances r\n",
           "JOIN {{CATALOG}}.{{SCHEMA}}.securities s ON s.ticker = r.ticker\n",
-          "WHERE rebalance_date = DATE'2025-08-04' ORDER BY weight_change DESC"
+          "WHERE r.rebalance_date = DATE'2025-08-04' ORDER BY r.weight_change DESC"
         ]
       },
       {
@@ -156,21 +172,33 @@
           "FROM {{CATALOG}}.{{SCHEMA}}.sharpe_analysis\n",
           "WHERE fund_weight IS NOT NULL ORDER BY sharpe_ratio ASC"
         ]
+      },
+      {
+        "id": "20000000000000000000000000000008",
+        "question": [
+          "Chart the AI Growth Fund vs the benchmark over time (indexed to 100)"
+        ],
+        "sql": [
+          "SELECT date, (1+cum_port_ret)*100 AS fund_indexed, (1+cum_bench_ret)*100 AS benchmark_indexed\n",
+          "FROM {{CATALOG}}.{{SCHEMA}}.portfolio_performance\n",
+          "WHERE portfolio_id = 1 ORDER BY date"
+        ]
       }
     ],
     "text_instructions": [
       {
         "id": "30000000000000000000000000000001",
         "content": [
-          "THE STORY. This is a wealth manager's flagship 'AI Growth Fund' (portfolio_id = 1). It is BEATING its benchmark (the Nasdaq-100, QQQ) by riding the real AI rally \u2014 but it has become dangerously concentrated in AI names. There is no crash or bubble in the data; the point is that strong returns came with rising, structural risk.\n",
+          "THE STORY. This is a wealth manager's flagship 'AI Growth Fund' (portfolio_id = 1). It is BEATING its benchmark (the Nasdaq-100, QQQ) by riding the real AI rally — but it has become dangerously concentrated in AI names. There is no crash or bubble in the data; the point is that strong returns came with rising, structural risk.\n",
           "THE MULTI-STEP NARRATIVE a user should be able to walk through:\n",
           "1) PERFORMANCE: the fund returns far more than the benchmark. Use portfolio_performance (portfolio_id=1): cum_port_ret vs cum_bench_ret. Index to 100 via (1+cum_ret)*100.\n",
           "2) WHY: the manager ran three portfolio REORGANIZATIONS that progressively bought AI and sold defensives, capped by a MAJOR AI PIVOT on 2025-08-04 that sold every defensive (JNJ, PG, KO, XOM, JPM and others) and concentrated the book in core-AI names. Use the rebalances table (rationale column labels each reorg; action is Buy/Add/Trim/Sell; weight_change is the delta).\n",
-          "3) CONCENTRATION: core-AI weight stepped up ~30% -> ~46% -> ~77% and the August pivot is the jump. Use concentration_timeseries (core_ai_pct, ai_adjacent_pct, non_ai_pct per day) or holdings_enriched (current weights by ai_exposure). The fund is ~87% Technology vs ~34% in the benchmark \u2014 see sector_exposure (fund_weight vs benchmark_weight, overweight).\n",
-          "4) RISK: the concentration raised the fund's risk. var_metrics holds 1-day historical Value at Risk on a $100M notional, by confidence (0.95, 0.99) and regime ('Post-pivot (current risk)' vs 'Full history') \u2014 post-pivot VaR is materially HIGHER than full-history (the AI pivot increased the daily downside). risk_metrics holds annualized return, volatility and SHARPE for the fund and benchmark, split by period ('Overall', 'Before pivot', 'After pivot'): after the pivot the fund's volatility ROSE (from ~23% to ~29%), but returns rose even faster so its Sharpe is strong (~2.1, above the benchmark's ~1.76). The bet has paid off SO FAR \u2014 the caution is that ~77% core-AI concentration is a large, undiversified, structural risk if the AI trade turns; the higher VaR and higher volatility quantify it.\n",
+          "3) CONCENTRATION: core-AI weight stepped up ~30% -> ~46% -> ~77% and the August pivot is the jump. Use concentration_timeseries (core_ai_pct, ai_adjacent_pct, non_ai_pct per day) or holdings_enriched (current weights by ai_exposure). The fund is ~81% Technology vs ~34% in the benchmark — see sector_exposure (fund_weight vs benchmark_weight, overweight).\n",
+          "4) RISK: the concentration raised the fund's risk. var_metrics holds 1-day historical Value at Risk on a $100M notional, by confidence (0.95, 0.99) and regime ('Post-pivot (current risk)' vs 'Full history') — post-pivot VaR is materially HIGHER than full-history (the AI pivot increased the daily downside). risk_metrics holds annualized return, volatility and SHARPE for the fund and benchmark, split by period ('Overall', 'Before pivot', 'After pivot'): after the pivot the fund's volatility ROSE (from ~23% to ~29%), but returns rose even faster so its Sharpe is strong (~2.1, above the benchmark's ~1.76). The bet has paid off SO FAR — the caution is that ~77% core-AI concentration is a large, undiversified, structural risk if the AI trade turns; the higher VaR and higher volatility quantify it.\n",
           "5) PER-HOLDING RISK: sharpe_analysis gives each security's annualized_return, annualized_risk (volatility) and sharpe_ratio; fund_weight is non-null only for current AI Growth Fund holdings. Core-AI names sit high-return/high-risk; SMCI is the cautionary case (huge volatility, low Sharpe).\n",
           "6) NEWS: news_enriched joins headlines to tickers with a sentiment score (-1..1) and sentiment_label; AI names skew positive.\n",
           "KEY FACTS: ai_exposure is one of 'Core AI', 'AI-adjacent', 'Non-AI'. The major pivot date is 2025-08-04. The benchmark is QQQ. Weights (weight_pct) are percentages summing to ~100 per portfolio. Always filter portfolio_id = 1 for the AI Growth Fund unless the user asks about the Balanced Fund (2) or Income Fund (3).\n",
+          "ANSWER SHAPE: for 'how is it performing' / 'how did X change over time' questions, return a SUMMARY (start vs end, or one row per allocation era / reorganization) rather than a raw daily series, so the answer states the full-window result (e.g. fund ~+118% vs benchmark ~+58%, core-AI ~30% -> ~46% -> ~77%). Only return a daily series when the user asks for a chart or trend line. The securities table maps ticker -> company, sector, ai_exposure.\n",
           "Don't answer questions unrelated to portfolio / investment analysis."
         ]
       }

@@ -23,6 +23,7 @@ from ..models import (
     GroundingScanRequest,
 )
 from ..services import table_stats
+from ..services.shutdown import shutdown_requested
 from .resources import pick_query_warehouse
 
 router = create_router()
@@ -86,6 +87,12 @@ def scan(
 
         try:
             for ev in table_stats.scan_tables_progress(ws, tables, warehouse_id):
+                # Redeploy in flight → stop scanning so we don't hold uvicorn's
+                # graceful-shutdown drain open (sync generator in a threadpool;
+                # task.cancel() can't reach it — poll the flag set on SIGTERM).
+                # See services/shutdown.py.
+                if shutdown_requested():
+                    return
                 if ev["type"] == "done":
                     scanned = [
                         GroundingScannedTable(

@@ -56,7 +56,7 @@ the risk-adjusted-return table (fund vs benchmark by period).
 ### Page 2 — "Concentration risk" (the why + the exposure)
 The core-AI concentration step-line; the reorganizations table (`rebalances` — what was
 sold/bought at each reorg, capped by the Aug 2025 pivot); allocation fund vs benchmark by
-sector (the ~87% Technology overweight); daily return distribution; news sentiment on AI
+sector (the ~81% Technology overweight); daily return distribution; news sentiment on AI
 holdings.
 
 ### Theme
@@ -83,7 +83,7 @@ flagship AI Growth Fund (portfolio_id = 1), beating the Nasdaq-100 (QQQ) by ridi
 real AI rally but now dangerously concentrated. It must walk the multi-step arc:
 (1) PERFORMANCE (`portfolio_performance`, index cum returns to 100), (2) WHY — the three
 reorgs that bought AI and sold defensives, capped by the 2025-08-04 pivot (`rebalances`),
-(3) CONCENTRATION step-up ~30% → ~46% → ~77% (`concentration_timeseries`) + the ~87%
+(3) CONCENTRATION step-up ~30% → ~46% → ~77% (`concentration_timeseries`) + the ~81%
 Technology overweight (`sector_exposure`), (4) RISK — higher post-pivot VaR (`var_metrics`)
 and volatility, but strong Sharpe ~2.1 (`risk_metrics`), (5) PER-HOLDING risk
 (`sharpe_analysis`; SMCI is the cautionary case), (6) NEWS sentiment (`news_enriched`).

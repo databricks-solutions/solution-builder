@@ -12,7 +12,8 @@ import {
   DropTargetContext,
   EditModeContext,
   baseSize,
-  VERTICAL_SOURCE_SIZE,
+  verticalSourceSize,
+  wrapDescExtraH,
 } from "../shared";
 import { BrandMark, isTrademarkMark } from "../brand-mark";
 import { MedallionRow } from "../composite-lakeflow";
@@ -41,39 +42,61 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
   // group carries a DERIVED lane-uniform width (`d.laneW`, computeLayout step
   // 2.5) so the grouped cards match + icons align — honor it over the natural
   // 200 (a user resize `d.w`/`d.h` still wins, applied inside NodeCard).
-  const nat = baseSize(c);
-  const defaultSize = vertical
-    ? VERTICAL_SOURCE_SIZE
+  const nat = baseSize(c, d.params);
+  const baseDefault = vertical
+    ? verticalSourceSize()
     : isSource && d.laneW
       ? { w: d.laneW, h: nat.h }
       : nat;
+  // Grow the fallback HEIGHT for a wrapped description so the rendered card is as
+  // tall as its content (matches nodeFootprint's grow of the RF node box, via the
+  // SAME helper — so the two never disagree). The desc text is `d.desc` for a
+  // source, else the catalog desc. A user's explicit `d.h` still wins in NodeCard.
+  const descText = isSource ? d.desc : (c.desc ?? c.sublabel);
+  const wrapExtraH = wrapDescExtraH(
+    { desc: descText, showDesc: d.showDesc ?? (!isSource && !!(c.desc ?? c.sublabel)), wrapDesc: d.wrapDesc, vertical, theme: d.theme },
+    baseDefault.w,
+  );
+  // AUTO-HEIGHT: any wrap-desc tile sizes to its MEASURED content (the card measures
+  // itself and reports d.autoH) — even one authored with a `size` height, since a
+  // fixed height would clip or pad the wrapped text. The estimate is only the
+  // pre-paint seed; once measured, d.autoH drives the box exactly (no empty space,
+  // no clip, any font/length). Without wrap, the explicit `d.h` passes through.
+  const autoHeight = wrapExtraH > 0;
+  const defaultSize = { w: baseDefault.w, h: baseDefault.h + wrapExtraH };
+  const effH = autoHeight
+    ? (d.autoH ?? Math.max(d.h ?? 0, defaultSize.h))
+    : d.h;
 
   // Icon: real logo, or a full-name brand badge when the logo is trademark-
   // gated and not enabled — OR when the node opts into a label-only text badge
   // (`icon:"text"` / no icon, e.g. a partner we have no logo for). Both render
   // the bare BrandMark (a TextBadge) with no icon-tile box around it.
   const isTextBadge = c.icon === "text" || !c.icon;
+  const slide = d.theme === "slide";
   const icon = isTextBadge || (isTrademarkMark(c.icon) && !d.allowTrademark) ? (
-    <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} />
+    <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={false} iconColor={d.iconColor} />
   ) : (
     <span
-      className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-background"
-      style={{ boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
+      className={`grid shrink-0 place-items-center overflow-hidden ${slide ? "h-10 w-10 rounded-md" : "h-9 w-9 rounded-lg bg-background"}`}
+      style={slide ? undefined : { boxShadow: `inset 0 0 0 1px ${bandColor}22` }}
     >
-      <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} className="h-5 w-5" />
+      <BrandMark iconKey={c.icon} label={c.label} bandColor={bandColor} allowTrademark={!!d.allowTrademark} iconColor={d.iconColor} className={slide ? "h-8 w-8" : "h-5 w-5"} />
     </span>
   );
 
   return (
     <NodeCard
       nodeId={d.nodeId}
+      deprecated={!!c.deprecated}
+      theme={d.theme}
       selected={!!selected}
       editMode={editMode}
       isDropTarget={isDropTarget}
       rot={d.rot}
       scale={d.scale ?? 1}
       w={d.w}
-      h={d.h}
+      h={effH}
       icon={icon}
       title={c.label}
       // Sources behave like logos: an empty label commits "" (renders nothing,
@@ -91,10 +114,23 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       subtitle={undefined}
       // Description line: sources carry it on d.desc; product tiles use the
       // catalog desc, falling back to the sublabel for tiles that only have one.
-      // Default ON for a tile that has any description text (the toggle can hide
-      // it); sources stay opt-in (default off).
+      // SLIDE hides EVERY tile's description — sources AND product tiles — so the
+      // label + icon do the work on a slide, even when the author set
+      // showDesc:true (a relabeled "Batch Scoring Job" keeps its LABEL, drops the
+      // "Nightly predictions → Gold" subtitle; a Git source keeps "Git", drops
+      // "Source of truth"). Technical keeps the old behavior: sources are opt-in
+      // via showDesc; a product tile shows its desc unless showDesc:false.
       description={isSource ? d.desc : (c.desc ?? c.sublabel)}
-      showDescription={isSource ? d.showDesc : (d.showDesc ?? !!(c.desc ?? c.sublabel))}
+      showDescription={
+        slide
+          ? false
+          : isSource
+            ? d.showDesc
+            : (d.showDesc ?? !!(c.desc ?? c.sublabel))
+      }
+      wrapDescription={!!d.wrapDesc}
+      autoHeight={autoHeight}
+      onAutoHeight={autoHeight && d.onAutoHeight ? (h) => d.onAutoHeight!(d.nodeId, h) : undefined}
       onCommitDescription={(v) => d.onSetDescription?.(d.nodeId, v)}
       badge={!isSource && c.badge ? {
         text: c.badge,
@@ -113,7 +149,9 @@ export const ComponentNode = memo(function ComponentNode({ data, selected }: Nod
       muted={muted}
       bandBorderColor={muted ? "transparent" : `${bandColor}66`}
       // Sources can size their label; product tiles keep the brand-tile default.
-      fontSize={isSource ? d.fontSize : undefined}
+      // Slide: product tiles use 16px (was 20) + tighter icon gap so longer names
+      // (AI/BI Dashboard, Knowledge Assistant, Model Serving…) fit without cropping.
+      fontSize={isSource ? (d.fontSize ?? (slide ? 20 : undefined)) : slide ? 16 : undefined}
       fontColor={d.fontColor}
       fillColor={d.fillColor}
       borderWidth={d.borderWidth}

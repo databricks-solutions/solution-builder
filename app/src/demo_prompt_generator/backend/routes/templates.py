@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import io
+import asyncio
 import json
-import zipfile
 from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import load_only
 from sqlmodel import func, select
@@ -18,7 +16,9 @@ from ..core import Dependencies, create_router
 from ..core._config import AppConfig
 from ..models import (
     CreateProjectFromTemplateRequest,
+    LiveDemo,
     Message,
+    OfficialTemplate,
     ProjectOut,
     Template,
     TemplateContent,
@@ -30,11 +30,14 @@ from ..models import (
     TemplateSearchResult,
     TemplateStatusUpdateRequest,
     TemplateType,
+    generate_uuid,
+    resource_suffix,
 )
-from ..services.file_sync import decompress_content
+from ..services.cpu_pool import run_cpu
 from ..services.llm_service import LLMService
 from ..services.template_service import TemplateService
-from .projects import _find_shared_warehouse, _generate_schema_name
+from ..services.zip_builders import ZIP_TIMEOUT_S, build_template_zip
+from .projects import _find_shared_warehouse, _generate_schema_name, _resolve_unique_schema_name
 
 router = create_router()
 
@@ -62,6 +65,17 @@ def _parse_capabilities(capabilities_json: Optional[str]) -> Optional[list[str]]
         return json.loads(capabilities_json)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def _parse_live_demo(live_demo_json: Optional[str]) -> Optional[LiveDemo]:
+    """Parse the seeder-stored live-demo JSON (None when absent/invalid/empty)."""
+    if not live_demo_json:
+        return None
+    try:
+        live = LiveDemo.model_validate_json(live_demo_json)
+    except Exception:
+        return None
+    return live if live.assets else None
 
 
 def _build_adapt_prompt(template_name: str, instructions: str) -> str:
@@ -128,7 +142,7 @@ def list_templates(
     # (SQLModel types model attrs as their value type, so mypy can't see them as
     #  ORM columns for load_only — the one-line call carries a single arg-type
     #  ignore; correct at runtime.)
-    _list_cols = (Template.id, Template.name, Template.status, Template.owner_email, Template.industry, Template.description, Template.customer, Template.capabilities, Template.official, Template.template_type, Template.submitted_at, Template.reviewed_at)
+    _list_cols = (Template.id, Template.name, Template.status, Template.owner_email, Template.industry, Template.description, Template.customer, Template.capabilities, Template.official, Template.template_type, Template.live_demo, Template.submitted_at, Template.reviewed_at)
     query = select(Template).options(load_only(*_list_cols))  # type: ignore[arg-type]
 
     # Always include user's own templates (for "My Templates" section)
@@ -196,10 +210,53 @@ def list_templates(
             template_type=t.template_type,
             has_screenshot=t.id in ids_with_shot,
             screenshot_count=(1 if t.id in ids_with_shot else 0) + extra_counts.get(t.id, 0),
+            has_live_demo=_parse_live_demo(t.live_demo) is not None,
             submitted_at=t.submitted_at,
             reviewed_at=t.reviewed_at,
         )
         for t in templates
+    ]
+
+
+@router.get(
+    "/templates/official",
+    response_model=list[OfficialTemplate],
+    operation_id="listOfficialTemplates",
+)
+def list_official_templates(session: Dependencies.Session):
+    """All official (curated) APPROVED templates with their details and, when the
+    demo is deployed in THIS app's workspace, its live links (app, dashboard,
+    Genie, pipeline, job, …). Handy for building a demo catalog. Must stay
+    registered BEFORE `/templates/{template_id}` (else "official" is read as an id)."""
+    cols = (Template.id, Template.name, Template.industry, Template.customer, Template.description, Template.narrative, Template.capabilities, Template.template_type, Template.live_demo)
+    rows = session.exec(
+        select(Template)
+        .options(load_only(*cols))  # type: ignore[arg-type]  # no screenshot/embedding blobs
+        .where(Template.official == True, Template.status == "APPROVED")  # noqa: E712
+        .order_by(Template.industry, Template.name)
+    ).all()
+    ids_with_shot = set(session.exec(select(Template.id).where(Template.screenshot.isnot(None))).all())
+    extra_counts: dict[str, int] = {
+        tid: n
+        for tid, n in session.exec(
+            select(TemplateScreenshot.template_id, func.count()).group_by(TemplateScreenshot.template_id)
+        ).all()
+    }
+    return [
+        OfficialTemplate(
+            id=t.id,
+            name=t.name,
+            industry=t.industry,
+            customer=t.customer,
+            description=t.description,
+            narrative=t.narrative,
+            capabilities=_parse_capabilities(t.capabilities),
+            template_type=t.template_type,
+            screenshot_url=f"/api/templates/{t.id}/screenshot" if t.id in ids_with_shot else None,
+            screenshot_count=(1 if t.id in ids_with_shot else 0) + extra_counts.get(t.id, 0),
+            live_demo=_parse_live_demo(t.live_demo),
+        )
+        for t in rows
     ]
 
 
@@ -264,6 +321,7 @@ def get_template(
         reviewed_by=template.reviewed_by,
         source_project_id=template.source_project_id,
         file_count=file_count,
+        live_demo=_parse_live_demo(template.live_demo),
     )
 
 
@@ -293,9 +351,11 @@ def list_template_files(
     if not is_admin and template.status != "APPROVED" and template.owner_email != user_email:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # Get files
+    # Get files — the tree only needs path + size, so skip the compressed blobs.
     files = session.exec(
-        select(TemplateContent).where(TemplateContent.template_id == template_id)
+        select(TemplateContent)
+        .options(load_only(TemplateContent.relative_path, TemplateContent.file_size))  # type: ignore[arg-type]
+        .where(TemplateContent.template_id == template_id)
     ).all()
 
     return [
@@ -446,20 +506,13 @@ def get_template_screenshot_at(
     operation_id="exportTemplate",
     responses={200: {"content": {"application/zip": {}}}},
 )
-def export_template(
-    template_id: str,
-    session: Dependencies.Session,
-    headers: Dependencies.Headers,
-    config: Dependencies.Config,
-):
-    """Download a template as a zip — the deployable DAB bundle.
-
-    Zips every stored TemplateContent file at its relative path. For an official
-    demo the zip root has `databricks.yml` + `dab_instructions.md`, so it unzips
-    into a ready-to-`databricks bundle deploy` project. Same visibility rule as
-    the detail endpoint."""
-    user_email = _get_user_email(headers)
-    is_admin = user_email in config.template_admin_emails
+def _load_export_entries(
+    session, template_id: str, user_email: str, admin_emails: list[str]
+) -> tuple[str, list[tuple[str, bytes]]]:
+    """DB side of the export: visibility check, then every stored file as
+    (relative_path, compressed content) sorted by path (parent-first order is
+    built by the zip builder)."""
+    is_admin = user_email in admin_emails
 
     template = session.exec(
         select(Template).where(Template.id == template_id)
@@ -474,40 +527,36 @@ def export_template(
     ).all()
     if not files:
         raise HTTPException(status_code=404, detail="Template has no files")
+    entries = [
+        (f.relative_path, f.content_compressed)
+        for f in sorted(files, key=lambda x: x.relative_path)
+    ]
+    return template.id, entries
 
-    # Build an IMPORT-SAFE zip. The Databricks workspace UI import (multipart
-    # `format=AUTO`) unzips server-side and creates each entry in archive order,
-    # creating a file's parent folder only if that folder was already made — so an
-    # archive that lists `a/b.txt` before its `a/` dir 404s with
-    # "The parent folder (…/a) does not exist." DB row order is arbitrary, so we
-    # (1) emit an explicit directory entry for every ancestor folder, and
-    # (2) write everything sorted so a parent ALWAYS precedes its children.
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        seen_dirs: set[str] = set()
 
-        def _ensure_dirs(rel_path: str) -> None:
-            # Emit "a/", "a/b/", … (parent-first) for a file at "a/b/c.txt".
-            parts = rel_path.replace("\\", "/").split("/")[:-1]
-            prefix = ""
-            for seg in parts:
-                prefix = f"{prefix}{seg}/"
-                if prefix not in seen_dirs:
-                    seen_dirs.add(prefix)
-                    zf.writestr(prefix, b"")
+async def export_template(
+    template_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+):
+    """Download a template as a zip — the deployable DAB bundle.
 
-        for f in sorted(files, key=lambda x: x.relative_path):
-            try:
-                _ensure_dirs(f.relative_path)
-                zf.writestr(f.relative_path, decompress_content(f.content_compressed))
-            except Exception:
-                # Skip an unreadable file rather than fail the whole download.
-                continue
-    zip_buffer.seek(0)
-
-    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in (template.id or "template"))
-    return StreamingResponse(
-        zip_buffer,
+    Zips every stored TemplateContent file at its relative path. For an official
+    demo the zip root has `databricks.yml` + `dab_instructions.md`, so it unzips
+    into a ready-to-`databricks bundle deploy` project. Same visibility rule as
+    the detail endpoint. The DB read stays on a thread; the zip (decompress +
+    build) runs in the CPU pool (services/zip_builders.py)."""
+    user_email = _get_user_email(headers)
+    template_key, entries = await asyncio.to_thread(
+        _load_export_entries, session, template_id, user_email, config.template_admin_emails
+    )
+    zip_bytes = await run_cpu(build_template_zip, entries, timeout=ZIP_TIMEOUT_S)
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in (template_key or "template"))
+    # One body, not StreamingResponse(BytesIO), which sends a zip line by line
+    # (see project_files.download_project_as_zip).
+    return Response(
+        zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{safe}.zip"'},
     )
@@ -660,6 +709,7 @@ def submit_template_from_project(
         reviewed_by=template.reviewed_by,
         source_project_id=template.source_project_id,
         file_count=file_count,
+        live_demo=_parse_live_demo(template.live_demo),
     )
 
 
@@ -724,6 +774,7 @@ def create_project_from_template(
     headers: Dependencies.Headers,
     request: Request,
     ws: Dependencies.Client,
+    user_ws: Dependencies.UserClient,
     config: Dependencies.Config,
 ):
     """Create a new project from a template."""
@@ -742,7 +793,23 @@ def create_project_from_template(
 
     # Find default resources (same as regular project creation)
     warehouse_id, warehouse_name = _find_shared_warehouse(ws)
-    default_schema = _generate_schema_name(body.name)
+
+    # Mint the project id up front so the schema carries THIS fork's per-project
+    # suffix (`demo_<slug>_<sfx>`). This is the fix for the shared-schema
+    # ownership war: without it every fork of the same template resolved to the
+    # identical `demo_<slug>` schema and clobbered each other's pipeline/tables.
+    # The suffix makes a same-template collision astronomically unlikely (a shared
+    # 6-hex prefix); _resolve_unique_schema_name stays as the schema existence-check
+    # backstop (mirrors the create path).
+    project_id = generate_uuid()
+    sfx = resource_suffix(project_id)
+    base_schema = f"{_generate_schema_name(body.name)}_{sfx}"
+    default_schema = _resolve_unique_schema_name(
+        user_ws,
+        warehouse_id=warehouse_id,
+        catalog=config.default_catalog,
+        base_schema=base_schema,
+    )
 
     template_service = _get_template_service(ws, config, request.app.state.engine)
 
@@ -756,6 +823,7 @@ def create_project_from_template(
             warehouse_name=warehouse_name,
             default_catalog=config.default_catalog,
             default_schema=default_schema,
+            project_id=project_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -768,6 +836,8 @@ def create_project_from_template(
     #    the user to describe what to adapt (a canned message they never typed).
     adapt = (body.adapt_instructions or "").strip()
     if adapt:
+        # The fork's resource suffix reaches the agent via the system prompt (its
+        # schema ends with it) + resources.json, not this message.
         session.add(Message(
             project_id=project.id,
             role="user",
@@ -851,6 +921,7 @@ def get_template_by_project(
         reviewed_by=template.reviewed_by,
         source_project_id=template.source_project_id,
         file_count=file_count,
+        live_demo=_parse_live_demo(template.live_demo),
     )
 
 

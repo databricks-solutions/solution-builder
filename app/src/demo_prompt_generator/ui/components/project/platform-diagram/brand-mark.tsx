@@ -8,10 +8,12 @@
  * the demo opts in via `enableTrademarkLogos` (with a permission ack).
  */
 import { useContext, useEffect, useState } from "react";
-import { DATABRICKS_ICONS, BRAND_ICONS, TRADEMARK_ICONS, type DatabricksIconName } from "../../databricks-icons";
+import { DATABRICKS_ICONS, BRAND_ICONS, TRADEMARK_ICONS, officialComponentFor, type DatabricksIconName } from "../../databricks-icons";
+import { canonicalIconKey, iconColorOf, DBX_ICON_ORANGE } from "@/lib/icon-aliases";
 import { isFileIconKey, getFileIcon, getFileIconColor, FileSvgIcon, logoMetaForKey } from "../../file-icons";
 import { isCustomIconKey, customLogoId } from "@/lib/platform-architecture";
 import { CustomLogosContext, InlineSvgIcon } from "./shared";
+import { lucideGlyphComponent, LUCIDE_GLYPH_STROKE, LUCIDE_GLYPH_INK } from "./lucide-glyphs";
 
 /** Brand colors for the built-in trademarked vendor logos (badge background). */
 const BUILTIN_BADGE_COLOR: Partial<Record<string, string>> = {
@@ -21,12 +23,16 @@ const BUILTIN_BADGE_COLOR: Partial<Record<string, string>> = {
 };
 
 /** Is this icon key a third-party trademarked mark (gated behind the toggle)?
- *  Cloud marks + OSS logos + Databricks built-ins are NOT gated. Driven by the
- *  logo catalog (trademark && !oss) for file icons. */
+ *  ONLY `file:vendor/*` partner logos can be gated (and only when the logo catalog
+ *  says trademark && !oss). Everything Databricks owns — `file:db/*`,
+ *  `file:databricks-line/*`, `file:brand/*`, `file:persona/*` — and the cloud marks
+ *  are never gated, and the built-in names are gated only via TRADEMARK_ICONS. This
+ *  is the single source: the catalog's `defaults.trademark: true` must NOT leak onto
+ *  Databricks art that has no per-name catalog entry. */
 export function isTrademarkMark(iconKey: string): boolean {
   if (isFileIconKey(iconKey)) {
     const f = getFileIcon(iconKey);
-    if (!f || f.group === "cloud") return false; // cloud always allowed
+    if (!f || f.group !== "vendor") return false; // Databricks-owned + cloud art always shown
     const m = logoMetaForKey(iconKey);
     return m.trademark && !m.oss;
   }
@@ -68,12 +74,13 @@ function Monogram({ label, color, className }: { label: string; color: string; c
  * - gated + toggle off → a brand-colored text badge with `label`.
  */
 export function BrandMark({
-  iconKey,
+  iconKey: rawIconKey,
   label,
   bandColor,
   allowTrademark,
   className,
   style,
+  iconColor,
   mono = false,
 }: {
   iconKey: string;
@@ -82,12 +89,20 @@ export function BrandMark({
   allowTrademark: boolean;
   className?: string;
   style?: React.CSSProperties;
+  /** Per-node icon colour (hex) for monochrome line/UI art; undefined → the alias colour or the band colour. */
+  iconColor?: string;
   /** When gated, render a first-letter monogram (tight UIs) instead of the
    *  full-name pill. */
   mono?: boolean;
 }) {
+  // One resolver with AnyIcon: an alias renders its canonical artwork.
+  const iconKey = canonicalIconKey(rawIconKey);
+  const tint = iconColor ?? iconColorOf(rawIconKey);
   const customLogos = useContext(CustomLogosContext);
-  const gated = isTrademarkMark(iconKey);
+  // The trademark gate reads the key the author wrote, not the alias target: a built-in
+  // name (modelRegistryBrand) is not a trademark even though its canonical art is a file
+  // key, and a file key without catalog meta would otherwise default to gated.
+  const gated = isTrademarkMark(rawIconKey);
   const fileColor = useFileColor(isFileIconKey(iconKey) && gated && !allowTrademark ? iconKey : null);
 
   // Custom inline-SVG logo: never trademark-gated, always render.
@@ -109,12 +124,20 @@ export function BrandMark({
     );
   }
 
+  // Generic line glyph (`lucide:<name>`): thin strokes in the shared muted ink (not the
+  // band colour); an explicit colour in `style` still wins.
+  const Glyph = lucideGlyphComponent(iconKey);
+  if (Glyph) return <Glyph className={className} strokeWidth={LUCIDE_GLYPH_STROKE} style={{ color: tint ?? LUCIDE_GLYPH_INK, ...style }} />;
+
   if (!gated || allowTrademark) {
     // Show the real mark.
+    const Official = officialComponentFor(iconKey);
+    // Databricks line/UI art: one default colour (the brand orange), not the band tint.
+    if (Official) return <Official className={className} style={{ color: tint ?? DBX_ICON_ORANGE, ...style }} />;
     if (isFileIconKey(iconKey)) return <FileSvgIcon iconKey={iconKey} className={className} style={style} />;
     const Icon = DATABRICKS_ICONS[iconKey as DatabricksIconName] || DATABRICKS_ICONS.data;
     const isBrand = BRAND_ICONS.has(iconKey as DatabricksIconName);
-    return <Icon className={className} style={isBrand ? style : { color: bandColor, ...style }} />;
+    return <Icon className={className} style={isBrand ? (tint ? { color: tint, ...style } : style) : { color: tint ?? bandColor, ...style }} />;
   }
 
   // Gated + not allowed → brand-colored badge. Full-name pill by default

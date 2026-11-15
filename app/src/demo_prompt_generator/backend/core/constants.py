@@ -33,6 +33,20 @@ CATEGORY_DISPLAY_NAMES = {
 # Category sort order
 CATEGORY_ORDER = ["lakeflow", "ai-bi", "agent-bricks", "uc-governance", "apps-infra"]
 
+# Genie Code workshop capability pool — the single source of truth for what the
+# workshop can build (served as `genie_code_workshop` per capability). Exactly
+# the workshop baseline: no apps / lakebase / documents. Authoritative over any
+# block frontmatter flag.
+WORKSHOP_CAPABILITIES = frozenset({
+    "synthetic-data-gen", "notebooks-eda", "sdp", "lakeflow-jobs",
+    "aibi-dashboards", "genie", "metric-views", "abac", "data-classification",
+    "ml-training-serving", "feature-store", "unity-catalog", "genie-code", "genie-one", "ai-functions",
+})
+# Always stay in a workshop selection (unless the SA explicitly unselects them).
+WORKSHOP_CORE_CAPABILITIES = (
+    "synthetic-data-gen", "sdp", "aibi-dashboards", "genie", "genie-code", "unity-catalog",
+)
+
 
 def _get_capabilities_folder() -> Optional[Path]:
     """Find the capabilities folder in the solution-builder skill.
@@ -115,10 +129,9 @@ def _load_capabilities_from_files() -> list[dict]:
                 "category": CATEGORY_DISPLAY_NAMES.get(category_slug, category_slug.title()),
                 "disabled": frontmatter.get("disabled", False),
                 "buildable": frontmatter.get("buildable", False),
-                # Offered in the "Prepare a workshop" (Genie Code) mode? Defaults
-                # to True; set false on capabilities the workshop can't co-build
-                # via Genie Code prompts (lakebase, apps, KA/MAS, ML, …).
-                "genie_code_workshop": frontmatter.get("genie_code_workshop", True),
+                # Offered in the Genie Code workshop mode? Allowlist-driven (see
+                # WORKSHOP_CAPABILITIES), not the block frontmatter.
+                "genie_code_workshop": md_file.stem in WORKSHOP_CAPABILITIES,
             })
         except Exception as e:
             logger.warning(f"Failed to parse capability {md_file.name}: {e}")

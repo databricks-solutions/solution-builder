@@ -1,0 +1,161 @@
+# Databricks Asset Bundle — AML / SAR Copilot (Northwind Federal Bank, fictional) — complete DAB.
+#
+# Recreates the whole demo on any workspace / catalog / schema (everything is a variable). Nothing is created by
+# hand and no ID is copied into the app config:
+#   databricks bundle deploy            → dashboard + app (resource, compute stopped) + setup job; builds the app
+#   databricks bundle run aml_sar_setup
+#       generate_data → build_gold (features, entity network, write-back tables) → train_score (UC model @champion)
+#       → deploy_genie (Genie agent over the tables + the policy-docs volume, waits for the index)
+#       → grant_app (UC + Genie permissions for the app SP) → export_resources (demo_resources table the app reads)
+#   databricks bundle run aml_app       → deploys the app source and starts it
+# See dab_instructions.md.
+bundle:
+  name: fsi-aml-sar-copilot
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the demo data.
+    default: financial_services
+  schema:
+    description: Schema for the demo tables, model, volume.
+    default: aml_sar_copilot
+  warehouse_id:
+    description: SQL warehouse used by the dashboard, Genie space and the app. — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder holding the dashboard, Genie space and ML experiment.
+    default: /Workspace/Users/${workspace.current_user.userName}/fsi-aml-sar-copilot
+  app_name:
+    description: Databricks App name.
+    default: aml-sar-copilot
+  agent_model:
+    description: Foundation Model API endpoint for the SAR agent (chat completions + tools).
+    default: databricks-claude-sonnet-4-5
+
+workspace:
+  root_path: ${var.workspace_folder}/bundle
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "template_screenshot*.png"
+  include:
+    - "app/package.json"
+    - "app/package-lock.json"
+    - "app/dist/**"
+    - "app/client/dist/**"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var app_name=…]
+  default:
+    default: true
+
+resources:
+  dashboards:
+    compliance_dashboard:
+      display_name: "AML-SAR Copilot - Compliance Dashboard"
+      file_path: ./dashboard/compliance_dashboard.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+      parent_path: ${var.workspace_folder}
+
+  jobs:
+    aml_sar_setup:
+      name: "AML-SAR Copilot - setup (data, gold, ML, Genie)"
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: py
+        - task_key: build_gold
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/transform/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: py
+        - task_key: train_score
+          depends_on: [{task_key: build_gold}]
+          spark_python_task:
+            python_file: ./src/ml/train_score.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}",
+                         "--experiment", "${var.workspace_folder}/aml_alert_risk_experiment"]
+          environment_key: ml
+        - task_key: deploy_genie
+          depends_on: [{task_key: train_score}]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters: {catalog: "${var.catalog}", schema: "${var.schema}", warehouse_id: "${var.warehouse_id}",
+                              parent_path: "${var.workspace_folder}"}
+          environment_key: sdk
+        - task_key: grant_app
+          depends_on: [{task_key: deploy_genie}]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk
+        - task_key: export_resources
+          depends_on: [{task_key: grant_app}]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              dashboard_id: "${resources.dashboards.compliance_dashboard.id}"
+              warehouse_id: "${var.warehouse_id}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+          environment_key: sdk
+      environments:
+        - environment_key: py
+          spec: {client: "4", dependencies: [numpy, pandas]}
+        - environment_key: ml
+          spec: {client: "4", dependencies: [numpy, pandas, scikit-learn, "mlflow[databricks]>=3"]}
+        - environment_key: sdk
+          spec: {client: "4", dependencies: ["databricks-sdk>=0.114.0"]}
+
+  apps:
+    aml_app:
+      name: ${var.app_name}
+      description: "Northwind Federal AML Investigator Copilot — ML-ranked alert queue, entity networks, SAR-drafting agent, decisions written back to Delta."
+      source_code_path: ./app
+      # The server runs as the app SP: SQL through the bound warehouse (reads demo tables, writes case_decisions /
+      # case_audit_log / sar_drafts), Foundation Model API (SAR agent) + the Genie agent (policy search, Agent mode).
+      # GENIE_SPACE_ID is NOT set here (an env entry can't be empty): the app reads them from
+      # <catalog>.<schema>.demo_resources, written by the setup job's export_resources task.
+      config:
+        command: ["node", "--env-file-if-exists=.env", "dist/server.js"]
+        env:
+          - name: DBDEMOS_APP_ID
+            value: fsi-aml-sar-copilot
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: AGENT_MODEL
+            value_from: agent-llm
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.compliance_dashboard.id}
+      resources:
+        - name: sql-warehouse
+          sql_warehouse: {id: "${var.warehouse_id}", permission: CAN_USE}
+        - name: agent-llm
+          serving_endpoint: {name: "${var.agent_model}", permission: CAN_QUERY}

@@ -1,0 +1,159 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "d39eb11580a66b08bff2ce324965c389",
+    "question": [
+     "Which aggregation router has the most cell sites down right now?"
+    ]
+   },
+   {
+    "id": "1cec355dc243bf66fef330a36c6e7995",
+    "question": [
+     "How many subscribers and which enterprise accounts are affected by the sites that are down right now?"
+    ]
+   },
+   {
+    "id": "95bcfbce837fb7943da2839479898f45",
+    "question": [
+     "Which cells have the biggest increase in dropped-call rate over the last 3 weeks?"
+    ]
+   },
+   {
+    "id": "562b99357ff35c0d9d42b56d771ac6fe",
+    "question": [
+     "What is our average MTTR by trouble-ticket category over the last 12 months?"
+    ]
+   },
+   {
+    "id": "8fcb54b8a40983a05d1f0475cef317c9",
+    "question": [
+     "What share of outages had an early warning that was ignored, by category?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "What priority is a fiber cut that takes down a hospital's cell sites, and who must be notified by when under the NOC runbooks?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "telecommunications.network_ops_copilot.care_contacts_daily"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.cell_health_daily"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.cell_sites"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.enterprise_site_coverage"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.field_technicians"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.gold_cell_kpi_daily"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.gold_network_hourly"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.gold_site_status"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.noc_incidents"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.planned_activity"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.silver_alarms"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.transport_links"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.transport_nodes"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.trouble_ticket_insights"
+   },
+   {
+    "identifier": "telecommunications.network_ops_copilot.trouble_tickets"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "1cb251ec0d568de6a929b520c4aed8d1",
+    "content": [
+     "Halcyon Wireless \u2014 fictional Mountain-West regional carrier (synthetic data): 500 cell sites (3 sectors A/B/C each; cell_id = <site_id>-<sector>) in 5 markets (Denver Metro, Boulder, Fort Collins, Colorado Springs, Pueblo). Each site backhauls through ONE aggregation router (cell_sites.agg_router_id); aggregation routers connect to core routers CORE-DEN-01 (primary fiber, xe-0/1/0) and CORE-DEN-02 (secondary fiber, xe-0/1/1) \u2014 see transport_links.\nAll timestamps are Mountain local time. 'Now', 'right now', 'currently', 'today' = the latest data, NOT current_timestamp(): use gold_site_status (as_of_ts = latest reported hour) for sites down / current state, max(raised_ts) of silver_alarms for 'last 24 hours' of alarms, and max(day) of gold_cell_kpi_daily for KPI windows.\nA site is DOWN when gold_site_status.is_down = true (availability < 50% in the latest hour). Dropped-call rate = 100 * dropped_calls / voice_calls (use gold_cell_kpi_daily.drop_call_rate_pct per cell-day). Targets: dropped-call rate < 0.8%, RRC setup success > 99%, VSWR < 1.5 (vendor alarm at 2.0).\nsilver_alarms: one row per alarm, is_active = not cleared; severity critical > major > minor > warning. An alarm storm = many sites alarming under the same agg_router_id within minutes.\nnoc_incidents = the correlated open incident queue (alarm_storm / power_alarm / backhaul_alarm / site_outage / kpi_anomaly). cell_health_daily = KPI anomaly model scores (anomaly_score 0-100, is_anomaly >= 70).\nCustomer impact: subscribers_served per site (cell_sites / gold_site_status), enterprise_site_coverage (account, sla_tier, restore_sla_hours) joined on site_id.\ntrouble_tickets = 12 months of closed tickets (mttr_hours = restore time); trouble_ticket_insights.precursor (AI-classified from resolution notes) = early warning ignored | sudden failure | planned or external cause.\nRound percentages to 1 decimal and give subscriber counts as integers.",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "0eb17ed96d399e9d12d021e2edafbe2e",
+    "question": [
+     "How many subscribers and which enterprise accounts are affected by the sites that are down right now?"
+    ],
+    "sql": [
+     "SELECT count(DISTINCT s.site_id) AS sites_down, sum(s.subscribers_served) AS subscribers, (SELECT collect_set(concat(e.account_name, ' (', e.sla_tier, ', ', e.restore_sla_hours, 'h SLA)')) FROM telecommunications.network_ops_copilot.enterprise_site_coverage e JOIN telecommunications.network_ops_copilot.gold_site_status d ON d.site_id = e.site_id WHERE d.is_down) AS enterprise_accounts_affected, collect_set(s.critical_facility) AS critical_facilities FROM telecommunications.network_ops_copilot.gold_site_status s WHERE s.is_down"
+    ]
+   },
+   {
+    "id": "4563354f7b05bdf90348720a091e5ceb",
+    "question": [
+     "What share of outages had an early warning that was ignored, by category?"
+    ],
+    "sql": [
+     "SELECT category, count(*) AS tickets, count_if(precursor = 'early warning ignored') AS early_warning_ignored, round(100 * count_if(precursor = 'early warning ignored') / count(*), 1) AS pct_early_warning_ignored, round(avg(IF(precursor = 'early warning ignored', mttr_hours, NULL)), 1) AS mttr_when_warned_hours FROM telecommunications.network_ops_copilot.trouble_ticket_insights GROUP BY category ORDER BY pct_early_warning_ignored DESC"
+    ]
+   },
+   {
+    "id": "67aec3ad180d16cbaf94affbc5a376fd",
+    "question": [
+     "Which cells have the biggest increase in dropped-call rate over the last 3 weeks?"
+    ],
+    "sql": [
+     "WITH d AS (SELECT max(day) m FROM telecommunications.network_ops_copilot.gold_cell_kpi_daily) SELECT k.cell_id, round(avg(IF(k.day <= d.m - 18, k.drop_call_rate_pct, NULL)), 2) AS drop_rate_3_weeks_ago_pct, round(avg(IF(k.day >= d.m - 2, k.drop_call_rate_pct, NULL)), 2) AS drop_rate_last_3_days_pct, round(avg(IF(k.day >= d.m - 2, k.drop_call_rate_pct, NULL)) - avg(IF(k.day <= d.m - 18, k.drop_call_rate_pct, NULL)), 2) AS increase_pts, round(max(IF(k.day >= d.m - 2, k.max_vswr, NULL)), 2) AS vswr_now FROM telecommunications.network_ops_copilot.gold_cell_kpi_daily k, d WHERE k.day >= d.m - 20 GROUP BY k.cell_id ORDER BY increase_pts DESC LIMIT 10"
+    ]
+   },
+   {
+    "id": "a761d24fb8407e16b67c24c26f1cdf9c",
+    "question": [
+     "What is our average MTTR by trouble-ticket category over the last 12 months?"
+    ],
+    "sql": [
+     "SELECT category, count(*) AS tickets, round(avg(mttr_hours), 1) AS avg_mttr_hours, round(percentile_approx(mttr_hours, 0.5), 1) AS median_mttr_hours, sum(subscribers_affected) AS subscribers_affected FROM telecommunications.network_ops_copilot.trouble_tickets GROUP BY category ORDER BY avg_mttr_hours DESC"
+    ]
+   },
+   {
+    "id": "b12c4461b068d16cd5361948d085dcec",
+    "question": [
+     "How many alarms did we receive in the last 24 hours by severity?"
+    ],
+    "sql": [
+     "SELECT severity, count(*) AS alarms, count_if(is_active) AS still_active, count(DISTINCT coalesce(site_id, node_id)) AS nodes FROM telecommunications.network_ops_copilot.silver_alarms WHERE raised_ts > (SELECT max(raised_ts) FROM telecommunications.network_ops_copilot.silver_alarms) - INTERVAL 24 HOURS GROUP BY severity ORDER BY CASE severity WHEN 'critical' THEN 1 WHEN 'major' THEN 2 WHEN 'minor' THEN 3 ELSE 4 END"
+    ]
+   },
+   {
+    "id": "b643bf10ef36ce8ea178d39ad9049a51",
+    "question": [
+     "Which aggregation router has the most cell sites down right now?"
+    ],
+    "sql": [
+     "SELECT agg_router_id, count_if(is_down) AS sites_down, count(*) AS sites_homed, sum(IF(is_down, subscribers_served, 0)) AS subscribers_on_down_sites, max(as_of_ts) AS as_of FROM telecommunications.network_ops_copilot.gold_site_status GROUP BY agg_router_id ORDER BY sites_down DESC LIMIT 5"
+    ]
+   }
+  ]
+ }
+}

@@ -1,6 +1,6 @@
 # Client Handoff — authoring guide
 
-> **`SKILL_VERSION: 1.1`** — the single source of truth for this skill's version. Stamp this EXACT value into `ADAPTATION_FACTS.skill_version` (Step 5.5) AND the generated adaptation `SKILL.md` (Step 6) so a stale shipped skill is detectable by comparing the two. Bump it when you change the handoff contract.
+> **`SKILL_VERSION: 1.3`** — the single source of truth for this skill's version. Stamp this EXACT value into `ADAPTATION_FACTS.skill_version` (Step 5.5) AND the generated adaptation `SKILL.md` (Step 6) so a stale shipped skill is detectable by comparing the two. Bump it when you change the handoff contract. (1.2 added the copy-first flow: the handoff transforms a copy and never mutates the original, see Step 0. 1.3 hardened Step 0 to strip the CLI-local caches, `.databricks/`, `.git/`, `.venv/`, `node_modules/`, `__pycache__/`, from the copy, so an inherited post-deploy Terraform state can never break the client's first deploy.)
 
 When asked to make a built + DAB-packaged demo "client-ready" or "handoff-ready", apply this transformation. The result is a self-contained, IP-stripped, Genie-Code-skill-bundled project the SA can publish as a public git repo (or hand directly to the client). The single shipping artifact is a ZIP archive.
 
@@ -33,7 +33,46 @@ This stage operates on a project that already has Stage 3 (Build) and Stage 4 (P
 
 ## Algorithm
 
-> **Hard-gate rule:** If **Step 5 (Validate)** fails, STOP. Do not write the Genie Code skill (Step 6), `ADAPTATION_GUIDE` (Step 7), README "First Run" section (Step 8), `HANDOFF_NOTES` (Step 9), diff summary (Step 10), or ZIP (Step 11). Report each validation failure with the exact file path and the manual fix required, then exit. The point of the gate is to never ship a broken bundle to a client.
+> **Hard-gate rule:** If **Step 5 (Validate)** fails, STOP. Do not write the Genie Code skill (Step 6), `ADAPTATION_GUIDE` (Step 7), README "First Run" section (Step 8), `HANDOFF_NOTES` (Step 9), diff summary (Step 10), or ZIP (Step 11). Report each validation failure with the exact file path and the manual fix required, then exit. The point of the gate is to never ship a broken bundle to a client. The original demo is never touched regardless of where the gate stops (see Step 0).
+
+### Step 0 — Work on a copy (never mutate the original)
+
+The handoff deletes files, rewrites `databricks.yml`, and edits `resources.json`. Do all of it on a **copy** so the SA's working demo is never modified. This is the first step; run it before the prerequisite check.
+
+1. Choose a scratch working location (see "Where the working copy goes" below; it MUST sit outside the app's watched projects directory).
+2. Copy the qualifying project into it, then **strip the CLI-local caches** from the copy. From the project folder:
+   ```bash
+   cp -R "<project-dir>/" "<scratch>/<demo-slug>-client-handoff/"
+   # Remove SA-local state that must NEVER ship to a client (see "Why strip the caches" below):
+   rm -rf "<scratch>/<demo-slug>-client-handoff/.databricks" \
+          "<scratch>/<demo-slug>-client-handoff/.git" \
+          "<scratch>/<demo-slug>-client-handoff/.venv" \
+          "<scratch>/<demo-slug>-client-handoff/node_modules"
+   find "<scratch>/<demo-slug>-client-handoff" -name __pycache__ -type d -prune -exec rm -rf {} +
+   ```
+   Trailing-slash caution on the `cp -R` source: if the destination directory already exists, `cp -R <project-dir> <dest>` nests the whole source folder inside it, so paths become `<dest>/<demo-slug>/databricks.yml`. The trailing slash on the source plus a fresh destination avoid that. Either way, verify the copy's root holds `databricks.yml` directly, not `<demo-slug>/databricks.yml`, before continuing.
+3. Run **every remaining step (1 through 11) against the copy's root.** Treat the original project directory as read-only for the rest of this algorithm. Every path in Steps 1 to 11 (strip, rewrite, delete, validate, ZIP) resolves inside the copy, not the live project.
+4. The ZIP (Step 11) is produced from the copy. The final message (Step 11) reports the ZIP path AND states the original demo was left intact.
+
+#### Why strip the caches
+
+`.databricks/` is the Databricks CLI's local bundle cache, written by `databricks bundle validate` and `databricks bundle deploy`. After a deploy it holds the **Terraform state and sync-snapshots keyed to the SA's own workspace** (workspace ID, remote paths, resource IDs). If that cache rides along in the copy, the client's **first `databricks bundle deploy` on their own workspace fails hard**, not with a warning:
+
+```
+Error: cannot read job: failed to validate workspace_id: workspace_id mismatch:
+provider is configured for workspace <client-ws-id> but got <SA-ws-id> in provider_config
+```
+
+This is verified behavior: a copy that inherits a populated `.databricks/` fails the cross-workspace deploy, while a copy with `.databricks/` stripped deploys clean. (`databricks bundle validate` alone does **not** surface this. It never touches Terraform state, so a validate-only check in Step 5 passes even when the client's deploy would break. The strip is the fix, not the validate.) `.git/` carries the SA's full commit history and remotes; `.venv/`, `node_modules/`, and `__pycache__/` are large local build artifacts. None belong in a client handoff, so Step 0 removes them before any later step runs.
+
+#### Where the working copy goes (CLI vs app)
+
+The Solution Builder app lists projects from its database and runs a background reaper that deletes any folder under its projects base directory that has no matching project row (about every 30 minutes). So the working copy must **not** be a sibling folder under that base directory when the handoff runs inside the app, or the reaper garbage-collects it mid-run.
+
+- Prefer a scratch directory clearly outside the projects tree: a system temporary directory (for example `$(mktemp -d)/<demo-slug>-client-handoff`), or a `handoff-build/` directory the SA names outside the projects base dir.
+- Do **not** create the copy as `../<demo-slug>-client-ready/` next to other projects when running inside the app. It will be reaped and will never appear in the app. (Making a handoff copy show up as a real, listable app project needs the app backend, which is out of scope for this skill.)
+- The ZIP is the durable artifact. Once produced, move it wherever the SA wants or download it. The working copy is disposable.
+- In the CLI there is no database and no reaper, so a scratch directory beside the project is safe too; the outside-the-projects-dir rule still gives one consistent instruction that works in both surfaces.
 
 ### Step 1 — Prerequisite check (strengthened)
 
@@ -57,7 +96,7 @@ On `yes`, invoke the missing stage(s) per `SKILL.md`'s stages table, then resume
 
 ### Step 2 — IP-strip (environment fingerprint only — defer structural `databricks.yml` rewrite to Step 3)
 
-Scope: strip environment fingerprint from non-bundle files + `resources.json`. **Step 2 may lightly touch `databricks.yml` to scrub obvious fingerprints** (workspace block, top-level `host:`) but **Step 3 owns the structural rewrite** to the targets pattern. Avoid editing the same file twice in conflicting ways.
+All edits in this step land on the **copy** from Step 0, not the original project. Scope: strip environment fingerprint from non-bundle files + `resources.json`. **Step 2 may lightly touch `databricks.yml` to scrub obvious fingerprints** (workspace block, top-level `host:`) but **Step 3 owns the structural rewrite** to the targets pattern. Avoid editing the same file twice in conflicting ways.
 
 Preserve: story, persona, narrative, capability mix — those are the demo's value.
 
@@ -68,16 +107,16 @@ Files and replacements:
 | `databricks.yml` → `workspace.host`, `workspace.profile`, `workspace.root_path` (top-level) | Remove or replace with empty placeholder — Step 3 will rewrite the file structurally. Don't touch `variables:` yet. |
 | `databricks.yml` → `variables.catalog`, `variables.schema` (or other SA-specific real catalog/schema defaults) | Note them for Step 3 — Step 3 renames + replaces defaults. Don't strip them here. |
 | `databricks.prod.yml` | Delete entirely. `databricks.prod.yml.example` (if present) ships with all values blanked. |
-| `resources.json` → `created_resources.*` | Replace EVERY workspace-specific value (`warehouse_id`, `pipeline_id`, `dashboard_id`, `genie_space_id`, `knowledge_assistant_id`, `app.id`, `lakebase_project_id`, `mlflow_experiment_path`, `workspace_folder`) with `"<created-on-deploy>"`. Don't trust nested keys to be flat. |
-| `dab_instructions.md` (from Stage 4) | Strip FE URLs, SA emails, SA-Workspace paths, and references to SA-only targets (`dev`, `prod`, etc.). Step 4 rewrites this for the client. |
+| `resources.json` → `created_resources.*` | Replace EVERY workspace-specific value (`warehouse_id`, `pipeline_id`, `dashboard_id`, `genie_space_id`, `documents_volume`, `app.id`, `lakebase_project_id`, `mlflow_experiment_path`, `workspace_folder`) with `"<created-on-deploy>"`. Don't trust nested keys to be flat. |
+| `dab_instructions.md` (from Stage 4) | Strip internal URLs, SA emails, SA-Workspace paths, and references to SA-only targets (`dev`, `prod`, etc.). Step 4 rewrites this for the client. |
 | `app/.env`, `app/config/*.json` containing workspace IDs | Strip workspace-specific IDs to placeholders; preserve structural keys. |
-| Any `*.md`, `*.py`, `*.sql`, `*.yml` matching `/(e2-demo-field-eng|fevm-[a-z0-9-]+)\.cloud\.databricks\.com/` | Replace with `<your-workspace-url>`. |
+| Any `*.md`, `*.py`, `*.sql`, `*.yml` matching `/[a-z0-9-]+\.cloud\.databricks\.com/` (a real workspace host) | Replace with `<your-workspace-url>`. |
 | Any `@databricks.com` email | Replace with `<your-email>`. |
 | Any path `/Workspace/Users/[^/]+/` referring to the SA | Replace `[^/]+` with `<your-username>`. |
 | Any `.env` (not `.env.example`) | Delete. |
-| `raw_data/pdf/` and `raw_data/html/` duplicates (e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) | SHA-hash dedupe (`shasum -a 256`). On collision, keep the numeric-prefixed canonical name (`<NN>_<topic>.{pdf,html}`), delete the unprefixed variant. Record in `HANDOFF_NOTES.md`. Why: KA double-indexes duplicates → duplicate MAS citations; HTML dupes also bloat the ZIP. |
+| `raw_data/pdf/` and `raw_data/html/` duplicates (e.g., `01_brand_voice_guide.pdf` AND `brand_voice_guide.pdf`) | SHA-hash dedupe (`shasum -a 256`). On collision, keep the numeric-prefixed canonical name (`<NN>_<topic>.{pdf,html}`), delete the unprefixed variant. Record in `HANDOFF_NOTES.md`. Why: duplicate PDFs double-index in the documents volume → duplicate citations; HTML dupes also bloat the ZIP. |
 
-After stripping, **record** the strip counts (e.g., "7 FE-workspace URLs in 3 files, 4 emails in 2 files, ...") — Step 10 prints the final summary. **Do not print a summary here**; Step 2's job is to strip, not to talk.
+After stripping, **record** the strip counts (e.g., "7 internal-workspace URLs in 3 files, 4 emails in 2 files, ...") — Step 10 prints the final summary. **Do not print a summary here**; Step 2's job is to strip, not to talk.
 
 ### Step 3 — Restructure `databricks.yml` + migrate variable refs + wire the synth toggle
 
@@ -86,7 +125,7 @@ Read `templates/databricks.yml.patch.md` for the canonical recipe. This step doe
 #### 3.1 — Reshape `databricks.yml` to the client-targets pattern
 
 - Top-level `bundle.name: <demo-slug>` and `include: - resources/*.yml`.
-- Top-level `variables:` block declares `run_with_synthetic_data` (default `"yes"`), `client_catalog`, `client_schema`, `warehouse_id`, plus any demo-specific vars (model endpoints, Genie/KA IDs, etc.). Defaults are placeholders like `"<your_catalog>"`.
+- Top-level `variables:` block declares `run_with_synthetic_data` (default `"yes"`), `client_catalog`, `client_schema`, `warehouse_id`, plus any demo-specific vars (model endpoints, Genie IDs, etc.). Defaults are placeholders like `"<your_catalog>"`.
 - `targets.client:` with `default: true`, `mode: production` (or omit `mode:` — defaults to production), `workspace.host: https://<your-workspace>.cloud.databricks.com`, and a `variables:` override block repeating the placeholders. **Do NOT use `mode: development`** — it prepends `dev_<username>_` to every DAB resource (schemas, volumes, jobs, pipelines, dashboards) but does NOT prefix `${var.client_schema}` substitutions, producing a schema-vs-pipeline divergence the client can't reconcile. Discovered 2026-05-29 V1 Phase E8.
 - **No other targets ship** — the SA's `dev` / `prod` working targets are stripped.
 
@@ -133,7 +172,7 @@ After de-hardcoding, the Step 5 grep gate (broadened) confirms zero raw literals
 
 Two patterns — pick whichever fits the demo's existing structure:
 
-- **Pattern A — DAB `condition_task`** (preferred): gate the synth-gen task with `${var.run_with_synthetic_data} == "yes"`. **Multi-task jobs — guard the gate fan-out:** when a `condition_task` evaluates false, its downstream is marked skipped, and any task that `depends_on` it under the DEFAULT rule (`ALL_SUCCESS`) is skipped too. So on the real-data path (`"no"`) every task sequenced AFTER the synth-gen — Genie/KA/dashboard deploy, pipeline trigger, etc. — would be silently skipped. Gate ONLY the synth-gen task; for each downstream task that must still run, add `run_if: ALL_DONE` (or `NONE_FAILED`/`AT_LEAST_ONE_SUCCESS` as fits). Verify with `databricks bundle summary -t client` that the real-data path still reaches table creation + every deploy task. (Found 2026-06-18 on FreshMart: `deploy_genie` depended on `generate_data`; without `run_if: ALL_DONE` the real-data path skipped Genie deployment.)
+- **Pattern A — DAB `condition_task`** (preferred): gate the synth-gen task with `${var.run_with_synthetic_data} == "yes"`. **Multi-task jobs — guard the gate fan-out:** when a `condition_task` evaluates false, its downstream is marked skipped, and any task that `depends_on` it under the DEFAULT rule (`ALL_SUCCESS`) is skipped too. So on the real-data path (`"no"`) every task sequenced AFTER the synth-gen — Genie/dashboard deploy, pipeline trigger, etc. — would be silently skipped. Gate ONLY the synth-gen task; for each downstream task that must still run, add `run_if: ALL_DONE` (or `NONE_FAILED`/`AT_LEAST_ONE_SUCCESS` as fits). Verify with `databricks bundle summary -t client` that the real-data path still reaches table creation + every deploy task. (Found 2026-06-18 on FreshMart: `deploy_genie` depended on `generate_data`; without `run_if: ALL_DONE` the real-data path skipped Genie deployment.)
 - **Pattern B — notebook early-return**: inject `if os.environ.get("RUN_WITH_SYNTHETIC_DATA", "yes") == "no": dbutils.notebook.exit("Skipped — using client data")` at the top, and pass via `base_parameters`.
 
 For SDP/pipeline bronze: SDP SQL **cannot** interpolate Spark conf vars in `read_files()` — Python bronze is required. If the existing bronze is SQL, convert it per `databricks.yml.patch.md` Section 3, DELETE the original `*_bronze.sql`, update `pipeline.libraries[]` to the `.py`, and record the deletion in `HANDOFF_NOTES.md`. (Alternative: leave a `TODO(client-handoff)` and let Step 5 hard-fail — never silently continue.)
@@ -150,7 +189,7 @@ Format: `# TODO(client-handoff): verify <X> still works for client_catalog/schem
 
 #### 3.6 — (removed in v1.1)
 
-v1's `setup` bundle target is gone in v1.1. The skill install machinery is now the 3-line CLI snippet in Step 8's README template. Stage 5 must NOT emit a `setup` target, `resources/setup.yml`, or `src/setup/install_skill.py` — if you're writing any of those, you're on the v1 path. (DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 setup target inherited all bundle resources and failed at terraform apply on placeholder values — observed 2026-06-02.)
+v1's `setup` bundle target is gone in v1.1. The skill install machinery is now the 3-line CLI snippet in Step 8's README template. Stage 5 must NOT emit a `setup` target, `resources/setup.yml`, or `src/setup/install_skill.py` — if you're writing any of those, you're on the v1 path. (DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 setup target inherited all bundle resources and failed at terraform apply on placeholder values.)
 
 ### Step 4 — Rewrite `dab_instructions.md` for the client
 
@@ -188,7 +227,7 @@ Validation checklist (every item must pass):
 - `bundle validate` exits 0 with no errors.
 - `bundle summary` resolves every variable to either a sensible default (`"yes"` for `run_with_synthetic_data`) or a placeholder the client will fill in.
 - **Grep clean across all shipped files** — none of these strings remain:
-  - `e2-demo-field-eng`, `fevm-` (FE workspace fingerprints)
+  - `<host>.cloud.databricks.com` (your workspace URLs)
   - `@databricks.com` (SA email)
   - `/Workspace/Users/<sa-username>/` (SA workspace paths)
   - `databricks.prod.yml` (deleted file shouldn't be referenced)
@@ -314,13 +353,13 @@ Skip the file entirely if there's nothing to report.
 
 ### Step 10 — Final diff summary (printed to the SA)
 
-Print a comprehensive summary covering Step 2 (strip) AND every file changed/added across Steps 3–9:
+Print a comprehensive summary of the changes applied **to the copy**, covering Step 2 (strip) AND every file changed/added across Steps 3–9. The original demo project is unchanged; this summary describes only what the handoff did to the copy.
 
 ```
 Stage 5 complete. Summary:
 
 IP-strip:
-  - Stripped 7 FE-workspace URLs in 3 files
+  - Stripped 7 internal-workspace URLs in 3 files
   - Stripped 4 @databricks.com emails in 2 files
   - Blanked 12 resource IDs in resources.json
   - Deleted 1 databricks.prod.yml, 1 .env
@@ -345,7 +384,7 @@ Client-facing assets:
 
 Validation:
   - databricks bundle validate -t client: PASS (0 errors)
-  - Grep clean: no FE URLs / SA emails / SA paths / orphaned ${var.catalog} refs
+  - Grep clean: no internal URLs / SA emails / SA paths / orphaned ${var.catalog} refs
   - All include: patterns match existing files
 
 Handoff notes:
@@ -356,15 +395,15 @@ The SA can revert via git if anything important was caught. The summary is the S
 
 ### Step 11 — Produce the handoff ZIP
 
-The single shipping artifact. Package the entire project directory as `<demo-slug>-client-handoff.zip` **inside the project root** (next to `databricks.yml`).
+The single shipping artifact. Package the entire copy's directory as `<demo-slug>-client-handoff.zip` **inside the copy's root** (next to the copied `databricks.yml`). This is the copy from Step 0, not the original project.
 
 ```bash
-# Run from inside the project folder
-cd <project>
+# Run from inside the copy's folder (the Step 0 scratch copy, not the original project)
+cd <scratch>/<demo-slug>-client-handoff
 zip -r ./<demo-slug>-client-handoff.zip . \
   -x "./<demo-slug>-client-handoff.zip" \
   -x "*.pyc" "__pycache__/*" ".venv/*" "*.log" ".DS_Store" \
-  -x ".claude/*" ".databricks/*" \
+  -x ".claude/*" ".databricks/*" ".git/*" "node_modules/*" \
   -x "client_handoff/*" \
   -x ".anthropic_token" "get_anthropic_token.sh" ".claude/settings.json"
 ```
@@ -386,8 +425,8 @@ zip -r ./<demo-slug>-client-handoff.zip . \
 - FMAPI auth artifacts: `.anthropic_token`, `get_anthropic_token.sh`, `.claude/settings.json` (appear in Solution-Builder-forked projects; SA-only secrets)
 - Any local credentials / `.env` files
 
-Present the ZIP path to the SA as the shipping artifact:
-> "Handoff package ready: `<demo-slug>-client-handoff.zip`. Publish to a public GitHub repo (or hand directly to the client). The client imports it as a Databricks git folder; first-run uses synthetic data so no config is required, then Genie Code auto-loads the adaptation skill and walks them through pointing at their own data."
+Present the ZIP path to the SA as the shipping artifact, and confirm the original was left intact:
+> "Handoff package ready: `<scratch>/<demo-slug>-client-handoff/<demo-slug>-client-handoff.zip`. Your original demo project was not modified; all changes were made to the handoff copy. Publish the ZIP to a public GitHub repo (or hand directly to the client). The client imports it as a Databricks git folder; first-run uses synthetic data so no config is required, then Genie Code auto-loads the adaptation skill and walks them through pointing at their own data."
 
 ## Validation (checklist for the SA before shipping)
 
@@ -399,10 +438,11 @@ After Stage 5 completes, the SA should verify:
 - [ ] `install.sh` does NOT exist (v0 artifact).
 - [ ] `targets.setup` does NOT exist in `databricks.yml`, `resources/setup.yml` does NOT exist, `src/setup/install_skill.py` does NOT exist (v1 artifacts; v1.1 ships without them).
 - [ ] README "First Run" Step 2 has the 3-line `databricks workspace import-dir` snippet (NOT `bundle deploy --target setup`).
-- [ ] `<demo-slug>-client-handoff.zip` exists at the project root.
+- [ ] Original demo project is unmodified; all changes are in the Step 0 handoff copy.
+- [ ] `<demo-slug>-client-handoff.zip` exists at the copy's root.
 - [ ] ZIP contains: `ADAPTATION_GUIDE.md` + `.assistant/skills/<demo-slug>-adaptation/SKILL.md` + `databricks.yml` (client target only) + `dab_instructions.md`.
 - [ ] No orphaned `${var.catalog}` / `${var.schema}` refs anywhere in the project (`grep -rE '\$\{var\.(catalog|schema)\}\b' .` returns empty).
-- [ ] No remaining FE workspace URLs (`e2-demo-field-eng`, `fevm-`) in any shipped file.
+- [ ] No remaining workspace URLs (`*.cloud.databricks.com`) in any shipped file.
 - [ ] No remaining `@databricks.com` email refs.
 - [ ] `.assistant/skills/<demo-slug>-adaptation/SKILL.md` parses (YAML frontmatter valid; no `{{...}}` placeholders left).
 - [ ] Diff summary (Step 10) was printed and captures every change.
@@ -417,8 +457,8 @@ Empirically-discovered failure modes from prior runs. Most algorithmic pitfalls 
 | **Persona/story content mistakenly stripped** ("Maya Patel", "Harvestly Co." wiped from README) | IP-strip scope is environment fingerprint only. If a regex matches story content, narrow the regex. |
 | **`databricks.prod.yml.example` keeps real values** | Blank all value fields in `*.yml.example` files (keep keys for shape). |
 | **ZIP packed into itself** (size grows each re-run) | Step 11 excludes `./<demo-slug>-client-handoff.zip` from the `zip -r`. |
-| **`.databricks/` CLI cache shipped** (caught 2026-05-29 V1 Phase E) — sync-state mismatch on client's first deploy | Step 11 excludes `.databricks/*`. Don't re-run `bundle validate` after Step 11 packs the ZIP. |
-| **Duplicate PDFs in `raw_data/pdf/`** (caught 2026-05-29 V1 Phase E) — KA double-indexes, MAS citations duplicate | Step 2 SHA-hashes + dedupes; keep numeric-prefixed canonical names. |
+| **`.databricks/` CLI cache shipped** (caught 2026-05-29 V1 Phase E), sync-state mismatch on client's first deploy | Two layers now guard this. Step 0 `rm -rf`s `.databricks/` from the copy at the start, so the Step 5 validate never runs against an inherited cross-workspace cache; Step 11 also excludes `.databricks/*` from the ZIP, which keeps out the fresh cache the Step 5 validate regenerates. The failure it prevents is real and hard. An inherited post-deploy cache makes the client's first `databricks bundle deploy` abort with `workspace_id mismatch` (SA's workspace ID vs the client's), verified 2026-07-27. Don't re-run `bundle validate` after Step 11 packs the ZIP. |
+| **Duplicate PDFs in `raw_data/pdf/`** (caught 2026-05-29 V1 Phase E) — the documents index double-indexes, citations duplicate | Step 2 SHA-hashes + dedupes; keep numeric-prefixed canonical names. |
 | **`ADAPTATION_GUIDE.md` lands in nested `client_handoff/`** (caught 2026-05-29 V1 Phase E) | Step 7 writes to project root flat; Step 11 excludes `client_handoff/*`. |
 | **`mode: development` prepends `dev_<user>_` to every DAB resource** (caught 2026-05-29 V1 Phase E8) — schema-vs-pipeline-target divergence | Step 3.1: omit `mode:` or set `mode: production`. Step 5 grep gate flags `mode: development` as critical-path fail. |
 | **Demo-generator deploy scripts (`deploy_ka.py`, `deploy_genie.py`) use stale SDK API** (caught 2026-05-29 V1 Phase E8) — `'generator' object has no attribute` or `create_*(display_name=...)` kwargs reject. AI layer fails to deploy. | NOT a handoff-skill bug — upstream Stage-3 template regression. Step 5 WARNING flags it pre-ship; upstream fix is a PR to `industry-demo-prompts` to refresh deploy-script blocks against current databricks-sdk. |

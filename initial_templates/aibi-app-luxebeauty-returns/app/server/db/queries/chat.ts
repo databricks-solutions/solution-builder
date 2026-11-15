@@ -158,10 +158,17 @@ export async function renameConversationIfDefault(
   id: string,
   title: string,
 ) {
+  // 'Assistant' is the demo_dock row's placeholder title (see
+  // getOrCreateDockConversation) — it must be replaced by the first message too.
   await db
     .update(conversations)
     .set({ title })
-    .where(and(eq(conversations.id, id), eq(conversations.title, 'New conversation')));
+    .where(
+      and(
+        eq(conversations.id, id),
+        sql`${conversations.title} IN ('New conversation', 'Assistant')`,
+      ),
+    );
 }
 
 export async function getMessageById(db: AppDb, id: string) {

@@ -25,7 +25,6 @@ import os
 import shutil
 import threading
 from collections.abc import Generator
-from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -42,6 +41,7 @@ from sqlmodel import Session, SQLModel, text
 
 from ._base import LifespanDependency
 from ._config import logger
+from ._defaults import make_app_sp_client
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,9 @@ def _create_pglite_engine() -> Engine:
     if not pglite.is_started():
         pglite.start_cluster()
 
-    db = "demo_prompt_generator"
+    # PGLITE_DB picks a separate database in the same local cluster, so a second checkout
+    # (a git worktree on a branch with different migrations) keeps its own schema history.
+    db = os.environ.get("PGLITE_DB") or "demo_prompt_generator"
     if db not in pglite.list_db():
         pglite.create_db(db)
 
@@ -171,12 +173,15 @@ def _user_from_token(token: str) -> str:
 class _LakebaseConnector:
     """Self-refreshing source of psycopg connections for SQLAlchemy.
 
-    Holds the current OAuth token, hands a fresh one to every new psycopg
-    connection (so SQLAlchemy's pool always opens connections with valid
-    creds), and refreshes the token in the background ~5min before expiry.
+    Holds the current OAuth token, hands it to every new psycopg connection, and
+    refreshes it in the background well before expiry. ``connect()`` mints inline
+    only when no usable token exists at all, so the pool creator (which runs under
+    SQLAlchemy's pool) almost never waits on the control plane.
     """
 
-    REFRESH_SKEW = timedelta(minutes=5)
+    REFRESH_SKEW = timedelta(minutes=10)   # background refresh starts this far before expiry
+    INLINE_MIN_VALID = timedelta(seconds=60)  # below this, connect() mints inline instead
+    REFRESH_RETRY_MAX_SECONDS = 240.0
 
     def __init__(self, ws: WorkspaceClient, endpoint: _Endpoint):
         self._ws = ws
@@ -191,26 +196,48 @@ class _LakebaseConnector:
     def connect(self) -> psycopg.Connection:
         """Open a fresh psycopg connection. Called by SQLAlchemy as `creator`."""
         with self._lock:
-            if self._cred is None or self._is_expiring(self._cred):
-                self._cred = _mint_token(self._ws, self._endpoint.endpoint_path)
             cred = self._cred
-        return psycopg.connect(
+        if cred is None or self._is_unusable(cred):
+            # No usable token (first boot, or the refresher has been failing for the
+            # whole window). Mint outside the lock so the refresher can still read.
+            cred = _mint_token(self._ws, self._endpoint.endpoint_path)
+            with self._lock:
+                self._cred = cred
+        conn = psycopg.connect(
             host=self._endpoint.host,
             port=5432,
             dbname=self._endpoint.database_name,
             user=_user_from_token(cred.token),
             password=cred.token,
             sslmode="require",
+            # Bound a dead/half-open endpoint instead of hanging a pool checkout.
+            connect_timeout=10,
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
         )
+        # Cap any single statement. Migrations are DDL-only (no bulk DML) and request
+        # paths issue short statements. Idle-in-transaction is deliberately NOT capped:
+        # a Session holds its transaction across LLM/SSE work. A plain SET, not the
+        # libpq startup `options`, which a connection proxy may reject.
+        try:
+            conn.execute("SET statement_timeout = 60000")
+            conn.commit()
+        except Exception:
+            conn.close()
+            raise
+        return conn
 
     # --- background refresh -------------------------------------------------
 
     def start_refresh(self) -> None:
         """Mint the initial token and start the background refresher.
 
-        Refresh is best-effort: if it fails, in-flight pooled connections keep
-        working until token expiry, and the next ``connect()`` will retry the
-        mint synchronously and surface the error to the caller.
+        Refresh is best-effort: if it fails, the refresher retries with backoff
+        (30 s, 60 s, ... capped at 4 min) across the ~10 min window before expiry.
+        In-flight pooled connections keep working until token expiry, and a
+        ``connect()`` that finds no usable token mints inline as a last resort.
         """
         with self._lock:
             if self._cred is None:
@@ -223,10 +250,11 @@ class _LakebaseConnector:
     def stop(self) -> None:
         self._stop.set()
 
-    def _is_expiring(self, c: _Credential) -> bool:
-        return c.expires_at - datetime.now(timezone.utc) < self.REFRESH_SKEW
+    def _is_unusable(self, c: _Credential) -> bool:
+        return c.expires_at - datetime.now(timezone.utc) < self.INLINE_MIN_VALID
 
     def _refresh_loop(self) -> None:
+        failures = 0
         while not self._stop.is_set():
             with self._lock:
                 cred = self._cred
@@ -237,10 +265,13 @@ class _LakebaseConnector:
                 fresh = _mint_token(self._ws, self._endpoint.endpoint_path)
                 with self._lock:
                     self._cred = fresh
+                failures = 0
                 logger.info(f"Lakebase token refreshed (expires {fresh.expires_at.isoformat()})")
             except Exception as e:
-                logger.warning(f"Lakebase token refresh failed: {e!r} — will retry in 30s")
-                self._stop.wait(timeout=30)
+                failures += 1
+                backoff = min(30.0 * 2 ** (failures - 1), self.REFRESH_RETRY_MAX_SECONDS)
+                logger.warning(f"Lakebase token refresh failed: {e!r} — will retry in {backoff:.0f}s")
+                self._stop.wait(timeout=backoff)
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +358,9 @@ def create_db_engine(ws: WorkspaceClient | None) -> Engine:
         f"postgresql+psycopg://{endpoint.host}/{endpoint.database_name}",
         creator=connector.connect,
         # See _create_pglite_engine for pool sizing rationale; same choices apply.
-        pool_size=10,
-        max_overflow=20,
+        # Single uvicorn worker (start.sh --workers 1), so this is the app's total.
+        pool_size=20,
+        max_overflow=30,
         pool_timeout=5,
         pool_recycle=45 * 60,  # under token TTL — recycles before expiry
         pool_pre_ping=True,
@@ -413,45 +445,54 @@ def initialize_models(engine: Engine) -> None:
     logger.info("Initializing database with Alembic migrations")
     _MIGRATION_LOCK_ID = 8675309  # arbitrary; same id used by all workers
 
+    # The lock is per SESSION, so take and release it on ONE connection held for
+    # the whole block. (Taking it on a pooled connection and unlocking on another
+    # leaves it held by the first one until the process dies, and the next boot
+    # waits on it.) Bounded: a process still shutting down can't block a boot
+    # forever; past lock_timeout this raises and the boot fails loudly.
     with engine.connect() as lock_conn:
+        lock_conn.execute(text("SET lock_timeout = '45s'"))
         lock_conn.execute(text(f"SELECT pg_advisory_lock({_MIGRATION_LOCK_ID})"))
+        lock_conn.execute(text("RESET lock_timeout"))
         lock_conn.commit()
+        try:
+            # Drop default-schema tables if there's no alembic_version (legacy/first run).
+            inspector = inspect(engine)
+            if "alembic_version" not in inspector.get_table_names():
+                tables = inspector.get_table_names()
+                if tables:
+                    logger.warning(f"No alembic_version table — dropping legacy tables: {tables}")
+                    with engine.connect() as conn:
+                        for t in tables:
+                            conn.execute(text(f'DROP TABLE IF EXISTS "{t}" CASCADE'))
+                        conn.commit()
 
-    try:
-        # Drop default-schema tables if there's no alembic_version (legacy/first run).
-        inspector = inspect(engine)
-        if "alembic_version" not in inspector.get_table_names():
-            tables = inspector.get_table_names()
-            if tables:
-                logger.warning(f"No alembic_version table — dropping legacy tables: {tables}")
-                with engine.connect() as conn:
-                    for t in tables:
-                        conn.execute(text(f'DROP TABLE IF EXISTS "{t}" CASCADE'))
-                    conn.commit()
+            # pgvector for template embeddings (PGLite doesn't ship the extension).
+            if not _is_pglite_mode():
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                        conn.commit()
+                except Exception as e:
+                    logger.warning(f"Could not create pgvector extension: {e}")
 
-        # pgvector for template embeddings (PGLite doesn't ship the extension).
-        if not _is_pglite_mode():
+            with engine.connect() as migration_conn:
+                command.upgrade(_get_alembic_config(migration_conn), "head")
+                logger.info("Alembic migrations completed successfully")
+
+            # Defense-in-depth: `upgrade head` is a NO-OP when alembic_version
+            # already claims head — even if some of those revisions' DDL never
+            # physically applied (the multi-head-lineage skip that took prod down
+            # after the Model-3 cutover). So AFTER migrating, verify the live schema
+            # actually matches what the ORM expects, and heal/scream if it doesn't.
+            _reconcile_schema_drift(engine)
+        finally:
+            # Never mask a migration error; a lost connection drops the lock anyway.
             try:
-                with engine.connect() as conn:
-                    conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                    conn.commit()
-            except Exception as e:
-                logger.warning(f"Could not create pgvector extension: {e}")
-
-        with engine.connect() as migration_conn:
-            command.upgrade(_get_alembic_config(migration_conn), "head")
-            logger.info("Alembic migrations completed successfully")
-
-        # Defense-in-depth: `upgrade head` is a NO-OP when alembic_version
-        # already claims head — even if some of those revisions' DDL never
-        # physically applied (the multi-head-lineage skip that took prod down
-        # after the Model-3 cutover). So AFTER migrating, verify the live schema
-        # actually matches what the ORM expects, and heal/scream if it doesn't.
-        _reconcile_schema_drift(engine)
-    finally:
-        with engine.connect() as lock_conn:
-            lock_conn.execute(text(f"SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})"))
-            lock_conn.commit()
+                lock_conn.execute(text(f"SELECT pg_advisory_unlock({_MIGRATION_LOCK_ID})"))
+                lock_conn.commit()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Could not release the migration lock: {e!r}")
 
     logger.info("Database models initialized successfully")
 
@@ -516,6 +557,25 @@ def _reconcile_schema_drift(engine: Engine) -> None:
 # Lifespan + dependency
 # ---------------------------------------------------------------------------
 
+# Last-resort exit after SIGTERM. The Apps platform SIGKILLs at ~15 s, and a
+# force-kill 503s every in-flight request; a stuck non-daemon thread can keep the
+# process alive past the graceful path. If we are still alive this long after the
+# signal, exit now (clean code 0) rather than get killed.
+_EXIT_WATCHDOG_SECONDS = 13.0
+_exit_watchdog: threading.Timer | None = None
+
+
+def _arm_exit_watchdog(seconds: float = _EXIT_WATCHDOG_SECONDS) -> None:
+    """Start a daemon timer that calls os._exit(0) after `seconds`. Idempotent."""
+    global _exit_watchdog
+    if _exit_watchdog is not None:
+        return
+    timer = threading.Timer(seconds, os._exit, args=(0,))
+    timer.daemon = True  # never keeps a normally-exiting process alive
+    timer.start()
+    _exit_watchdog = timer
+
+
 class _LakebaseDependency(LifespanDependency):
     @asynccontextmanager
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
@@ -530,7 +590,7 @@ class _LakebaseDependency(LifespanDependency):
         if not _is_pglite_mode():
             ws = getattr(app.state, "_workspace_client", None)
             if ws is None:
-                ws = WorkspaceClient()
+                ws = make_app_sp_client()
                 app.state._workspace_client = ws
 
         engine = create_db_engine(ws)
@@ -713,7 +773,8 @@ class _LakebaseDependency(LifespanDependency):
             # — just stops a flood of "0 projects" logs at boot).
             while True:
                 try:
-                    fmapi_auth.refresh_all_projects(base)
+                    # Blocking file + DB work: off the event loop.
+                    await asyncio.to_thread(fmapi_auth.refresh_all_projects, base)
                 except Exception as e:
                     logger.warning(f"[fmapi-auth] refresh loop error: {e!r}")
                 await asyncio.sleep(fmapi_auth.REFRESH_INTERVAL_SECONDS)
@@ -734,21 +795,33 @@ class _LakebaseDependency(LifespanDependency):
         from .reapers import start_reapers
         start_reapers(app)
 
-        # ─── Eager SSE-stream cancellation on SIGTERM ────────────────────
+        # Event-loop stall watchdog + auto thread-dump capture (services/stall_detector.py).
+        # Needs the running loop, so it starts next to the reapers. Never fails boot.
+        try:
+            from ..services.stall_detector import start_stall_detector
+            await start_stall_detector()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[stall] watchdog did not start (non-fatal): {e!r}")
+
+        # ─── Eager cancellation of long-lived streams/connections on SIGTERM ──
         #
-        # Uvicorn's graceful shutdown drains all in-flight HTTP / SSE
+        # Uvicorn's graceful shutdown drains all in-flight HTTP / SSE / WS
         # connections BEFORE running FastAPI's lifespan teardown, so the
-        # teardown's `cancel_all()` (below) fires only after the drain
-        # wait has already elapsed. With an active SSE stream, the drain
-        # can hit the generator's 50 s reconnect window — 87 s on
-        # 2026-05-21T23:15:46Z — exceeding the Apps platform grace period
-        # and tripping a "crashed unexpectedly" alert despite a clean
-        # internal shutdown.
+        # teardown's cancel (below) fires only after the drain wait has
+        # already elapsed. Any long-lived connection left open makes the drain
+        # wait the full `--timeout-graceful-shutdown` window, and the teardown
+        # then overruns the Apps platform's ~15 s SIGKILL — a force-kill that
+        # 503s every in-flight request (prod 2026-08-26: "Cancel 9 running
+        # task(s), timeout graceful shutdown exceeded" → "App did not respect
+        # SIGTERM timeout of 15 seconds", 503s on /preview/{id}/{path}).
         #
-        # We hook SIGTERM/SIGINT and flip `is_cancelled=True` on every
-        # active stream before uvicorn starts draining, so the SSE
-        # generator loops exit on their next 100 ms poll. The teardown's
-        # `cancel_all()` then becomes an idempotent safety net.
+        # We hook SIGTERM/SIGINT and cancel every long-lived task before uvicorn
+        # starts draining: the AGENT SSE streams (ActiveStreamManager, whose
+        # generators exit on their next 100 ms poll) AND the preview
+        # reverse-proxy streams, preview-events SSE, and collab/HMR WebSockets
+        # (LiveConnectionRegistry — they park on I/O with no data arriving, so
+        # only task.cancel() unblocks them). Both via cancel_all_on_shutdown().
+        # The teardown's cancel (below) is then an idempotent safety net.
         #
         # We MUST chain to uvicorn's prior handler: uvicorn registers via
         # `signal.signal()` (not `loop.add_signal_handler`), so
@@ -757,8 +830,8 @@ class _LakebaseDependency(LifespanDependency):
         #
         # Signal-handler safety: CPython delivers signals on the main
         # thread between bytecodes (same thread the loop runs on), and
-        # `cancel_all()` only does a dict snapshot, flag writes, a list
-        # append (atomic under GIL) and `task.cancel()` — no awaits, no
+        # `cancel_all_on_shutdown()` only does set/dict snapshots, flag
+        # writes (atomic under GIL) and `task.cancel()` — no awaits, no
         # blocking C calls.
         import signal
 
@@ -768,19 +841,21 @@ class _LakebaseDependency(LifespanDependency):
         }
 
         def _eager_cancel_on_signal(signum, frame):
-            """Cancel active SSE streams, then chain to uvicorn's handler.
+            """Cancel active agent streams + long-lived preview/WS connections,
+            then chain to uvicorn's handler.
 
             Bounded to in-memory mutations + non-blocking `task.cancel()`.
             Errors are logged but swallowed — the signal must still reach
             uvicorn's handler for the server to actually exit.
             """
+            _arm_exit_watchdog()
             try:
-                from ..services.active_stream import get_stream_manager
-                cancelled = get_stream_manager().cancel_all()
-                if cancelled:
+                from ..services.shutdown import cancel_all_on_shutdown
+                n_streams, n_conns = cancel_all_on_shutdown()
+                if n_streams or n_conns:
                     logger.info(
-                        f"[shutdown-signal] cancelled {cancelled} active "
-                        f"stream(s) on signal {signum}"
+                        f"[shutdown-signal] cancelled {n_streams} agent stream(s) "
+                        f"+ {n_conns} preview/WS connection(s) on signal {signum}"
                     )
             except Exception as e:
                 logger.warning(f"[shutdown-signal] cancel_all failed: {e!r}")
@@ -814,6 +889,23 @@ class _LakebaseDependency(LifespanDependency):
                 f"Database initialization failed — aborting startup: {e}"
             ) from e
 
+        # Resume conversations interrupted by a hard crash (SP mode only). Fire-
+        # and-forget on a daemon thread — like template seeding, the app must not
+        # wait on it, and it must never break boot. No-ops unless a deployer SP is
+        # configured. Runs AFTER migrations (engine + models ready) and with
+        # engine/event_loop/file_sync all stashed on app.state above. Single
+        # replica (--workers 1) → no cross-replica double-fire.
+        def _resume_interrupted() -> None:
+            try:
+                from ..services.resume_agent import resume_interrupted_conversations
+                resume_interrupted_conversations(app)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[resume] boot resume task failed (non-fatal): {e!r}")
+
+        threading.Thread(
+            target=_resume_interrupted, name="resume-conversations", daemon=True
+        ).start()
+
         yield
 
         # ── Shutdown — every step has a hard timeout. ────────────────────
@@ -824,17 +916,30 @@ class _LakebaseDependency(LifespanDependency):
         # streams + agent subprocesses FIRST so nothing new lands in
         # the executor, then drain the executor with a deadline.
 
-        # 1. Cancel any still-running SSE streams + their agent tasks.
-        #    Normally a no-op — `_eager_cancel_on_signal` already
-        #    flipped every stream when SIGTERM arrived. Kept as a
-        #    fallback for paths where that handler couldn't be
-        #    installed (non-main-thread embedders) or wasn't invoked
-        #    (e.g. programmatic `Server.shutdown()`).
+        # 0. Stop preview web servers FIRST, before the DB teardown below. Uses the
+        #    same registry app.py exposes on app.state; app.py's own shutdown call
+        #    stays as an idempotent fallback. Bounded: a wedged child can't hold
+        #    the DB teardown hostage past the platform's SIGKILL window.
+        preview_registry = getattr(app.state, "preview_registry", None)
+        if preview_registry is not None:
+            try:
+                await asyncio.wait_for(preview_registry.shutdown(), timeout=8.0)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[shutdown] preview shutdown error: {e!r}")
+
+        # 1. Cancel any still-running agent streams + long-lived preview/WS
+        #    connections + their tasks. Normally a no-op — `_eager_cancel_on_signal`
+        #    already cancelled them when SIGTERM arrived. Kept as a fallback for
+        #    paths where that handler couldn't be installed (non-main-thread
+        #    embedders) or wasn't invoked (e.g. programmatic `Server.shutdown()`).
         try:
-            from ..services.active_stream import get_stream_manager
-            cancelled = get_stream_manager().cancel_all()
-            if cancelled:
-                logger.info(f"[shutdown] cancelled {cancelled} active stream(s)")
+            from ..services.shutdown import cancel_all_on_shutdown
+            n_streams, n_conns = cancel_all_on_shutdown()
+            if n_streams or n_conns:
+                logger.info(
+                    f"[shutdown] cancelled {n_streams} active stream(s) "
+                    f"+ {n_conns} preview/WS connection(s)"
+                )
         except Exception as e:
             logger.warning(f"[shutdown] stream cancel failed: {e!r}")
 
@@ -843,6 +948,13 @@ class _LakebaseDependency(LifespanDependency):
         #    stop_reapers; the fmapi refresher is cancelled here. cancel() is
         #    non-blocking; the coroutines may not unwind synchronously but the
         #    event loop is about to be torn down anyway.
+        #    The stall watchdog goes first: stopping the loop heartbeat must not
+        #    look like a stall to a watchdog that is still running.
+        try:
+            from ..services.stall_detector import stop_stall_detector
+            await stop_stall_detector()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[shutdown] stall watchdog stop failed: {e!r}")
         try:
             from .reapers import stop_reapers
             await stop_reapers(app)
@@ -869,10 +981,11 @@ class _LakebaseDependency(LifespanDependency):
             logger.warning(f"[shutdown] client pool shutdown error: {e!r}")
 
         # 4. Drain the executor used for DB init / sync writes. Bound
-        #    to 5s — anything still running gets dropped on the floor.
+        #    to 5s — anything still running gets dropped on the floor. Awaited, not
+        #    blocking .result(), so the event loop keeps serving while we wait.
         try:
-            db_future.result(timeout=5)
-        except FuturesTimeoutError:
+            await asyncio.wait_for(asyncio.wrap_future(db_future), timeout=5)
+        except asyncio.TimeoutError:
             logger.warning("[shutdown] db init future overran 5s — abandoning")
         except Exception as e:
             logger.warning(f"[shutdown] db init future raised: {e!r}")

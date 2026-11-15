@@ -467,15 +467,12 @@ export function GuideProvider({ children }: GuideProviderProps) {
   }, []);
 
   // A start-card click deep-links to the home page with the matching entry
-  // tab pre-selected (index.tsx reads ?start=<mode>). Workshop is behind the
-  // preview flag, so also flip preview=on there or the tab won't render.
+  // tab pre-selected (index.tsx reads ?start=<mode>).
   const handleStart = useCallback(
     (mode: StartMode) => {
       setIsOpen(false);
       markSeen();
-      const search: Record<string, string> = { start: mode };
-      if (mode === "workshop") search.preview = "on";
-      navigate({ to: "/", search });
+      navigate({ to: "/", search: { start: mode } });
     },
     [navigate, markSeen],
   );
@@ -489,7 +486,8 @@ export function GuideProvider({ children }: GuideProviderProps) {
         setIsOpen(true);
         return;
       }
-      if (!window.localStorage.getItem(STORAGE_KEY)) {
+      // The showcase is a page people get linked to: let them read it first.
+      if (!window.localStorage.getItem(STORAGE_KEY) && window.location.pathname !== "/architecture-showcase") {
         setIsOpen(true);
       }
     } catch {

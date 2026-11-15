@@ -3,7 +3,14 @@
     {
       "name": "ds_metrics",
       "displayName": "Demand metrics",
-      "asset_name": "metrics_demand"
+      "queryLines": [
+        "-- Governed metric view, queried at its finest grain (week x product x DC) so every widget can SUM it.\n",
+        "-- (A metric-view asset_name dataset must be catalog-qualified, which dataset_catalog/dataset_schema can't rebind.)\n",
+        "SELECT `Week`, `Product`, `Category`, `Distribution Center`, `Region`, `Country`, `Country Code`, `Latitude`, `Longitude`,\n",
+        "  MEASURE(`Demand Units`) AS `Demand Units`\n",
+        "FROM metrics_demand\n",
+        "GROUP BY ALL"
+      ]
     },
     {
       "name": "ds_component_status",
@@ -59,14 +66,16 @@
         "WITH maxw AS (SELECT max(week) mw FROM demand_enriched),\n",
         "cmp AS (SELECT component_id FROM components WHERE component_name = :component),\n",
         "pl AS (SELECT plant_id FROM plants WHERE plant_name = :plant),\n",
-        "inv AS (SELECT sum(on_hand_units) oh, sum(safety_stock_units) ss, sum(weekly_supply_units) s FROM inventory WHERE component_id = (SELECT component_id FROM cmp) AND plant_id = (SELECT plant_id FROM pl)),\n",
+        "inv AS (SELECT sum(on_hand_units) oh, sum(safety_stock_units) ss FROM inventory WHERE component_id = (SELECT component_id FROM cmp) AND plant_id = (SELECT plant_id FROM pl)),\n",
         "hist AS (SELECT d.week w, sum(d.demand_units*b.qty_per_unit) dmd FROM demand_enriched d JOIN bom b ON d.product_id=b.product_id WHERE b.component_id=(SELECT component_id FROM cmp) AND ((:plant = 'Rotterdam Plant' AND d.region IN ('EMEA','APAC')) OR (:plant = 'Detroit Plant' AND d.region IN ('AMER','LATAM'))) GROUP BY 1),\n",
         "rr AS (SELECT avg(dmd) run_rate FROM hist WHERE w >= DATE'2026-05-01'),\n",
-        "future AS (SELECT explode(sequence((SELECT mw FROM maxw), DATE'2026-09-21', INTERVAL 1 WEEK)) AS w),\n",
+        "-- reconstruct recent on-hand: current snapshot + demand consumed since each past week (inventory was higher before the surge drew it down)\n",
+        "recent AS (SELECT w, dmd FROM hist WHERE w >= DATE'2026-04-06' AND w <= (SELECT mw FROM maxw)),\n",
+        "back AS (SELECT w, (SELECT oh FROM inv) + COALESCE(SUM(dmd) OVER (ORDER BY w DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS onhand FROM recent),\n",
+        "future AS (SELECT explode(sequence((SELECT mw FROM maxw), DATE'2026-08-10', INTERVAL 1 WEEK)) AS w),\n",
         "proj AS (SELECT w, (ROW_NUMBER() OVER (ORDER BY w)) AS k FROM future),\n",
-        "fcast AS (SELECT w, GREATEST((SELECT oh FROM inv) - (k-1) * (SELECT run_rate FROM rr), 0) AS onhand FROM proj),\n",
-        "actuals AS (SELECT w FROM hist WHERE w >= DATE'2026-03-01' AND w < (SELECT mw FROM maxw))\n",
-        "SELECT w AS week, CAST((SELECT oh FROM inv) AS DOUBLE) AS actual_on_hand, CAST(NULL AS DOUBLE) AS forecast_on_hand, (SELECT ss FROM inv) AS safety_stock FROM actuals\n",
+        "fcast AS (SELECT w, GREATEST((SELECT oh FROM inv) - (k-1) * (SELECT run_rate FROM rr), 0) AS onhand FROM proj)\n",
+        "SELECT w AS week, CAST(onhand AS DOUBLE) AS actual_on_hand, CAST(NULL AS DOUBLE) AS forecast_on_hand, (SELECT ss FROM inv) AS safety_stock FROM back\n",
         "UNION ALL\n",
         "SELECT w AS week, CAST(NULL AS DOUBLE), onhand, (SELECT ss FROM inv) FROM fcast\n",
         "ORDER BY week"
@@ -159,9 +168,9 @@
             "name": "title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Supply Chain — are we about to run out of a part?\n",
+                "# Supply Chain \u2014 are we about to run out of a part?\n",
                 "\n",
-                "A demand surge is quietly burning through our **Battery Cells**. At the **Rotterdam** plant only ~2 weeks of stock remain — but the supplier needs **8 weeks** to restock. Catch it now, or the line stops."
+                "A demand surge is quietly burning through our **Battery Cells**. At the **Rotterdam** plant only ~2 weeks of stock remain \u2014 but the supplier needs **8 weeks** to restock. Catch it now, or the line stops."
               ]
             }
           },
@@ -194,7 +203,7 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "Battery Cell — weeks of cover",
+                "title": "Battery Cell \u2014 weeks of cover",
                 "showDescription": false
               },
               "widgetType": "counter",
@@ -251,7 +260,7 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Battery Cell — projected stockout"
+                "title": "Battery Cell \u2014 projected stockout"
               }
             }
           },
@@ -325,8 +334,8 @@
                       "expression": "`Week`"
                     },
                     {
-                      "name": "measure(Demand Units)",
-                      "expression": "MEASURE(`Demand Units`)"
+                      "name": "sum(Demand Units)",
+                      "expression": "SUM(`Demand Units`)"
                     }
                   ],
                   "disaggregated": false,
@@ -344,7 +353,7 @@
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "measure(Demand Units)",
+                  "fieldName": "sum(Demand Units)",
                   "displayName": "Weekly demand"
                 },
                 "period": {
@@ -464,7 +473,7 @@
               ],
               "frame": {
                 "showTitle": true,
-                "title": "Battery Cell on-hand at Rotterdam — projected to run out in ~2 weeks"
+                "title": "Battery Cell on-hand at Rotterdam \u2014 projected to run out in ~2 weeks"
               }
             }
           },
@@ -532,7 +541,7 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Weeks of cover by component & plant — the Battery Cell is short at both plants"
+                "title": "Weeks of cover by component & plant \u2014 the Battery Cell is short at both plants"
               }
             }
           },
@@ -720,7 +729,7 @@
               ],
               "frame": {
                 "showTitle": true,
-                "title": "Weekly demand by product (stacked) — City E-Bike jumps after the new EMEA market opens"
+                "title": "Weekly demand by product (stacked) \u2014 City E-Bike jumps after the new EMEA market opens"
               }
             }
           },
@@ -757,8 +766,8 @@
                   "datasetName": "ds_metrics",
                   "fields": [
                     {
-                      "name": "measure(Demand Units)",
-                      "expression": "MEASURE(`Demand Units`)"
+                      "name": "sum(Demand Units)",
+                      "expression": "SUM(`Demand Units`)"
                     },
                     {
                       "name": "Latitude",
@@ -790,7 +799,7 @@
                   }
                 },
                 "color": {
-                  "fieldName": "measure(Demand Units)",
+                  "fieldName": "sum(Demand Units)",
                   "displayName": "Demand",
                   "scale": {
                     "type": "quantitative",
@@ -804,7 +813,7 @@
                   }
                 },
                 "size": {
-                  "fieldName": "measure(Demand Units)",
+                  "fieldName": "sum(Demand Units)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -850,7 +859,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Weeks of cover heatmap — red = at risk"
+                "title": "Weeks of cover heatmap \u2014 red = at risk"
               },
               "widgetType": "heatmap",
               "encodings": {
@@ -904,7 +913,7 @@
     },
     {
       "name": "why",
-      "displayName": "Why — demand driver",
+      "displayName": "Why \u2014 demand driver",
       "layout": [
         {
           "widget": {
@@ -913,7 +922,7 @@
               "lines": [
                 "# Why is the Battery Cell draining?\n",
                 "\n",
-                "Every e-bike uses the Battery Cell. A sharp demand surge in the City E-Bike from late April is consuming cells faster than they're replenished — and a map of where demand sits."
+                "Every e-bike uses the Battery Cell. A sharp demand surge in the City E-Bike from late April is consuming cells faster than they're replenished \u2014 and a map of where demand sits."
               ]
             }
           },
@@ -929,9 +938,9 @@
             "name": "why_fc_header",
             "multilineTextboxSpec": {
               "lines": [
-                "## Demand forecast — and what caused it\n",
+                "## Demand forecast \u2014 and what caused it\n",
                 "\n",
-                "A new EMEA market opened on 2026-04-20, lifting City E-Bike demand. The AI forecast shows the elevated demand continuing — which is what drains the Battery Cell."
+                "A new EMEA market opened on 2026-04-20, lifting City E-Bike demand. The AI forecast shows the elevated demand continuing \u2014 which is what drains the Battery Cell."
               ]
             }
           },
@@ -1047,11 +1056,11 @@
               "lines": [
                 "### The cause\n",
                 "\n",
-                "**City E-Bike — EMEA market launch**\n",
+                "**City E-Bike \u2014 EMEA market launch**\n",
                 "\n",
                 "- **Date:** 2026-04-20\n",
                 "- **Region:** EMEA\n",
-                "- A major new EMEA market opened, driving a sharp, sustained jump in City E-Bike demand — which (via the BOM) is what's draining the Battery Cell at Rotterdam."
+                "- A major new EMEA market opened, driving a sharp, sustained jump in City E-Bike demand \u2014 which (via the BOM) is what's draining the Battery Cell at Rotterdam."
               ]
             }
           },
@@ -1069,7 +1078,7 @@
               "lines": [
                 "## Every product uses the Battery Cell (BOM)\n",
                 "\n",
-                "The surge in any e-bike consumes shared Battery Cells — here's how many per unit, and where demand sits."
+                "The surge in any e-bike consumes shared Battery Cells \u2014 here's how many per unit, and where demand sits."
               ]
             }
           },
@@ -1119,7 +1128,7 @@
               },
               "frame": {
                 "showTitle": true,
-                "title": "Products using the Battery Cell (BOM) — all affected"
+                "title": "Products using the Battery Cell (BOM) \u2014 all affected"
               }
             }
           },
@@ -1135,9 +1144,9 @@
             "name": "why_region_header",
             "multilineTextboxSpec": {
               "lines": [
-                "## Demand by region — EMEA breaks away\n",
+                "## Demand by region \u2014 EMEA breaks away\n",
                 "\n",
-                "The new EMEA market lifts EMEA demand sharply, while every other region stays flat — confirming the launch is the driver."
+                "The new EMEA market lifts EMEA demand sharply, while every other region stays flat \u2014 confirming the launch is the driver."
               ]
             }
           },
@@ -1178,7 +1187,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Weekly demand by region — EMEA surges after the market opens"
+                "title": "Weekly demand by region \u2014 EMEA surges after the market opens"
               },
               "annotations": [
                 {
@@ -1217,7 +1226,21 @@
                   "fieldName": "region",
                   "displayName": "Region",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#3E8FD0"
+                      },
+                      {
+                        "value": "AMER",
+                        "color": "#2FB6C0"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#E0795A"
+                      }
+                    ]
                   }
                 }
               }
@@ -1244,8 +1267,8 @@
                       "expression": "`Region`"
                     },
                     {
-                      "name": "measure(Demand Units)",
-                      "expression": "MEASURE(`Demand Units`)"
+                      "name": "sum(Demand Units)",
+                      "expression": "SUM(`Demand Units`)"
                     }
                   ],
                   "disaggregated": false
@@ -1257,7 +1280,7 @@
               "widgetType": "pie",
               "encodings": {
                 "angle": {
-                  "fieldName": "measure(Demand Units)",
+                  "fieldName": "sum(Demand Units)",
                   "scale": {
                     "type": "quantitative"
                   },
@@ -1266,7 +1289,21 @@
                 "color": {
                   "fieldName": "Region",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "APAC",
+                        "color": "#3E8FD0"
+                      },
+                      {
+                        "value": "AMER",
+                        "color": "#2FB6C0"
+                      },
+                      {
+                        "value": "EMEA",
+                        "color": "#E0795A"
+                      }
+                    ]
                   },
                   "displayName": "Region"
                 },

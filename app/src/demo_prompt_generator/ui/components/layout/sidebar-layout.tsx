@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/sidebar";
 import SidebarUserFooter from "@/components/layout/sidebar-user-footer";
 import { ModeToggle } from "@/components/layout/mode-toggle";
-import { sageEmbedActive } from "@/lib/sage-embed";
 import Logo from "@/components/layout/logo";
 
 interface SidebarLayoutProps {
@@ -40,7 +39,7 @@ function SidebarLayout({ children }: SidebarLayoutProps) {
           <div className="h-4 w-px bg-border mx-1" />
           <span className="text-xs font-medium text-muted-foreground">Databricks Solution Builder</span>
           <div className="flex-1" />
-          {!sageEmbedActive() && <ModeToggle />}
+          <ModeToggle />
         </header>
         <div className="flex flex-1 justify-center overflow-auto">
           <div className="flex flex-1 flex-col gap-4 p-6 max-w-7xl">

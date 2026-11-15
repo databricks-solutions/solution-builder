@@ -104,7 +104,7 @@ function StackRow({ Icon, label, color, handleId, editMode, on }: { Icon: (p: { 
   return (
     <div className="relative flex h-9 w-full items-center gap-1.5 pr-3">
       <Icon className="h-9 w-9 shrink-0" style={color ? { color } : undefined} />
-      <span className="whitespace-nowrap text-[11px] font-semibold leading-none" style={color ? { color } : { color: "var(--foreground)" }}>{label}</span>
+      <span className="whitespace-nowrap font-semibold leading-none text-[11px]" style={color ? { color } : { color: "var(--foreground)" }}>{label}</span>
       <ConnectionDot id={handleId} side="r" editMode={editMode} dotOn={on} />
     </div>
   );
@@ -114,12 +114,13 @@ function StackRow({ Icon, label, color, handleId, editMode, on }: { Icon: (p: { 
 // short caption line below (from a `*_desc` param). The caption is muted + width-
 // clamped to ~2 lines so it adds context without blowing up the block; the box
 // height is already reserved for it in `medallionSize`.
-function LayerColumn({ Icon, label, color, desc }: { Icon: (p: { className?: string; style?: React.CSSProperties }) => ReactNode; label: string; color: string; desc?: string }) {
+// Under slide theme: bigger icon + label, desc suppressed.
+function LayerColumn({ Icon, label, color, desc, slide }: { Icon: (p: { className?: string; style?: React.CSSProperties }) => ReactNode; label: string; color: string; desc?: string; slide?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
       <Icon className="h-9 w-9 shrink-0" style={{ color }} />
-      <span className="text-[11px] font-semibold leading-none" style={{ color }}>{label}</span>
-      {desc && (
+      <span className="font-semibold leading-none text-[11px]" style={{ color }}>{label}</span>
+      {!slide && desc && (
         <span
           className="mt-0.5 max-w-[92px] text-center text-[9px] leading-tight text-muted-foreground"
           style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
@@ -177,9 +178,12 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
     prevSig.current = handleSig;
     updateNodeInternals(d.nodeId);
   }, [handleSig, d.nodeId, updateNodeInternals]);
+  const slide = d.theme === "slide";
   const forkRows = 1 + (fs ? 1 : 0) + (mv ? 1 : 0);
   // Size from the SHARED helper so the composite and the ReactFlow node box (the
-  // selection frame / resize handles) always agree.
+  // selection frame / resize handles) always agree. The box is THEME-INVARIANT —
+  // slide changes only the outer card look + suppresses layer descs, never the
+  // footprint or the internal icon/label sizes.
   const { w: natW, h: natH } = medallionSize(d.params);
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   // Title behaves like a box legend: double-click the top edge (or use the panel
@@ -229,10 +233,10 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
               onKeyDown={(e) => { if (e.key === "Enter") commitTitle(); else if (e.key === "Escape") setEditingTitle(null); e.stopPropagation(); }}
               onClick={(e) => e.stopPropagation()}
               placeholder="Title"
-              className="bg-transparent text-[12px] font-semibold leading-none text-foreground outline-none"
+              className="bg-transparent font-semibold leading-none text-foreground outline-none text-[12px]"
             />
           ) : (
-            <span className="truncate text-[12px] font-semibold leading-none text-foreground">{title}</span>
+            <span className={`truncate font-semibold leading-none text-foreground ${slide ? "text-[15px]" : "text-[12px]"}`}>{title}</span>
           )}
         </div>
       </div>
@@ -246,12 +250,12 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
         style={card.style}
       >
         <div className="flex h-full w-full flex-col px-3 pb-2 pt-2" style={{ transform: "scale(var(--cs, 1))", transformOrigin: "center" }}>
-          <div className={`flex min-h-0 flex-1 items-center justify-center ${hasLayerDesc ? "gap-2.5" : "gap-1"}`}>
+          <div className={`flex min-h-0 flex-1 items-center justify-center ${!slide && hasLayerDesc ? "gap-2.5" : "gap-1"}`}>
             {/* Bronze → Silver (icon + label + optional desc caption, stacked). */}
             {BRONZE_SILVER.map((l, i) => (
               <Fragment key={l.label}>
                 {i > 0 && <Connector />}
-                <LayerColumn Icon={l.Icon} label={l.label} color={l.color} desc={l.key === "bronze" ? bronzeDesc : silverDesc} />
+                <LayerColumn Icon={l.Icon} label={l.label} color={l.color} desc={l.key === "bronze" ? bronzeDesc : silverDesc} slide={slide} />
               </Fragment>
             ))}
             {/* Silver → (Gold | fork stack). A fan draws a line to EVERY row.
@@ -278,7 +282,7 @@ export const MedallionBlock = memo(function MedallionBlock({ data, selected }: N
                 {/* Non-fork Gold: the right-side `out-gold` anchor is provided by
                     MedallionPorts (a border-floating ConnectionDot), so this column
                     is purely visual. */}
-                <LayerColumn Icon={GoldLayerIcon} label="Gold" color="#d4a72c" desc={goldDesc} />
+                <LayerColumn Icon={GoldLayerIcon} label="Gold" color="#d4a72c" desc={goldDesc} slide={slide} />
               </>
             )}
           </div>

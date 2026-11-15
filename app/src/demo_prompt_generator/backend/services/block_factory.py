@@ -1,9 +1,9 @@
 """
-Block Factory — decomposes large documents into standard-format blocks.
+Block Factory — decomposes large documents into capability blocks.
 
 Two-phase LLM pipeline:
   1. Decompose: analyze the document, identify distinct topics, propose block specs
-  2. Generate: for each spec, produce a full block in the correct category format
+  2. Generate: for each spec, produce a full capability block
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 
 from ..models import (
-    BlockCategory,
     BlockFactoryRequest,
     BlockFactoryResponse,
     BlockSpec,
@@ -26,36 +25,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_DOC_CHARS = 60_000
 
-_CATEGORY_DIR = {
-    BlockCategory.DOMAIN: "domains",
-    BlockCategory.CAPABILITY: "capabilities",
-    BlockCategory.PATTERN: "patterns",
-}
+# Capability blocks live in this subdirectory of the solution-builder skill.
+_CAPABILITIES_DIR = "capabilities"
 
-# Section templates per category — these mirror existing blocks and act as the
+# Section template — mirrors the existing capability blocks and is the
 # structural contract the LLM must follow during generation.
-_CATEGORY_SECTIONS: dict[str, str] = {
-    "domain": """\
-## Terminology
-- **Term** — definition
-
-## KPIs and Baseline Metrics
-| KPI | Healthy Baseline | Red Flag |
-|-----|-----------------|----------|
-
-## Personas
-- **Name, Title** — what they care about
-
-## Data Entities and Relationships
-- **Entity** (key fields)
-
-## Regulatory and Compliance
-- **Regulation** — what it means for data
-
-## Common Pain Points and Use Cases
-1. **Use case** — description""",
-
-    "capability": """\
+_CAPABILITY_SECTIONS = """\
 ## What It Does
 {one paragraph}
 
@@ -78,36 +53,14 @@ example: config
 ```
 
 ## URL
-{product url}""",
-
-    "pattern": """\
-## Narrative Arc
-1. **Phase** -- description
-
-## Data Shape
-| Layer | Abstract Entity | Role |
-|-------|----------------|------|
-
-## Wow Moment Pattern
-{what makes the demo compelling}
-
-## Investigation / Discovery Flow
-1. Step description
-
-## Example Walkthrough Beats (5-Act Structure)
-| Act | Beat | What Happens |
-|-----|------|-------------|
-
-## Suggested Databricks Components
-- **Component** -- role in the pattern""",
-}
+{product url}"""
 
 
 def _blocks_root() -> Path:
     """Find the blocks/ directory in the solution-builder skill.
 
     Walks up from this file looking for the skill's references/blocks/
-    directory that contains the expected subdirectories.
+    directory that contains the capabilities subdirectory.
     """
     current = Path(__file__)
     for parent in current.parents:
@@ -115,7 +68,7 @@ def _blocks_root() -> Path:
             parent / ".claude" / "skills" / "databricks-solution-builder"
             / "references" / "blocks"
         )
-        if blocks.is_dir() and (blocks / "capabilities").is_dir():
+        if blocks.is_dir() and (blocks / _CAPABILITIES_DIR).is_dir():
             return blocks
     raise FileNotFoundError(
         "Cannot locate .claude/skills/databricks-solution-builder/references/blocks/"
@@ -163,14 +116,14 @@ class BlockFactory:
         doc_text = request.content[:_MAX_DOC_CHARS]
 
         # Phase 1: decompose into block specs
-        specs = self._decompose(doc_text, request.category_hint)
+        specs = self._decompose(doc_text)
         logger.info(f"Decomposed '{request.source_name}' into {len(specs)} blocks")
 
         # Phase 2: generate full block content for each spec
         generated: list[GeneratedBlock] = []
         for spec in specs:
             markdown = self._generate_block(spec, doc_text)
-            rel_path = f".claude/skills/databricks-solution-builder/references/blocks/{_CATEGORY_DIR[spec.category]}/{spec.slug}.md"
+            rel_path = f".claude/skills/databricks-solution-builder/references/blocks/{_CAPABILITIES_DIR}/{spec.slug}.md"
 
             block = GeneratedBlock(
                 spec=spec,
@@ -194,38 +147,22 @@ class BlockFactory:
     # Phase 1: Decompose
     # ------------------------------------------------------------------
 
-    def _decompose(
-        self,
-        doc_text: str,
-        category_hint: BlockCategory | None,
-    ) -> list[BlockSpec]:
-        """Analyze a document and propose block specs."""
-
-        category_guidance = ""
-        if category_hint:
-            category_guidance = (
-                f'\nThe user indicated these blocks should be "{category_hint.value}" blocks. '
-                f"Bias toward that category, but use a different one if a section clearly "
-                f"fits better elsewhere.\n"
-            )
+    def _decompose(self, doc_text: str) -> list[BlockSpec]:
+        """Analyze a document and propose capability block specs."""
 
         prompt = f"""\
 You are a document decomposition engine for a Databricks demo context system.
 
-The system uses three categories of reusable context blocks:
-- **domain**: Industry-specific context (terminology, KPIs, personas, data entities, regulations, pain points). One block per industry vertical or sub-vertical.
-- **capability**: Databricks platform feature guidance (what it does, when to use, config decisions, pitfalls, connections). One block per feature/product.
-- **pattern**: Analytical patterns that span industries (narrative arc, data shape, wow moment, investigation flow, walkthrough). One block per reusable analytical approach.
+The system's reusable context blocks describe Databricks platform capabilities: what a feature does, when to use it in a demo, config decisions, pitfalls, and how it connects to other components. One block per feature/product.
 
-Analyze the following document and decompose it into 2-10 focused blocks. Each block should be self-contained and cover a single topic. Avoid overlap between blocks.
-{category_guidance}
+Analyze the following document and decompose it into 2-10 focused capability blocks. Each block should be self-contained and cover a single topic. Avoid overlap between blocks.
+
 Return a JSON array of block specifications:
 ```json
 [
   {{
     "name": "Display Name",
     "slug": "lowercase-hyphenated-id",
-    "category": "domain|capability|pattern",
     "description": "One sentence describing what context this block provides to an LLM generating demos",
     "tags": ["tag1", "tag2"],
     "source_section": "Brief note on which part of the source document this maps to"
@@ -237,7 +174,6 @@ Rules:
 - Slugs must be lowercase, hyphen-separated, no spaces, unique across the list
 - Each block should map to 1-3 pages of the source document
 - Prefer fewer, meatier blocks over many thin ones
-- If the document is about a single industry, produce one domain block plus pattern/capability blocks for the specific use cases described
 - Tags should be 3-6 lowercase keywords useful for search
 
 DOCUMENT:
@@ -265,7 +201,6 @@ DOCUMENT:
             specs.append(BlockSpec(
                 name=item["name"],
                 slug=slug,
-                category=BlockCategory(item["category"]),
                 description=item.get("description", ""),
                 tags=item.get("tags", []),
                 source_section=item.get("source_section", ""),
@@ -280,26 +215,23 @@ DOCUMENT:
     def _generate_block(self, spec: BlockSpec, doc_text: str) -> str:
         """Generate a full block (frontmatter + markdown body) for one spec."""
 
-        section_template = _CATEGORY_SECTIONS[spec.category.value]
-
         prompt = f"""\
-Generate a context block for a Databricks demo generation system.
+Generate a capability context block for a Databricks demo generation system.
 
 Block specification:
 - Name: {spec.name}
-- Category: {spec.category.value}
 - Description: {spec.description}
 - Source section: {spec.source_section}
 
-The block MUST follow this exact structure for a "{spec.category.value}" block:
+The block MUST follow this exact structure:
 
 YAML frontmatter (between --- delimiters):
 - name: {spec.name}
-- category: {spec.category.value}
+- category: capability
 - disabled: false
 
 Then markdown body with these sections:
-{section_template}
+{_CAPABILITY_SECTIONS}
 
 Rules:
 - Extract specific, concrete details from the source document — real metrics, real terminology, real pain points. Do not generalize.
@@ -325,7 +257,7 @@ SOURCE DOCUMENT (extract relevant details for this block):
         if not cleaned.startswith("---"):
             cleaned = (
                 f"---\nname: {spec.name}\n"
-                f"category: {spec.category.value}\n"
+                f"category: capability\n"
                 f"disabled: false\n"
                 f"---\n\n{cleaned}"
             )
@@ -337,8 +269,8 @@ SOURCE DOCUMENT (extract relevant details for this block):
     # ------------------------------------------------------------------
 
     def _write_block(self, block: GeneratedBlock) -> None:
-        """Write a generated block to the blocks/ directory."""
-        target_dir = _blocks_root() / _CATEGORY_DIR[block.spec.category]
+        """Write a generated capability block to the blocks/capabilities/ directory."""
+        target_dir = _blocks_root() / _CAPABILITIES_DIR
         target_dir.mkdir(parents=True, exist_ok=True)
 
         target_file = target_dir / f"{block.spec.slug}.md"

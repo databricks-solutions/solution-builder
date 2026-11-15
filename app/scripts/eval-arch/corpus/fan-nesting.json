@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Fan nesting: one tile, four exits",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "horizontal",
+    "story": "Eval case: one lakehouse tile fans out from its RIGHT side to a same-row Genie agent and to three tiles stacked far below it inside a downstream box. The four lines must NEST (the higher exit's elbow sits nearer its own target, the lower exit's sits further out), never cross — the staging report that crossed beside the lakehouse. Do not fix it by moving the downstream box up; the fan itself has to nest.",
+    "columns": ["data", "genie", "consumers"],
+    "rowGrid": true,
+    "nodes": [
+      { "id": "lakehouse", "type": "sql-lakehouse", "col": "data", "row": 1 },
+      { "id": "genie", "type": "genie", "col": "genie", "row": 1 },
+      { "id": "thoughtspot", "type": "card", "title": "ThoughtSpot", "col": "consumers", "row": 3 },
+      { "id": "ci", "type": "card", "title": "CI Connector", "col": "consumers", "row": 4 },
+      { "id": "journey", "type": "card", "title": "Customer journey", "col": "consumers", "row": 5 },
+      { "id": "downstream", "type": "box", "title": "Downstream consumers", "wraps": ["thoughtspot", "ci", "journey"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "lakehouse@r", "to": "genie@l", "label": "Natural-language query" },
+      { "id": "e2", "from": "lakehouse@r", "to": "thoughtspot@l", "label": "~1m SLA" },
+      { "id": "e3", "from": "lakehouse@r", "to": "ci@l", "label": "Hourly share" },
+      { "id": "e4", "from": "lakehouse@r", "to": "journey@l", "label": "Delta Share" }
+    ]
+  }
+]

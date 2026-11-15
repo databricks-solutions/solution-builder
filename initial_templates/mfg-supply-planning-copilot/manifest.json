@@ -1,0 +1,10 @@
+{
+  "id": "mfg-supply-planning-copilot",
+  "name": "Supply Planning Copilot — S&OP Stock-out Mitigation & Inventory Optimization",
+  "customer": "Corvane Motion Systems",
+  "industry": "Manufacturing",
+  "narrative": "Elena Ruiz plans supply for Corvane Motion Systems' Dayton servo plant. SG-400 orders are up 46% since June, and a typhoon berth closure at the Port of Yantian has pushed her sole supplier's three containers of HX-220 gear-housing castings back by up to 25 days. The planner console runs AI_FORECAST on two years of orders, explodes it through the bill of materials and projects 13 weeks of inventory: Dayton runs out of housings in the week of October 12, 1,054 units short, $2.04M of servo orders at risk, including Tier-A customers like Atlas Warehouse Robotics.\n\nThe aha is in another plant's excess & obsolete report. Monterrey is holding 2,600 of the same housings, left over from the SG-300 line it sunset in May. When Elena asks the copilot to build a plan, it prices every lever. Nanhai's air freight costs $74K, needs VP approval and still leaves units short. The qualified alternate foundry arrives a week too late. A 5-day truck transfer from Monterrey costs about $14K and closes the gap without dropping below safety stock. The copilot stages that plan and cites the supply policy; Elena books it, and the plan is written to Lakebase and back to Delta, where the VP's dashboard and Genie see it.",
+  "dbdemos_tracker": {
+    "app_id": "mfg-supply-planning-copilot"
+  }
+}

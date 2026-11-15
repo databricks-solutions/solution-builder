@@ -1,0 +1,24 @@
+{
+    "short_description": "A broadcast + streaming network's premium Live Sports inventory is being sold at run-of-network prices after an ad-server migration, while four fall upfronts pace toward make-goods. ai_forecast projects avails, gold tables track pacing, spare in-target avails and eCPM vs rate card, and the Ad Yield Copilot app (Databricks App on Lakebase) builds a recovery plan with live lakehouse SQL and the Genie agent over the rate card, floor policy, make-good policy and IO terms — rebalancing the under-delivering IO onto the mis-priced premium inventory, restoring its floor and writing the plan back; the SVP Ad Revenue tracks yield in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "metric-views",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "zerobus",
+            "ml-model-serving",
+            "databricks-one",
+            "mlflow-tracing"
+        ]
+    },
+    "created_resources": {}
+}

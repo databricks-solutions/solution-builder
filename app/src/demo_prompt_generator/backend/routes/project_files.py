@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import io
+import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 import traceback
-import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from fastapi import HTTPException, Request, Response
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 from sqlmodel import select
 
 from ..core import Dependencies, create_router
@@ -57,7 +58,19 @@ from ..models import (
     compute_project_stage,
     merge_project_stage,
 )
+from ..services.cpu_pool import run_cpu
 from ..services.file_sync import FileSyncService, decompress_content
+from ..services.zip_builders import (  # noqa: F401 — re-exported for callers/tests
+    WORKSHOP_HTML_PATH,
+    _is_excluded_from_sync,
+    _is_excluded_path,
+    _is_hidden_from_listing,
+    _kit_slug,
+    _project_slug,
+    build_project_zip,
+    ZIP_TIMEOUT_S,
+    build_workshop_kit_zip,
+)
 from .projects import (
     ACCESS_VIEWER,
     _get_authorized_project,
@@ -75,111 +88,6 @@ PROJECTS_BASE_DIR = os.getenv("PROJECTS_BASE_DIR", "./projects")
 # Resolved once at import — used on hot paths (cache, watcher events).
 _PROJECTS_BASE_RESOLVED = Path(PROJECTS_BASE_DIR).resolve()
 
-# Files/folders to exclude from listing. Keep in sync with
-# file_watcher.IGNORE_PATTERNS and file_sync.PRUNE_DIRS.
-#
-# Exact names for directory pruning (matched per-segment in the walk).
-EXCLUDED_PATTERNS = {
-    # Managed elsewhere
-    ".claude",
-    ".databricks",
-    # Language package/artifact dirs
-    "node_modules",
-    "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
-    # Build output
-    "dist", "build", ".next", ".turbo", ".parcel-cache", "__dist__",
-    # VCS + OS
-    ".git",
-    ".DS_Store",
-}
-
-
-def _is_excluded_segment(segment: str) -> bool:
-    """True if a path segment (dir or file basename) should be hidden from
-    the file listing. Extends EXCLUDED_PATTERNS with glob rules for variant
-    names the set can't express literally:
-      - .venv*, venv* (covers .venv, venv, .venv-datagen, etc.)
-      - .tmp*         (hidden tempfile pattern like .tmpXXXXXX)
-      - *.tmp, *.tmp.* (tmp suffix/middle)
-    Keep in sync with file_watcher.IGNORE_PATTERNS."""
-    if segment in EXCLUDED_PATTERNS:
-        return True
-    if segment.startswith(".venv") or (
-        segment.startswith("venv") and (segment == "venv" or segment.startswith("venv-") or segment.startswith("venv."))
-    ):
-        return True
-    if segment.startswith(".tmp"):
-        return True
-    if segment.endswith(".tmp") or ".tmp." in segment:
-        return True
-    if segment == ".databrickscfg" or segment.startswith(".databrickscfg."):
-        return True
-    # Per-project FMAPI auth files (see core/fmapi_auth.py).
-    if segment == ".anthropic_token" or segment.startswith(".anthropic_token."):
-        return True
-    if segment == "get_anthropic_token.sh" or segment.startswith(".get_anthropic_token.sh."):
-        return True
-    return False
-
-
-# Two kinds of exclusion. The listing UI is stricter than the on-disk /
-# Lakebase sync layer:
-#
-#   _is_excluded_from_sync(rel_path) — what to keep off Lakebase entirely.
-#     Permits a small allowlist under `.claude/`:
-#       - `.claude/projects/**` (Claude Code transcripts — needed for
-#         session resume across container restarts)
-#       - `.claude/.claude.json` (CLI's live per-user config — losing it
-#         on restart loses queued prompts / resume targets)
-#     Rejects every other `.claude/` child (settings.json, skills/,
-#     .credentials.json, statsig/, todos/, ide/, backups/ — auth material,
-#     per-container caches, or auto-rotated snapshots that duplicate the
-#     live file). Backups are explicitly NOT synced: the live .claude.json
-#     already is, and shipping per-launch copies would bloat the mirror
-#     for no recovery value.
-#
-#   _is_hidden_from_listing(rel_path) — what to hide from the file viewer.
-#     Adds `.claude/**` to the deny list: transcripts and CLI config are
-#     implementation details, not user-facing files.
-#
-# Most callsites want _is_hidden_from_listing. The sync layer
-# (file_sync.py, the watcher) is the only place that should use the
-# more permissive _is_excluded_from_sync.
-def _is_excluded_from_sync(rel_path: str | Path) -> bool:
-    """Sync-layer exclusion. Use this when deciding what to send to
-    Lakebase. Permits `.claude/projects/**` (transcripts) + the live
-    `.claude/.claude.json` config; rejects every other `.claude/` child
-    including `.claude/backups/**`."""
-    parts = Path(rel_path).parts
-    if not parts:
-        return False
-    if parts[0] == ".claude":
-        if len(parts) == 2 and parts[1] == ".claude.json":
-            # Allowlist the live CLI config — keep this in sync with
-            # file_watcher.IGNORE_PATTERNS (which also allowlists it).
-            return False
-        if len(parts) >= 2 and parts[1] == "projects":
-            # Skip the literal `.claude/projects/` prefix when checking
-            # the rest of the path.
-            return any(_is_excluded_segment(p) for p in parts[2:])
-        return True
-    return any(_is_excluded_segment(p) for p in parts)
-
-
-def _is_hidden_from_listing(rel_path: str | Path) -> bool:
-    """Listing/UI exclusion. Stricter than _is_excluded_from_sync — we
-    don't want transcripts (or anything else under `.claude/`) showing up
-    in the file viewer."""
-    parts = Path(rel_path).parts
-    if not parts:
-        return False
-    if parts[0] == ".claude":
-        return True
-    return any(_is_excluded_segment(p) for p in parts)
-
-
-# Kept for back-compat — most callers want the stricter listing rule.
-_is_excluded_path = _is_hidden_from_listing
 
 
 # ---------------------------------------------------------------------------
@@ -306,11 +214,41 @@ def ensure_project_files_restored(
             logger.warning(f"[restore] fmapi auth provision failed for {project_id}: {e}")
 
         # (2) DB → disk restore only when no user-facing files exist locally.
-        if project_dir.exists() and _has_user_files(project_dir):
-            return
-        logger.info(f"Project folder missing or empty, restoring from DB: {project_id}")
-        file_sync.restore_project_from_db(project_id, session=session)
-        cache_evict_project(project_id)
+        if not (project_dir.exists() and _has_user_files(project_dir)):
+            logger.info(f"Project folder missing or empty, restoring from DB: {project_id}")
+            file_sync.restore_project_from_db(project_id, session=session)
+            cache_evict_project(project_id)
+
+        # (3) A fork's seed live demo, refreshed after the restore so the file never
+        # masks an empty folder. Covers projects forked before the fork wrote it. Once per
+        # project per process: a project's seed never changes, and only the startup seeder
+        # recomputes Template.live_demo, so a later call can't find anything new.
+        if project_id not in _seed_live_demo_synced:
+            try:
+                if _sync_seed_live_demo(project_id, project_dir, session):
+                    cache_evict_project(project_id)
+                _seed_live_demo_synced.add(project_id)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[restore] seed live demo refresh failed for {project_id}: {e}")
+
+
+# Projects whose seed live demo this process has already synced (see step 3 above).
+_seed_live_demo_synced: set[str] = set()
+
+
+def _sync_seed_live_demo(project_id: str, project_dir: Path, session) -> bool:
+    """Bring `context/seed-live-demo.json` in line with the project's seed template
+    (see services/live_demo.py). True when the file changed. Reads only the template's
+    `live_demo` column, never the whole row (it carries the screenshot)."""
+    from ..models import Template
+    from ..services.live_demo import sync_seed_live_demo
+
+    project = session.get(Project, project_id)
+    template_id = project.source_template_id if project else None
+    if not template_id or not project_dir.exists():
+        return False
+    live_demo = session.exec(select(Template.live_demo).where(Template.id == template_id)).first()
+    return sync_seed_live_demo(project_dir, template_id, live_demo)
 
 
 def _has_user_files(project_dir: Path) -> bool:
@@ -584,6 +522,17 @@ def cache_evict_project(project_id: str) -> None:
         _file_cache.pop(project_id, None)
 
 
+def forget_project(project_id: str) -> None:
+    """Drop ALL per-project file-route in-memory state — the file-listing cache
+    AND the per-project restore lock — so neither grows one entry per project
+    ever opened. Called on delete AND on the reaper's folder-cleanup (a reaped
+    project's cache/lock were previously orphaned forever, an O(projects) leak).
+    Lazily recreated on next access."""
+    cache_evict_project(project_id)
+    with _restore_locks_lock:
+        _restore_locks.pop(project_id, None)
+
+
 def remove_project_files_on_disk(project_id: str, *, file_sync=None) -> bool:
     """Delete a project's on-disk folder + drop its in-memory file caches,
     WITHOUT touching the database and WITHOUT the agent pool.
@@ -773,45 +722,61 @@ def list_project_files(
         # NEVER a viewer (would stamp their PAT into the owner's dir), and NEVER
         # a non-driver editor (would thrash the token the current driver's run
         # depends on and swap the CLI identity). Driver / owner-first only.
-        can_refresh = access != ACCESS_VIEWER and is_driver(session, project_id, user_email)
-        # Deploy target: resolve with the shared helper so this .databrickscfg
-        # writer, the resource-tile resolver, and the deploy path always agree —
-        # and so a later account-setting change can never repoint a project that's
-        # already built. PIN on open ONLY for a driver of an already-BUILT project
-        # (freezes a legacy pre-Model-3 project to its app-own host, where its
-        # resources live). A brand-new empty draft is NOT pinned here — it stays
-        # changeable via the home-page selector until its FIRST build (the deploy
-        # path pins it then). Viewers/non-drivers never pin.
-        _has_built = (
-            _user_target.project_has_built_resources(
-                request.app.state.file_sync, project_id, session=session
+        #
+        # ⚠️ HOT-PATH GUARD (2026-08 wedge fix): this block does NETWORKED
+        # control-plane work — target resolution + a token/`.databrickscfg`
+        # write. This SYNC endpoint runs in Starlette's shared (default-40)
+        # threadpool, and the UI hammers `?force=true` after EVERY agent file
+        # write (tool-completion / file_changed) during a build. Doing the
+        # networked work on every one of those refreshes piled slow/hung calls
+        # onto the threadpool → saturation → the app went RUNNING-but-not-serving
+        # (a monitor then restarted it). A `force=true` refresh is ALWAYS a
+        # post-write file-list poll (or the manual Refresh button) — it never
+        # needs the token re-minted or the target re-resolved. So we SKIP the
+        # control-plane work on force; the NON-force load (project open, tab
+        # switch, the periodic refetch) still does the full refresh, which is the
+        # only path that actually needs it. `loadProject` opens with a non-force
+        # list, so a freshly-opened project always gets its `.databrickscfg`.
+        if not force:
+            can_refresh = access != ACCESS_VIEWER and is_driver(session, project_id, user_email)
+            # Deploy target: resolve with the shared helper so this .databrickscfg
+            # writer, the resource-tile resolver, and the deploy path always agree —
+            # and so a later account-setting change can never repoint a project that's
+            # already built. PIN on open ONLY for a driver of an already-BUILT project
+            # (freezes a legacy pre-Model-3 project to its app-own host, where its
+            # resources live). A brand-new empty draft is NOT pinned here — it stays
+            # changeable via the home-page selector until its FIRST build (the deploy
+            # path pins it then). Viewers/non-drivers never pin.
+            _has_built = (
+                _user_target.project_has_built_resources(
+                    request.app.state.file_sync, project_id, session=session
+                )
+                if _user_target is not None
+                else False
             )
-            if _user_target is not None
-            else False
-        )
-        effective_target = (
-            _user_target.resolve_and_pin_project_target(
-                project=_project,
-                user_email=user_email,
-                session=session,
+            effective_target = (
+                _user_target.resolve_and_pin_project_target(
+                    project=_project,
+                    user_email=user_email,
+                    session=session,
+                    config=config,
+                    has_built_resources=_has_built,
+                    can_pin=(can_refresh and _has_built),
+                )
+                if _user_target is not None
+                else None
+            )
+            wrote = _ensure_project_databrickscfg(
+                project_dir,
+                headers,
+                can_write=can_refresh,
                 config=config,
-                has_built_resources=_has_built,
-                can_pin=(can_refresh and _has_built),
+                target_workspace_host=effective_target,
             )
-            if _user_target is not None
-            else None
-        )
-        wrote = _ensure_project_databrickscfg(
-            project_dir,
-            headers,
-            can_write=can_refresh,
-            config=config,
-            target_workspace_host=effective_target,
-        )
-        if wrote:
-            # The driver just refreshed their token on this project open → stamp
-            # the freshness clock so non-drivers know the token is current.
-            claim_driver(session, project_id, user_email)
+            if wrote:
+                # The driver just refreshed their token on this project open → stamp
+                # the freshness clock so non-drivers know the token is current.
+                claim_driver(session, project_id, user_email)
 
         if include_hidden:
             # Debug view — walk fresh, include hidden, do NOT cache.
@@ -835,6 +800,22 @@ def list_project_files(
     except Exception as e:
         logger.error(f"list_project_files error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# A single-file read loads the whole file into memory (then base64s binaries).
+# Viewer + brand assets are small; anything bigger is rejected instead of buffered.
+MAX_FILE_READ_BYTES = 10 * 1024 * 1024
+
+
+def _check_read_size(size: int | None, file_path: str) -> None:
+    if size is not None and size > MAX_FILE_READ_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"'{file_path}' is {size:,} bytes; single-file reads are capped at "
+                f"{MAX_FILE_READ_BYTES:,} bytes"
+            ),
+        )
 
 
 @router.get(
@@ -899,6 +880,7 @@ def get_project_file(
     if disk_path.is_file():
         # Hot path: serve straight from disk. No DB hit.
         try:
+            _check_read_size(disk_path.stat().st_size, file_path)
             content = disk_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             import base64
@@ -925,6 +907,7 @@ def get_project_file(
         mark("db_fallback_query")
         if file_record is None:
             raise HTTPException(status_code=404, detail="File not found")
+        _check_read_size(file_record.file_size, file_path)
         try:
             raw = decompress_content(file_record.content_compressed)
             content = raw.decode("utf-8")
@@ -1115,11 +1098,107 @@ def save_architecture_snapshot(
     return ArchitectureSnapshotResult(path="architecture.png", size=len(raw))
 
 
+DECK_DIR = "deck"
+
+
+def resolve_deck_file(project_dir: Path, file_path: str) -> Path | None:
+    """Return the file under `<project>/deck/` that `file_path` names, or None.
+
+    The POV deck (stages/pov-deck.md) is a set of linked HTML files: the deck opens
+    its presenter view by relative URL, so the files must be served as real pages,
+    not as the JSON the file viewer reads. Only files inside `deck/` are served, so
+    this route can never expose the project's secrets or code.
+    """
+    deck_dir = (project_dir / DECK_DIR).resolve()
+    candidate = (deck_dir / file_path).resolve()
+    try:
+        candidate.relative_to(deck_dir)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+# Every deck response is sandboxed by header, not only by the Deck tab's iframe
+# attribute: the deck is agent-written HTML, and it also opens in a new tab and as a
+# presenter popup, where no iframe attribute applies. Without allow-same-origin the
+# deck runs as an opaque origin, so its script cannot call /api/* as the viewer
+# (code review 2026-10-20, finding 1). html-it decks already work from an opaque
+# origin (file://): storage calls are guarded and postMessage checks for "null".
+DECK_CSP = (
+    "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox "
+    "allow-modals allow-downloads allow-forms"
+)
+
+
+def deck_file_response(project_dir: Path, file_path: str) -> FileResponse | None:
+    """The sandboxed response for one deck file, or None when no such file is under `deck/`."""
+    import mimetypes
+
+    disk_path = resolve_deck_file(project_dir, file_path)
+    if disk_path is None:
+        return None
+    media_type = mimetypes.guess_type(disk_path.name)[0] or "application/octet-stream"
+    if media_type.startswith("text/"):
+        media_type += "; charset=utf-8"
+    return FileResponse(
+        disk_path,
+        media_type=media_type,
+        headers={
+            # no-store: the agent rewrites the deck in place, and a cached copy would hide the change
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": DECK_CSP,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get(
+    "/projects/{project_id}/deck/{file_path:path}",
+    operation_id="getProjectDeckFile",
+    response_class=FileResponse,
+    responses={200: {"content": {"text/html": {}}}},
+)
+def get_project_deck_file(
+    project_id: str,
+    file_path: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    request: Request,
+):
+    """Serve a POV deck file (`deck/*`) as a real page, so the deck's presenter
+    window and relative links work in the Deck tab and in a full-screen tab.
+
+    Kept cheap, since the deck, its presenter, and the runbook each load it: the access
+    check always runs, but the restore (lock, skill and auth checks) runs only when the
+    project folder is missing."""
+    user_email = _get_user_email(headers)
+    _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+    if not project_dir.is_dir():
+        ensure_project_files_restored(project_id, project_dir, request.app.state.file_sync, session)
+
+    if file_path.endswith(".html"):
+        # A deck built before the newest kit patches gets them in place, keeping its edits
+        # (services/deck_upgrade.py). After the first load this is one small file read.
+        from ..services.deck_upgrade import upgrade_built_deck
+        upgrade_built_deck(project_dir)
+    response = deck_file_response(project_dir, file_path)
+    if response is None:
+        raise HTTPException(status_code=404, detail="Deck file not found")
+    # Release the DB connection before the file streams: nothing below needs it, and
+    # a held connection would sit checked out for the whole send.
+    if session is not None:  # tests call the handler directly without a session
+        session.close()
+    return response
+
+
 @router.get(
     "/projects/{project_id}/download",
     operation_id="downloadProjectAsZip",
 )
-def download_project_as_zip(
+async def download_project_as_zip(
     project_id: str,
     session: Dependencies.Session,
     headers: Dependencies.Headers,
@@ -1128,11 +1207,15 @@ def download_project_as_zip(
 ):
     """Download all project files as a zip archive."""
     user_email = _get_user_email(headers)
-    project = _get_authorized_project(session, project_id, user_email, config.template_admin_emails)
+    # DB + restore work stays on a thread; the zip is built in the CPU pool.
+    project = await asyncio.to_thread(
+        _get_authorized_project, session, project_id, user_email, config.template_admin_emails
+    )
 
     project_dir = _PROJECTS_BASE_RESOLVED / project_id
 
-    ensure_project_files_restored(
+    await asyncio.to_thread(
+        ensure_project_files_restored,
         project_id,
         project_dir,
         request.app.state.file_sync,
@@ -1142,31 +1225,70 @@ def download_project_as_zip(
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project directory not found")
 
-    # Create zip in memory
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for file_path in project_dir.rglob("*"):
-            # Skip directories
-            if file_path.is_dir():
-                continue
+    zip_bytes = await run_cpu(build_project_zip, project_dir, timeout=ZIP_TIMEOUT_S)
 
-            # Skip excluded patterns — but keep .claude/projects/** so the
-            # download bundles the transcript alongside the project sources.
-            rel_path = file_path.relative_to(project_dir)
-            if _is_excluded_path(rel_path):
-                continue
+    filename = f"{_project_slug(project.name)}.zip"
 
-            # Add file to zip
-            zip_file.write(file_path, rel_path)
+    # One body, not StreamingResponse(BytesIO): that iterates the zip LINE by
+    # line (~250-byte chunks, a threadpool hop each) — measured 13s of CPU for
+    # 30 MB on the single event-loop core; a big project ran past the proxy's
+    # timeout and stalled every other request meanwhile.
+    return Response(
+        zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
-    zip_buffer.seek(0)
 
-    # Generate a clean filename from project name
-    safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in project.name)
-    filename = f"{safe_name}.zip"
+# ---------------------------------------------------------------------------
+# Genie Code workshop attendee kit
+#
+# The hand-off a customer/attendee actually needs: the workshop page, the
+# demo context Genie Code reads (CONTEXT.md), the specs, the data generator,
+# and a short README. Deliberately an ALLOWLIST — never .claude/ (transcripts,
+# CLI config), context/ (brief + uploads), brand internals, or the rest of the
+# project tree. Used by the workshop tab's "Download kit" action.
+# ---------------------------------------------------------------------------
 
-    return StreamingResponse(
-        zip_buffer,
+
+
+@router.get(
+    "/projects/{project_id}/workshop-kit",
+    operation_id="downloadWorkshopKit",
+)
+async def download_workshop_kit(
+    project_id: str,
+    session: Dependencies.Session,
+    headers: Dependencies.Headers,
+    config: Dependencies.Config,
+    request: Request,
+):
+    """Download the Genie Code workshop attendee kit as a zip."""
+    user_email = _get_user_email(headers)
+    project = await asyncio.to_thread(
+        _get_authorized_project, session, project_id, user_email, config.template_admin_emails
+    )
+
+    project_dir = _PROJECTS_BASE_RESOLVED / project_id
+    await asyncio.to_thread(
+        ensure_project_files_restored,
+        project_id,
+        project_dir,
+        request.app.state.file_sync,
+        session,
+    )
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project directory not found")
+
+    data = await run_cpu(build_workshop_kit_zip, project_dir, project.name, timeout=ZIP_TIMEOUT_S)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Workshop page not generated yet")
+
+    filename = f"{_kit_slug(project.name)}-workshop-kit.zip"
+    return Response(  # not StreamingResponse(BytesIO): see download_project_as_zip
+        data,
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
@@ -1182,15 +1304,17 @@ _RESOURCE_URL_PATTERNS: dict[str, tuple[str, str]] = {
     "dashboard_id": ("{host}/sql/dashboardsv3/{id}", "Dashboard"),
     "genie_space_id": ("{host}/genie/rooms/{id}", "Genie Space"),
     "warehouse_id": ("{host}/sql/warehouses/{id}", "SQL Warehouse"),
+    # Legacy KA/MAS links — kept so existing demos still link their resources.
     "knowledge_assistant_id": ("{host}/ml/bricks/ka/configure/{id}", "Knowledge Assistant"),
     "multi_agent_supervisor_id": ("{host}/ml/bricks/sa/configure/{id}", "Supervisor Agent"),
+    # documents_volume (a `/Volumes/...` path) is handled as a special case in
+    # _build_deployed_links — it isn't an id, so it can't go through this template.
     # mlflow_experiment_path handled separately below — needs an SDK
     # call to resolve the workspace path → experiment_id, then builds
     # `/ml/experiments/<id>/runs?o=<workspace_id>`.
-    # Lakebase project URL — the project UUID powers the entire DB page
-    # (DBs, branches, settings). Example URL:
-    #   {host}/lakebase/projects/<project-uuid>
-    "lakebase_project_id": ("{host}/lakebase/projects/{id}", "Lakebase"),
+    # NOTE: lakebase is NOT here — it needs a name→uid SDK resolve (the UI routes
+    # by the project UUID, but resources.json stores the NAME). Handled as a
+    # special case in _build_deployed_links via _resolve_lakebase_project_uid.
 }
 
 
@@ -1232,6 +1356,68 @@ def _resolve_mlflow_experiment_id(
             _MLFLOW_EXPERIMENT_ID_CACHE.pop(next(iter(_MLFLOW_EXPERIMENT_ID_CACHE)), None)
         _MLFLOW_EXPERIMENT_ID_CACHE[experiment_path] = str(exp_id)
         return str(exp_id)
+    return None
+
+
+# Lakebase project NAME → UUID cache. The Lakebase UI routes `/lakebase/projects/
+# <uid>` by the project's UUID. resources.json's `lakebase_project_id` is SUPPOSED
+# to hold that UUID (the skill + lakebase_setup_db.sh now record `get-project`'s
+# `uid` — see app.md), in which case _resolve returns it unchanged (fast path).
+# But EXISTING projects (created before that fix) stored the human NAME there
+# (e.g. `dbdemos-asset-generator`), which would 404 — so when the value isn't a
+# UUID we resolve name→uid via the SDK, cached. This heals old projects with no
+# data migration and is a harmless no-op for new ones. Drop-oldest bound like the
+# MLflow cache. Keyed by the stored ref (name), so only non-UUID values populate it.
+_LAKEBASE_PROJECT_UID_CACHE: dict[str, str] = {}
+_LAKEBASE_CACHE_MAX = 512
+
+# A canonical UUID (8-4-4-4-12 hex). When lakebase_project_id already holds one
+# (the current/expected shape), skip the SDK lookup and use it as-is.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _resolve_lakebase_project_uid(
+    ws: "WorkspaceClient | None",
+    project_ref: str,
+) -> str | None:
+    """Return the Lakebase project UUID the /lakebase/projects/<uid> page routes by.
+
+    `project_ref` is resources.json's `lakebase_project_id`:
+    - If it's already a UUID (the current/expected shape), return it unchanged.
+    - If it's a NAME (`dbdemos-asset-generator` — the shape older projects stored),
+      list projects and match on the name (last segment of the SDK's
+      `projects/<name>`), returning its `uid`. Cached in-process by name.
+    Returns None if the SDK is unavailable or no project matches — caller then
+    skips the link rather than emitting a dead one.
+    """
+    ref = (project_ref or "").strip()
+    if not ref:
+        return None
+    if _UUID_RE.match(ref):
+        return ref  # already a uid — nothing to resolve
+    if ws is None:
+        return None
+    cached = _LAKEBASE_PROJECT_UID_CACHE.get(ref)
+    if cached:
+        return cached
+    try:
+        for p in ws.postgres.list_projects():
+            # SDK `name` is `projects/<slug>`; match the slug against the ref.
+            name = getattr(p, "name", "") or ""
+            slug = name.split("/")[-1]
+            uid = getattr(p, "uid", None)
+            if slug == ref and uid:
+                if len(_LAKEBASE_PROJECT_UID_CACHE) >= _LAKEBASE_CACHE_MAX:
+                    _LAKEBASE_PROJECT_UID_CACHE.pop(
+                        next(iter(_LAKEBASE_PROJECT_UID_CACHE)), None
+                    )
+                _LAKEBASE_PROJECT_UID_CACHE[ref] = str(uid)
+                return str(uid)
+    except Exception as e:  # noqa: BLE001
+        logger.info(f"Lakebase project uid lookup failed for {ref!r}: {e}")
+        return None
     return None
 
 
@@ -1340,6 +1526,20 @@ def _build_deployed_links(
                 resource_id=f"{mv_cat}.{mv_schema}.{mv_name}",
             ))
 
+    # Documents volume (UC managed volume the Genie agent indexes). Canonical value
+    # is the path `/Volumes/<cat>/<sch>/<vol>`; the Catalog Explorer page is
+    # `/explore/data/volumes/<cat>/<sch>/<vol>`.
+    docs_volume = resources.get("documents_volume")
+    if docs_volume and host:
+        vol_path = docs_volume.removeprefix("/Volumes/").strip("/")
+        if vol_path.count("/") == 2:
+            links.append(DeployedResourceLink(
+                resource_type="documents_volume",
+                label="Documents volume",
+                url=f"{host}/explore/data/volumes/{vol_path}{o_param}",
+                resource_id=docs_volume,
+            ))
+
     # MLflow Registered Model (Unity Catalog). Canonical is fully-qualified
     # `catalog.schema.name`; fall back to project catalog/schema for bare names.
     ml_model_name = resources.get("ml_model_name")
@@ -1372,6 +1572,24 @@ def _build_deployed_links(
                 label="MLflow Experiment",
                 url=f"{host}/ml/experiments/{exp_id}/runs{o_param}",
                 resource_id=exp_id,
+            ))
+
+    # Lakebase project — resources.json stores the project NAME
+    # (`dbdemos-asset-generator`), but the /lakebase/projects/<uid> page routes
+    # by the project UUID. Resolve name→uid via the SDK (cached; no-op if the
+    # value is already a uid). Skip the link if it can't be resolved rather than
+    # emit a 404. Works for EXISTING projects with no data migration — resolution
+    # happens at render time off whatever's on disk. URL shape:
+    #   {host}/lakebase/projects/{uid}
+    lakebase_project_ref = resources.get("lakebase_project_id")
+    if lakebase_project_ref and host:
+        lb_uid = _resolve_lakebase_project_uid(ws, lakebase_project_ref)
+        if lb_uid:
+            links.append(DeployedResourceLink(
+                resource_type="lakebase_project",
+                label="Lakebase",
+                url=f"{host}/lakebase/projects/{lb_uid}",
+                resource_id=lb_uid,
             ))
 
     # Standard ID-based resources
@@ -1409,6 +1627,201 @@ def _build_deployed_links(
         ))
 
     return links
+
+
+# ── The deck's links: every built resource, not one per kind ─────────────────
+# The extractor keeps one slot per kind (one genie_space_id, no job, no skill), which
+# suits the overview tiles (keyed by type) but leaves a deck with five Genie Agents one
+# link. These helpers read resources.json directly for the rest, and are written only to
+# context/deployed-links.json, never to the UI's response.
+
+# (key suffix, plural key, resource_type, label, url template). The url template takes
+# the host and the id (or a /Workspace path for the skill).
+_EXTRA_KINDS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("genie_space_id", "genie_spaces", "genie_space", "Genie Space", "{host}/genie/rooms/{id}"),
+    ("dashboard_id", "dashboards", "dashboard", "Dashboard", "{host}/sql/dashboardsv3/{id}"),
+    ("job_id", "jobs", "job", "Job", "{host}/jobs/{id}"),
+    ("skill_path", "skills", "skill", "Genie Code skill", "{host}#workspace{id}"),
+)
+_ITEM_ID_KEYS = ("id", "space_id", "dashboard_id", "job_id", "path")
+_ITEM_NAME_KEYS = ("name", "title", "display_name", "label")
+
+# Apps service lookups: (host, app name) → running address. A miss is remembered for a
+# minute only, so a freshly deployed app is found soon, and a build's many fetches don't
+# each call the Apps service.
+_APP_URL_CACHE: dict[tuple[str, str], str] = {}
+_APP_URL_MISS: dict[tuple[str, str], float] = {}
+_APP_URL_MISS_TTL = 60.0
+# Target host → its workspace ID (never changes). A miss is retried after a minute, like the
+# app URL, so a failing target doesn't add a round trip to every resources fetch.
+_WS_ID_CACHE: dict[str, int] = {}
+_WS_ID_MISS: dict[str, float] = {}
+# IDs and skill paths come from agent-written resources.json and go into URLs in the deck's HTML,
+# so only characters a real Databricks ID or workspace path uses are accepted.
+_SAFE_RESOURCE_ID = re.compile(r"^[A-Za-z0-9_.\-/ ]+$")
+
+
+def _label_hint(key: str, suffix: str) -> str:
+    """`cash_working_capital_genie_space_id` → "cash working capital"; "" for the bare key."""
+    stem = key[: -len(suffix)] if key.endswith(suffix) else ""
+    for noise in ("_genie_code", "_genie"):
+        stem = stem.removesuffix(noise)
+    stem = stem.removeprefix("genie_code_")
+    return stem.replace("_", " ").replace("-", " ").strip()
+
+
+def _extra_ids(created: Any) -> list[tuple[int, str, str]]:
+    """(index into _EXTRA_KINDS, id, label hint) for every resource of those kinds."""
+    found: list[tuple[int, str, str]] = []
+
+    def item(i: int, value: Any, hint: str) -> None:
+        if isinstance(value, str):
+            found.append((i, value, hint))
+        elif isinstance(value, dict):
+            rid = next((value[k] for k in _ITEM_ID_KEYS if isinstance(value.get(k), (str, int))), None)
+            name = next((value[k] for k in _ITEM_NAME_KEYS if isinstance(value.get(k), str)), "")
+            if rid is not None:
+                found.append((i, str(rid), name or hint))
+
+    def walk(node: Any) -> None:
+        if isinstance(node, list):
+            for v in node:
+                walk(v)
+            return
+        if not isinstance(node, dict):
+            return
+        for key, value in node.items():
+            k = str(key).lower()
+            matched = False
+            for i, (suffix, plural, _t, _l, _u) in enumerate(_EXTRA_KINDS):
+                if k.endswith(suffix) and isinstance(value, (str, int)):
+                    item(i, str(value), _label_hint(k, suffix))
+                    matched = True
+                elif k == plural or k.endswith("_" + plural):
+                    values = value if isinstance(value, list) else [value]
+                    if isinstance(value, dict) and not any(x in value for x in _ITEM_ID_KEYS):
+                        # {"cash": "g1", "plan": "g2"}: the key is the label
+                        for name, rid in value.items():
+                            item(i, rid, str(name).replace("_", " "))
+                    else:
+                        for v in values:
+                            item(i, v, "")
+                    matched = True
+            if not matched:
+                walk(value)
+
+    walk(created)
+    return found
+
+
+def _app_runtime_url(ws: "WorkspaceClient | None", host: str, app_name: str) -> str | None:
+    """The deployed app's own address (https://<name>-<ws id>.<cloud>.databricksapps.com),
+    from the Apps service. None when the app is missing or has never been deployed."""
+    if ws is None or not app_name:
+        return None
+    key = (host, app_name)
+    cached = _APP_URL_CACHE.get(key)
+    if cached:
+        return cached
+    if time.monotonic() - _APP_URL_MISS.get(key, -_APP_URL_MISS_TTL) < _APP_URL_MISS_TTL:
+        return None
+    try:
+        app = ws.apps.get(name=app_name)
+        url = getattr(app, "url", None)
+        deployed = getattr(app, "active_deployment", None) is not None
+    except Exception:  # noqa: BLE001 — not found, no access, or no network: no link
+        url, deployed = None, False
+    if not (isinstance(url, str) and url.startswith("https://")) or not deployed:
+        _APP_URL_MISS[key] = time.monotonic()
+        return None
+    _APP_URL_MISS.pop(key, None)
+    _APP_URL_CACHE[key] = url
+    return url
+
+
+def _extra_deck_links(
+    raw_text: str,
+    host: str | None,
+    known: dict[str, str],
+    ws: "WorkspaceClient | None" = None,
+) -> list[DeployedResourceLink]:
+    """Links the extractor's one-per-kind slots leave out: every Genie Agent, dashboard,
+    job, and Genie Code skill in resources.json, plus the deployed app's own address.
+    `known` is the extractor's output; its IDs already have links and are skipped."""
+    host = (host or "").rstrip("/")
+    if not host:
+        return []
+    try:
+        data = json.loads(raw_text)
+    except (TypeError, ValueError):
+        return []
+    created = data.get("created_resources", data) if isinstance(data, dict) else data
+    seen = {v for v in known.values() if isinstance(v, str) and v}
+    links: list[DeployedResourceLink] = []
+    for i, rid, hint in _extra_ids(created):
+        rid = rid.strip()
+        suffix, _p, rtype, label, url = _EXTRA_KINDS[i]
+        if not rid or rid in seen or _is_placeholder_id(rid) or not _SAFE_RESOURCE_ID.match(rid):
+            continue
+        if rtype == "skill":
+            if not rid.startswith("/Workspace/"):
+                continue
+            hint = hint or rid.rstrip("/").rsplit("/", 1)[-1].replace("-", " ").replace("_", " ")
+        seen.add(rid)
+        links.append(DeployedResourceLink(
+            resource_type=rtype,
+            label=f"{label}: {hint}" if hint else label,
+            url=url.format(host=host, id=quote(rid, safe="/")),
+            resource_id=rid,
+        ))
+    runtime = _app_runtime_url(ws, host, known.get("app_name", ""))
+    if runtime:
+        links.append(DeployedResourceLink(
+            resource_type="app_runtime", label="App", url=runtime, resource_id=known.get("app_name"),
+        ))
+    return links
+
+
+def _deck_links(
+    links: list[DeployedResourceLink], extras: list[DeployedResourceLink]
+) -> list[DeployedResourceLink]:
+    """What context/deployed-links.json gets: the UI's links plus the extras. The running
+    app's address replaces the app's settings page, because the deck adds each app page's
+    path to the app's address."""
+    if any(e.resource_type == "app_runtime" for e in extras):
+        links = [link for link in links if link.resource_type != "app"]
+    return [*links, *extras]
+
+
+def _target_workspace_id(client: "WorkspaceClient") -> int | None:
+    """The workspace ID of the workspace `client` points at, asked of that workspace.
+
+    `WorkspaceClient.get_workspace_id()` returns `Config.workspace_id` without a call
+    when it is set, and on Apps the config reads DATABRICKS_WORKSPACE_ID: the app's OWN
+    workspace. So a deployer client for a remote target reported the app's ID, and every
+    target link's `?o=` pointed at the wrong workspace."""
+    try:
+        key = str(client.config.host or "").rstrip("/")
+    except Exception:  # noqa: BLE001
+        key = ""
+    if key in _WS_ID_CACHE:
+        return _WS_ID_CACHE[key]
+    if key and time.monotonic() - _WS_ID_MISS.get(key, -_APP_URL_MISS_TTL) < _APP_URL_MISS_TTL:
+        return None
+    try:
+        response = client.api_client.do(
+            "GET", "/api/2.0/preview/scim/v2/Me", response_headers=["X-Databricks-Org-Id"]
+        )
+        workspace_id = int(response["X-Databricks-Org-Id"])
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not read the target's workspace ID; links omit ?o=")
+        if key:
+            _WS_ID_MISS[key] = time.monotonic()
+        return None
+    if key:
+        _WS_ID_MISS.pop(key, None)
+        _WS_ID_CACHE[key] = workspace_id
+    return workspace_id
 
 
 def _maybe_reconcile_ownership(
@@ -1589,6 +2002,7 @@ def get_deployed_resources(
     # viewer (who has no target set) or a user who later changed their setting
     # still gets correct target-host links instead of the app-workspace fallback.
     link_ws = ws
+    target_unresolved = False
     try:
         # LEGACY GUARD: this endpoint already loaded resources.json into `raw_text`;
         # if it carries real created resources and the project has no pinned
@@ -1623,6 +2037,7 @@ def get_deployed_resources(
     except Exception:
         logger.warning("Could not build target client for resource links; using app workspace")
         link_ws = ws
+        target_unresolved = True
 
     # Cross-workspace ownership reconcile (Gate 1 = build-complete, Gate 2 =
     # self-heal on open — both ride this endpoint). Give the acting user
@@ -1646,12 +2061,30 @@ def get_deployed_resources(
         host = str(link_ws.config.host).rstrip("/") if link_ws.config.host else None
     except Exception:
         logger.warning("Could not resolve workspace host for resource URLs")
-    try:
-        workspace_id = link_ws.get_workspace_id()
-    except Exception:
-        logger.warning("Could not resolve workspace_id; app links will omit ?o=")
+    if link_ws is not ws:
+        # A remote target: ask it, because get_workspace_id() would return the app's own
+        # workspace from DATABRICKS_WORKSPACE_ID (see _target_workspace_id).
+        workspace_id = _target_workspace_id(link_ws)
+    else:
+        try:
+            workspace_id = link_ws.get_workspace_id()
+        except Exception:
+            logger.warning("Could not resolve workspace_id; app links will omit ?o=")
 
     links = _build_deployed_links(resources, host, workspace_id, ws=link_ws)
+
+    # Hand the links to the POV deck stage (context/deployed-links.json), which can't turn
+    # resources.json's IDs into addresses itself. Skipped when the target client failed,
+    # since the links would then point at the app's own workspace, and for a workshop, which
+    # has no deck. Best-effort.
+    if not target_unresolved and project.mode != "workshop":
+        try:
+            from ..services.live_demo import sync_deployed_links
+            extras = _extra_deck_links(raw_text, host, resources, ws=link_ws)
+            if sync_deployed_links(_PROJECTS_BASE_RESOLVED / project_id, _deck_links(links, extras)):
+                cache_evict_project(project_id)
+        except Exception:
+            logger.warning(f"Could not write deployed links for {project_id}", exc_info=True)
 
     # Get deployment timestamp from the file record (check both paths)
     deployed_at = None

@@ -4,12 +4,12 @@
 #
 # Run order for a full deploy:
 #   1. databricks bundle deploy   --var ...     # app shell + setup job
-#   2. databricks bundle run luxebeauty_setup   # creates data/genie/ka/mas,
+#   2. databricks bundle run luxebeauty_setup   # creates data/genie,
 #                                                  ends with export_resources
 #                                                  exiting a resources JSON
 #   3. ./app/scripts/finalize_app.sh            # THIS — wires env + deploys app
 #
-# Why a separate step (not in-bundle): the Genie/KA/MAS IDs only exist after
+# Why a separate step (not in-bundle): the Genie space ID only exist after
 # the setup job's SDK tasks run; the bundle can't know them at deploy time.
 # The job's `export_resources` task exits a JSON with everything; we read it
 # back here via `get-run-output` (the exit value IS retrievable post-run,
@@ -121,8 +121,6 @@ env_lines = [
     ("PIPELINE_ID", resources.get("pipeline_id", "")),
     ("AGENT_MLFLOW_EXPERIMENT_PATH", resources.get("agent_mlflow_experiment_path", "")),
     ("GENIE_SPACE_ID", resources.get("genie_space_id", "")),
-    ("KA_ENDPOINT_NAME", resources.get("ka_endpoint_name", "")),
-    ("MAS_ENDPOINT_NAME", resources.get("mas_endpoint_name", "")),
 ]
 
 # The agent-traces experiment path. If the harvest didn't produce it, the app

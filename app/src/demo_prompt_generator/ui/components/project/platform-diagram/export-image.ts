@@ -15,10 +15,11 @@
  * Instead we compute the tight bounding box of the actual node elements (in the
  * viewport's own, pre-zoom coordinate space), size the output canvas to exactly
  * that box + a small uniform pad, and render with a normalized transform
- * (translate the box to the origin, scale 1). Result: the image is exactly the
- * diagram's extent — no dead margin, nothing cut off — regardless of the live
- * pan/zoom. Works without a ReactFlow instance (pure DOM), so every caller
- * (in-app menu, standalone, agent snapshot) gets the same correct framing.
+ * (translate the box to the origin, scale 1). The authored architecture itself
+ * must be composed near 16:9 or 1:1; export never fakes that shape by adding dead
+ * space. Result: no dead margin, nothing cut off, regardless of live pan/zoom.
+ * Works without a ReactFlow instance (pure DOM), so every caller gets the same
+ * framing.
  */
 
 /** The transformed layer that holds the nodes (RF applies pan/zoom here as a
@@ -69,17 +70,16 @@ function contentBounds(viewport: HTMLElement): Box | null {
   return { minX, minY, width: maxX - minX, height: maxY - minY };
 }
 
-/** html-to-image options that crop+normalize to the content bounds. When there
- *  are no measurable nodes we fall back to the element's natural box (no
- *  transform override) so we never produce a zero-size image. */
+/** html-to-image options that crop+normalize to the authored content bounds.
+ *  When there are no measurable nodes, fall back to the element's natural box
+ *  so an empty canvas never becomes a zero-size image. */
 function framingOptions(viewport: HTMLElement, pad: number) {
   const box = contentBounds(viewport);
   if (!box) return {};
   const width = Math.ceil(box.width + pad * 2);
   const height = Math.ceil(box.height + pad * 2);
   // Translate so the top-left of the content (minus pad) sits at the origin,
-  // and drop the live zoom (scale 1) — html-to-image then rasterizes exactly
-  // the [width×height] region we sized to the diagram.
+  // and drop live zoom (scale 1). Aspect comes from the actual architecture.
   return {
     width,
     height,
@@ -102,9 +102,25 @@ export function downloadDataUrl(name: string, dataUrl: string) {
 /** Uniform padding (viewport px) around the diagram in the exported image. */
 const EXPORT_PAD = 32;
 
-/** Render the diagram to a PNG or SVG data-url and trigger a download. Framed
- *  to the full diagram's bounds (no dead space, nothing clipped) regardless of
- *  the current pan/zoom. */
+/** Run a capture with the document in STATIC mode (`arch-static`, see
+ *  globals.css): the flow-animation overlay is hidden, an animated edge draws as a
+ *  clean solid line, and it gets a target arrowhead so direction reads without
+ *  the motion. The class is removed in `finally`, so the live canvas resumes
+ *  animating; a capture that is already static (nested call) leaves it on. */
+async function asStatic<T>(capture: () => Promise<T>): Promise<T> {
+  const root = document.documentElement;
+  const wasStatic = root.classList.contains("arch-static");
+  root.classList.add("arch-static");
+  try {
+    return await capture();
+  } finally {
+    if (!wasStatic) root.classList.remove("arch-static");
+  }
+}
+
+/** Render the diagram to a PNG or SVG data-url and trigger a download. The
+ *  output tightly follows the authored architecture's presentation-ready bounds,
+ *  regardless of the current pan/zoom. The export is always a STATIC render. */
 export async function exportDiagramImage(kind: "png" | "svg", name = "architecture") {
   const el = captureTarget();
   if (!el) return;
@@ -115,14 +131,14 @@ export async function exportDiagramImage(kind: "png" | "svg", name = "architectu
     cacheBust: true,
     ...framingOptions(el, EXPORT_PAD),
   };
-  const dataUrl = kind === "png" ? await toPng(el, opts) : await toSvg(el, opts);
+  const dataUrl = await asStatic(() => (kind === "png" ? toPng(el, opts) : toSvg(el, opts)));
   downloadDataUrl(`${name}.${kind}`, dataUrl);
 }
 
 /** Capture the live diagram as a PNG data-url WITHOUT downloading it. Used by
  *  the passive auto-snapshot: the open tab POSTs this back so the agent can
  *  read a rendered image of the diagram. Returns null if the canvas isn't
- *  mounted (no tab-open / not on the Architecture tab). Same full-diagram
+ *  mounted (no tab-open / not on the Architecture tab). Same tight authored
  *  framing as the download so the agent sees the whole thing, not the user's
  *  current pan/zoom. */
 export async function captureDiagramPngDataUrl(): Promise<string | null> {
@@ -134,11 +150,11 @@ export async function captureDiagramPngDataUrl(): Promise<string | null> {
   // html-to-image trying to inline cross-origin Google Fonts CSS (which throws
   // a harmless SecurityError on cssRules); system fonts render fine for the
   // agent's snapshot.
-  return toPng(el, {
+  return asStatic(() => toPng(el, {
     backgroundColor: "#ffffff",
     pixelRatio: 1.5,
     cacheBust: true,
     skipFonts: true,
     ...framingOptions(el, EXPORT_PAD),
-  });
+  }));
 }

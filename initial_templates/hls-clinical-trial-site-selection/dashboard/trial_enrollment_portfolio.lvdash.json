@@ -1,0 +1,1310 @@
+{
+  "datasets": [
+    {
+      "name": "portfolio",
+      "displayName": "Portfolio",
+      "queryLines": [
+        "WITH cur AS (SELECT trial_id, max_by(cum_randomized, month_start) AS randomized, max_by(planned_cum_randomized, month_start) AS planned_to_date, max_by(active_sites, month_start) AS active_sites FROM gold_trial_enrollment_monthly GROUP BY trial_id)\n",
+        "SELECT t.acronym AS trial, t.phase, t.therapeutic_area, t.target_enrollment, c.randomized, c.planned_to_date,\n",
+        "  ROUND(c.randomized / c.planned_to_date, 3) AS pct_of_plan, c.active_sites, t.planned_lpi_date, t.study_manager\n",
+        "FROM trials t JOIN cur c USING (trial_id) ORDER BY pct_of_plan"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "portfolio_kpis",
+      "displayName": "Portfolio Kpis",
+      "queryLines": [
+        "WITH cur AS (SELECT trial_id, max_by(cum_randomized, month_start) AS randomized, max_by(planned_cum_randomized, month_start) AS planned FROM gold_trial_enrollment_monthly GROUP BY trial_id)\n",
+        "SELECT COUNT(*) AS active_trials, COUNT_IF(randomized / planned < 0.85) AS trials_behind_plan, SUM(randomized) AS randomized_total, ROUND(100 * MAX(CASE WHEN trial_id = 'CASCADE-CKD' THEN randomized / planned END), 1) AS cascade_pct_of_plan FROM cur\n"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "pct_of_plan_monthly",
+      "displayName": "Pct Of Plan Monthly",
+      "queryLines": [
+        "SELECT trial_id AS trial, month_start, ROUND(100 * cum_randomized / planned_cum_randomized, 1) AS pct_of_plan\n",
+        "FROM gold_trial_enrollment_monthly WHERE month_number >= 2 AND month_start < (SELECT MAX(month_start) FROM gold_trial_enrollment_monthly)"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "cascade_curve",
+      "displayName": "Cascade Curve",
+      "queryLines": [
+        "SELECT month_start, 'Actual' AS series, cum_randomized AS randomized FROM gold_trial_enrollment_monthly\n",
+        "WHERE trial_id = 'CASCADE-CKD' AND month_start < (SELECT MAX(month_start) FROM gold_trial_enrollment_monthly)\n",
+        "UNION ALL SELECT month_start, 'Plan' AS series, planned_cum_randomized FROM enrollment_plan\n",
+        "WHERE trial_id = 'CASCADE-CKD' AND month_start < (SELECT MAX(month_start) FROM gold_trial_enrollment_monthly)"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "cascade_kpis",
+      "displayName": "Cascade Kpis",
+      "queryLines": [
+        "SELECT MAX(cum_randomized) AS randomized, MAX_BY(planned_cum_randomized, month_start) AS planned_to_date,\n",
+        " (SELECT ROUND(COUNT_IF(outcome IN ('screen_failed','withdrawn')) / COUNT_IF(outcome <> 'in_screening'), 3) FROM screening_log WHERE trial_id = 'CASCADE-CKD') AS screen_fail_pct,\n",
+        " (SELECT COUNT_IF(is_zero_enroller) FROM gold_site_performance WHERE trial_id = 'CASCADE-CKD') AS zero_enrollers\n",
+        "FROM gold_trial_enrollment_monthly WHERE trial_id = 'CASCADE-CKD'"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "screen_fail_quarterly",
+      "displayName": "Screen Fail Quarterly",
+      "queryLines": [
+        "SELECT concat(year(screen_month), '-Q', quarter(screen_month)) AS quarter,\n",
+        "  CASE WHEN criterion_id IN ('E4','I3','E7','I2') THEN concat(criterion_id, ' ', criterion_name) ELSE 'Other criteria / consent' END AS reason,\n",
+        "  SUM(screen_failures) AS screen_failures\n",
+        "FROM gold_screen_fail_monthly\n",
+        "WHERE trial_id = 'CASCADE-CKD'\n",
+        "  AND screen_month < (SELECT DATE_TRUNC('QUARTER', MAX(screen_month)) FROM gold_screen_fail_monthly WHERE trial_id = 'CASCADE-CKD')\n",
+        "GROUP BY ALL"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "coded_vs_ai",
+      "displayName": "Coded Vs Ai",
+      "queryLines": [
+        "SELECT concat(criterion_id, ' ', REPLACE(criterion_name, '_', ' ')) AS criterion,\n",
+        "  SUM(ai_recovered_failures) AS recovered_by_ai_functions\n",
+        "FROM gold_screen_fail_monthly WHERE trial_id = 'CASCADE-CKD'\n",
+        "GROUP BY ALL ORDER BY recovered_by_ai_functions DESC LIMIT 6"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "activation",
+      "displayName": "Activation",
+      "queryLines": [
+        "SELECT irb_type, PERCENTILE(cycle_time_days, 0.5) AS median_days, COUNT(*) AS sites\n",
+        "FROM gold_site_performance WHERE cycle_time_days IS NOT NULL GROUP BY irb_type"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "cascade_sites",
+      "displayName": "Cascade Sites",
+      "queryLines": [
+        "SELECT site_name, city, state, irb_type, status, months_active, screened, randomized, randomized_per_month,\n",
+        "  ROUND(screen_fail_rate, 3) AS screen_fail_pct, cycle_time_days, competing_trial, is_zero_enroller\n",
+        "FROM gold_site_performance WHERE trial_id = 'CASCADE-CKD' ORDER BY randomized DESC"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "competitor",
+      "displayName": "Competitor",
+      "queryLines": [
+        "SELECT CASE WHEN has_competing_trial THEN 'Shares REDWOOD-CKD' ELSE 'Other active sites' END AS site_group, COUNT(*) AS sites,\n",
+        "  ROUND(SUM(randomized) / SUM(months_active), 2) AS randomized_per_site_month, ROUND(AVG(rand_per_month_since_competitor), 2) AS since_competitor\n",
+        "FROM gold_site_performance WHERE trial_id = 'CASCADE-CKD' AND status = 'active' GROUP BY ALL"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "sglt2_trend",
+      "displayName": "Sglt2 Trend",
+      "queryLines": [
+        "SELECT quarter_start, region, ROUND(100 * pct_on_sglt2i, 1) AS pct_on_sglt2i FROM population_trends\n",
+        "WHERE quarter_start < (SELECT MAX(quarter_start) FROM population_trends)"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "rescue_candidates",
+      "displayName": "Rescue Candidates",
+      "queryLines": [
+        "SELECT CAST(rescue_rank AS INT) AS rescue_rank, site_name, city, state, irb_type,\n",
+        "  CAST(eligible_current_protocol AS INT) AS eligible_current_protocol, CAST(eligible_amended_e4 AS INT) AS eligible_amended_e4,\n",
+        "  predicted_rate_current, predicted_rate_amended, est_activation_months, CAST(expected_randomized_12m AS INT) AS expected_randomized_12m\n",
+        "FROM site_scores WHERE rescue_eligible ORDER BY rescue_rank LIMIT 25"
+      ],
+      "catalog": "healthcare_lifesciences",
+      "schema": "clinical_trial_site_selection"
+    },
+    {
+      "name": "enrollment_monthly",
+      "displayName": "Enrollment by month (all trials)",
+      "queryLines": [
+        "SELECT month_start, SUM(cum_randomized) AS randomized_total\n",
+        "FROM gold_trial_enrollment_monthly WHERE month_start < (SELECT MAX(month_start) FROM gold_trial_enrollment_monthly)\n",
+        "GROUP BY month_start ORDER BY month_start"
+      ]
+    },
+    {
+      "name": "cascade_monthly",
+      "displayName": "CASCADE-CKD by month",
+      "queryLines": [
+        "SELECT month_start, cum_randomized AS randomized, planned_cum_randomized AS planned,\n",
+        "  cum_randomized / planned_cum_randomized AS pct_of_plan\n",
+        "FROM gold_trial_enrollment_monthly WHERE trial_id = 'CASCADE-CKD' AND month_start < (SELECT MAX(month_start) FROM gold_trial_enrollment_monthly) AND planned_cum_randomized > 0\n",
+        "ORDER BY month_start"
+      ]
+    },
+    {
+      "name": "screen_monthly",
+      "displayName": "CASCADE-CKD screen-fail rate by month",
+      "queryLines": [
+        "SELECT DATE_TRUNC('MONTH', screen_date) AS month_start,\n",
+        "  COUNT_IF(outcome IN ('screen_failed', 'withdrawn')) / COUNT_IF(outcome <> 'in_screening') AS screen_fail_rate\n",
+        "FROM screening_log\n",
+        "WHERE trial_id = 'CASCADE-CKD'\n",
+        "  AND DATE_TRUNC('MONTH', screen_date) < (SELECT DATE_TRUNC('MONTH', MAX(screen_date)) FROM screening_log WHERE trial_id = 'CASCADE-CKD')\n",
+        "GROUP BY 1 ORDER BY 1"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "portfolio",
+      "displayName": "Portfolio",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Halcyra clinical portfolio — enrollment vs plan\n",
+                "\n",
+                "Five active trials. **CASCADE-CKD** (Phase III, T2D + CKD) has randomized little more than half of its planned patients — every other study is within ~25% of plan."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "portfolio_kpis",
+                  "fields": [
+                    {
+                      "name": "active_trials",
+                      "expression": "`active_trials`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "active_trials",
+                  "displayName": "Active trials"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Active trials"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "portfolio_kpis",
+                  "fields": [
+                    {
+                      "name": "trials_behind_plan",
+                      "expression": "`trials_behind_plan`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "trials_behind_plan",
+                  "displayName": "Trials > 15% behind plan"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Trials > 15% behind plan"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 2,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "enrollment_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(randomized_total)",
+                      "expression": "SUM(`randomized_total`)"
+                    },
+                    {
+                      "name": "monthly(month_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(randomized_total)",
+                  "displayName": "Patients randomized, all trials"
+                },
+                "period": {
+                  "fieldName": "monthly(month_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Patients randomized, all trials"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(pct_of_plan)",
+                      "expression": "SUM(`pct_of_plan`)"
+                    },
+                    {
+                      "name": "monthly(month_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(pct_of_plan)",
+                  "displayName": "CASCADE-CKD % of plan",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CASCADE-CKD % of plan"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "pct_of_plan_monthly",
+                  "fields": [
+                    {
+                      "name": "month_start",
+                      "expression": "`month_start`"
+                    },
+                    {
+                      "name": "pct_of_plan",
+                      "expression": "`pct_of_plan`"
+                    },
+                    {
+                      "name": "trial",
+                      "expression": "`trial`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "pct_of_plan",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% of plan"
+                },
+                "color": {
+                  "fieldName": "trial",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "CASCADE-CKD",
+                        "color": "#D7263D"
+                      },
+                      {
+                        "value": "TIDEWATER-HF",
+                        "color": "#B8C2CC"
+                      },
+                      {
+                        "value": "SENTRY-AF",
+                        "color": "#9AA5B1"
+                      },
+                      {
+                        "value": "ORCHID-1",
+                        "color": "#7B8794"
+                      },
+                      {
+                        "value": "LUMEN-MASH",
+                        "color": "#CBD2D9"
+                      }
+                    ]
+                  },
+                  "displayName": "Trial"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cumulative randomized, % of plan: CASCADE-CKD vs the rest"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "activation",
+                  "fields": [
+                    {
+                      "name": "irb_type",
+                      "expression": "`irb_type`"
+                    },
+                    {
+                      "name": "median_days",
+                      "expression": "`median_days`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "irb_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "IRB type"
+                },
+                "y": {
+                  "fieldName": "median_days",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Median activation (days)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Median site activation (days) by IRB type"
+              },
+              "mark": {
+                "layout": "group"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 6,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "portfolio",
+                  "fields": [
+                    {
+                      "name": "trial",
+                      "expression": "`trial`"
+                    },
+                    {
+                      "name": "phase",
+                      "expression": "`phase`"
+                    },
+                    {
+                      "name": "therapeutic_area",
+                      "expression": "`therapeutic_area`"
+                    },
+                    {
+                      "name": "target_enrollment",
+                      "expression": "`target_enrollment`"
+                    },
+                    {
+                      "name": "randomized",
+                      "expression": "`randomized`"
+                    },
+                    {
+                      "name": "pct_of_plan",
+                      "expression": "`pct_of_plan`"
+                    },
+                    {
+                      "name": "active_sites",
+                      "expression": "`active_sites`"
+                    },
+                    {
+                      "name": "study_manager",
+                      "expression": "`study_manager`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "trial",
+                    "displayName": "Trial"
+                  },
+                  {
+                    "fieldName": "phase",
+                    "displayName": "Phase"
+                  },
+                  {
+                    "fieldName": "therapeutic_area",
+                    "displayName": "Therapeutic area"
+                  },
+                  {
+                    "fieldName": "target_enrollment",
+                    "displayName": "Target"
+                  },
+                  {
+                    "fieldName": "randomized",
+                    "displayName": "Randomized"
+                  },
+                  {
+                    "fieldName": "pct_of_plan",
+                    "displayName": "% of plan",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "active_sites",
+                    "displayName": "Active sites"
+                  },
+                  {
+                    "fieldName": "study_manager",
+                    "displayName": "Study manager"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Portfolio scorecard"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 5
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "cascade",
+      "displayName": "CASCADE-CKD deep dive",
+      "layout": [
+        {
+          "widget": {
+            "name": "w9",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## CASCADE-CKD (HAL-301) — why enrollment is behind\n",
+                "\n",
+                "Exclusion **E4** (SGLT2 inhibitor within 12 weeks) was written when ~15% of patients took one. Today it is the #1 screen-failure reason — and sites code most of those failures as OTHER, so only AI Functions reading the coordinator notes show it."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(randomized)",
+                      "expression": "SUM(`randomized`)"
+                    },
+                    {
+                      "name": "monthly(month_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(randomized)",
+                  "displayName": "Randomized to date"
+                },
+                "period": {
+                  "fieldName": "monthly(month_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Randomized to date"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(planned)",
+                      "expression": "SUM(`planned`)"
+                    },
+                    {
+                      "name": "monthly(month_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(planned)",
+                  "displayName": "Planned to date"
+                },
+                "period": {
+                  "fieldName": "monthly(month_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Planned to date"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "screen_monthly",
+                  "fields": [
+                    {
+                      "name": "sum(screen_fail_rate)",
+                      "expression": "SUM(`screen_fail_rate`)"
+                    },
+                    {
+                      "name": "monthly(month_start)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(screen_fail_rate)",
+                  "displayName": "Screen-fail rate, latest month (35% assumed)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Screen-fail rate, latest month (35% assumed)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 2,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_kpis",
+                  "fields": [
+                    {
+                      "name": "zero_enrollers",
+                      "expression": "`zero_enrollers`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "zero_enrollers",
+                  "displayName": "Zero-enrolling sites"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Zero-enrolling sites"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_curve",
+                  "fields": [
+                    {
+                      "name": "month_start",
+                      "expression": "`month_start`"
+                    },
+                    {
+                      "name": "randomized",
+                      "expression": "`randomized`"
+                    },
+                    {
+                      "name": "series",
+                      "expression": "`series`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "randomized",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Randomized (cumulative)"
+                },
+                "color": {
+                  "fieldName": "series",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Series"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cumulative randomized: actual vs plan"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "screen_fail_quarterly",
+                  "fields": [
+                    {
+                      "name": "quarter",
+                      "expression": "`quarter`"
+                    },
+                    {
+                      "name": "screen_failures",
+                      "expression": "`screen_failures`"
+                    },
+                    {
+                      "name": "reason",
+                      "expression": "`reason`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Quarter"
+                },
+                "y": {
+                  "fieldName": "screen_failures",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Screen failures"
+                },
+                "color": {
+                  "fieldName": "reason",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "E4 SGLT2 inhibitor within 12 weeks",
+                        "color": "#FF7E5C"
+                      }
+                    ]
+                  },
+                  "displayName": "Reason"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Screen failures by reason (E4 = SGLT2 exclusion)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "coded_vs_ai",
+                  "fields": [
+                    {
+                      "name": "criterion",
+                      "expression": "`criterion`"
+                    },
+                    {
+                      "name": "recovered_by_ai_functions",
+                      "expression": "`recovered_by_ai_functions`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "recovered_by_ai_functions",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Screen failures recovered by AI Functions"
+                },
+                "y": {
+                  "fieldName": "criterion",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Criterion"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Failures coded OTHER by sites, recovered by AI Functions"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "sglt2_trend",
+                  "fields": [
+                    {
+                      "name": "quarter_start",
+                      "expression": "`quarter_start`"
+                    },
+                    {
+                      "name": "pct_on_sglt2i",
+                      "expression": "`pct_on_sglt2i`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "quarter_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Quarter"
+                },
+                "y": {
+                  "fieldName": "pct_on_sglt2i",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Patients on SGLT2i (%)"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "T2D+CKD patients on an SGLT2 inhibitor (%), EHR network"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 12,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "competitor",
+                  "fields": [
+                    {
+                      "name": "site_group",
+                      "expression": "`site_group`"
+                    },
+                    {
+                      "name": "randomized_per_site_month",
+                      "expression": "`randomized_per_site_month`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "randomized_per_site_month",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Randomized per site-month"
+                },
+                "y": {
+                  "fieldName": "site_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Site group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Randomized per site-month: REDWOOD-CKD overlap"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 2,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w19",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "cascade_sites",
+                  "fields": [
+                    {
+                      "name": "site_name",
+                      "expression": "`site_name`"
+                    },
+                    {
+                      "name": "randomized",
+                      "expression": "`randomized`"
+                    },
+                    {
+                      "name": "screen_fail_pct",
+                      "expression": "`screen_fail_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "site_name",
+                    "displayName": "Site"
+                  },
+                  {
+                    "fieldName": "randomized",
+                    "displayName": "Randomized"
+                  },
+                  {
+                    "fieldName": "screen_fail_pct",
+                    "displayName": "Screen-fail %",
+                    "format": {
+                      "type": "number-percent",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "CASCADE-CKD site league table"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 18,
+            "width": 4,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "w20",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "rescue_candidates",
+                  "fields": [
+                    {
+                      "name": "rescue_rank",
+                      "expression": "`rescue_rank`"
+                    },
+                    {
+                      "name": "site_name",
+                      "expression": "`site_name`"
+                    },
+                    {
+                      "name": "eligible_current_protocol",
+                      "expression": "`eligible_current_protocol`"
+                    },
+                    {
+                      "name": "eligible_amended_e4",
+                      "expression": "`eligible_amended_e4`"
+                    },
+                    {
+                      "name": "predicted_rate_amended",
+                      "expression": "`predicted_rate_amended`"
+                    },
+                    {
+                      "name": "expected_randomized_12m",
+                      "expression": "`expected_randomized_12m`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "rescue_rank",
+                    "displayName": "Rank"
+                  },
+                  {
+                    "fieldName": "site_name",
+                    "displayName": "Site"
+                  },
+                  {
+                    "fieldName": "eligible_current_protocol",
+                    "displayName": "Eligible, current"
+                  },
+                  {
+                    "fieldName": "eligible_amended_e4",
+                    "displayName": "Eligible, E4 amended"
+                  },
+                  {
+                    "fieldName": "predicted_rate_amended",
+                    "displayName": "Predicted rate",
+                    "format": {
+                      "type": "number",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "expected_randomized_12m",
+                    "displayName": "Randomized, next 12 mo"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rescue site candidates, ranked (with the E4 amendment)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 23,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "LEFT"
+    }
+  }
+}

@@ -62,9 +62,9 @@ This is the operational app Claire's team uses every day. KPI cards show returns
 
 The thinking panel streams the investigation live. **Claire never leaves the app.**
 
-> *"The assistant inside the app isn't a hand-rolled prompt — it's a **Multi-Agent Supervisor**. Under the hood it routed to **Genie**, which traced the spike to one production lot across three SKUs and pulled customer comments — 'grainy texture', 'product separated'. Then it routed to **Knowledge Assistant**, which searched the manufacturing reports and found the homogenizer pressure incident on that lot's production date."*
+> *"The assistant inside the app is a **Genie agent** over the same tables and the incident PDFs. It traced the spike to one production lot across three SKUs and pulled customer comments — 'grainy texture', 'product separated'. Then it searched the manufacturing reports and found the homogenizer pressure incident on lot LOT-2026-0430."*
 >
-> *"Two questions, two specialist agents, one answer — and **MLflow** traces every step of the agent's reasoning so you can replay any decision later. **Unity Catalog** is the spine: the agents only see what Claire is allowed to see. Same permissions on the raw data, the agents, and the app."*
+> *"Two kinds of question, one agent, one answer — numbers come from the tables, reasons come from the documents, and **MLflow** traces every step of the agent's reasoning so you can replay any decision later. **Unity Catalog** is the spine: the agents only see what Claire is allowed to see. Same permissions on the raw data, the agents, and the app."*
 
 ---
 
@@ -84,9 +84,9 @@ Agent identifies all 250 affected customers, then **calls the premium classifier
 
 > *"The team built this app because returns processing is their daily job — they need write actions, approvals, an audit trail. **But you don't always need to build an app.** For everyone else in the company — finance, marketing, the CEO — **Databricks One** is already the answer. Same data, same governance, no code to write."*
 
-Show the same dashboard from the app, ask Genie the same `Why so many returns?` question conversationally, surface the same KA incident report.
+Show the same dashboard from the app, ask Genie the same `Why so many returns?` question conversationally, then ask why the lot was released: the Genie agent cites the incident report.
 
-> *"Same Lakeflow Connect ingestion. Same SDP Gold tables. Same Genie space. Same Knowledge Assistant. Same Unity Catalog governance. **One platform, two surfaces: the app for the team that operates the business, Databricks One for everyone else who just needs to ask.**"*
+> *"Same Lakeflow Connect ingestion. Same SDP Gold tables. Same Genie agent (tables + the incident PDFs). Same Unity Catalog governance. **One platform, two surfaces: the app for the team that operates the business, Databricks One for everyone else who just needs to ask.**"*
 
 ---
 
@@ -94,7 +94,7 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 
 > Every project, every app, every agent that actually moves the business has the same prerequisite: **data from every source you've got, in one place, ready to act on.** No single system held the answer here — it was in the join across all of them. Same for the next project, and the one after that.
 >
-> That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables — `ai_classify` turning free-text comments into a sentiment score is just another SQL function in that pipeline. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, Genie + KA + MAS for the agentic experiences, ML models trained and registered with the same Unity Catalog permissions and audit trail the data has, Lakebase + Databricks Apps when your team needs a real product to operate the business. **Same governance covers your tables, your dashboards, your agents, and your models** — one permission model, one source of truth.
+> That's the bet Databricks lets you make: **ingest from anywhere, then act on it any way you need.** Lakeflow Connect pulls from 200+ sources with no custom plumbing. SDP shapes it into Gold tables — `ai_classify` turning free-text comments into a sentiment score is just another SQL function in that pipeline. From there, the *acting* layer is wide open: AI/BI dashboards for the read-only audience, Databricks One for the no-code crowd, a Genie agent over the tables and documents for the agentic experiences, ML models trained and registered with the same Unity Catalog permissions and audit trail the data has, Lakebase + Databricks Apps when your team needs a real product to operate the business. **Same governance covers your tables, your dashboards, your agents, and your models** — one permission model, one source of truth.
 >
 > **Ingest everything. Then build whatever you need on top — BI, apps, agents — without re-stitching the data each time.**
 
@@ -113,10 +113,9 @@ Show the same dashboard from the app, ask Genie the same `Why so many returns?` 
 | **Lakebase** | Build | The serverless Postgres behind the app — holds the live returns queue, refund approvals, and audit timeline that ticks during the demo |
 | **AI/BI Dashboard** | Build | The $180K spike at a glance — built in clicks, embedded in both the app and Databricks One |
 | **AI/BI Genie** | Build | Cracks the *"why so many returns?"* question by tracing the spike to one production lot across three SKUs |
-| **Knowledge Assistant** | Build | Surfaces the homogenizer incident report — connects the data anomaly to the manufacturing root cause |
-| **Multi-Agent Supervisor** | Build | The brain inside the app's chat — routes Claire's questions to Genie (the data) or KA (the docs) without her thinking about it |
+| **Genie agent (documents)** | Build | Reads the PDF volume (incident reports, QC notes, SOPs) through the same Genie agent — connects the data anomaly to the manufacturing root cause |
 | **ML Training (MLflow + UC)** | Build | XGBoost premium classifier trained on the ~4K customers CS has hand-tagged; batch-scores every customer into a predictions table the agent reads to tier the retention offer. Finds the hidden premiums a SQL filter would miss. No serving endpoint — predictions are a Delta table. |
 | **AI Functions (`ai_classify`)** | Build | One-line SQL inside the SDP pipeline turns "I'm furious about this texture" into a 0.0–1.0 anger score. Used two ways: as a feature in the premium classifier, and surfaced per-return in the Returns Console app (operators sort the queue by anger to triage the most upset customers first). No UDF, no separate sentiment service. |
-| **MLflow** | Talk track | Auto-traces every Genie / KA / MAS call **and** logs every premium-classifier run — same observability surface for agents and models, replay any decision later |
+| **MLflow** | Talk track | Auto-traces every Genie agent call **and** logs every premium-classifier run — same observability surface for agents and models, replay any decision later |
 | **Unity Catalog** | Talk track | One permission model from Shopify ingestion through the agent's tool calls to the registered premium classifier — Claire only sees what she's allowed to see, everywhere |
 | **Databricks One** | Talk track | Where the rest of the company lands — the CEO, finance, marketing get the same dashboard + Genie answers|

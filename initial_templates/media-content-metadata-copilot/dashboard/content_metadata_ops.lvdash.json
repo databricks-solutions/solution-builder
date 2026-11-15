@@ -1,0 +1,1199 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "KPIs",
+      "queryLines": [
+        "SELECT\n",
+        "  ROUND(COUNT_IF(source = 'Harborlight Library') / COUNT(*), 3) AS hb_share_catalogue_pct,\n",
+        "  ROUND(SUM(CASE WHEN source = 'Harborlight Library' THEN impressions_4w END) / SUM(impressions_4w), 3) AS hb_share_impressions_pct,\n",
+        "  ROUND(AVG(CASE WHEN source = 'Harborlight Library' THEN completeness_score END), 1) AS hb_avg_completeness,\n",
+        "  ROUND(SUM(CASE WHEN source = 'Harborlight Library' THEN completions_4w END) / SUM(CASE WHEN source = 'Harborlight Library' THEN play_starts_4w END), 3) AS hb_completion_pct,\n",
+        "  ROUND(SUM(CASE WHEN source <> 'Harborlight Library' THEN completions_4w END) / SUM(CASE WHEN source <> 'Harborlight Library' THEN play_starts_4w END), 3) AS rest_completion_pct,\n",
+        "  COUNT_IF(hidden_gem) AS hidden_gems,\n",
+        "  COUNT_IF(safety_risk) AS safety_risk_titles,\n",
+        "  ROUND(COUNT_IF(completeness_score >= 80) / COUNT(*), 3) AS pct_library_at_80\n",
+        "FROM gold_title_scorecard\n"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "weekly_kpi",
+      "displayName": "Weekly Harborlight KPIs",
+      "queryLines": [
+        "SELECT week_start,\n  SUM(CASE WHEN library_group LIKE 'Harborlight%' THEN impressions END) / SUM(impressions) AS hb_share_impressions,\n  SUM(CASE WHEN library_group LIKE 'Harborlight%' THEN completions END)\n    / SUM(CASE WHEN library_group LIKE 'Harborlight%' THEN play_starts END) AS hb_completion_rate,\n  SUM(CASE WHEN library_group NOT LIKE 'Harborlight%' THEN completions END)\n    / SUM(CASE WHEN library_group NOT LIKE 'Harborlight%' THEN play_starts END) AS rest_completion_rate\nFROM gold_title_weekly\nWHERE week_start >= DATE'2026-04-13'\nGROUP BY week_start\nORDER BY week_start"
+      ]
+    },
+    {
+      "name": "by_source",
+      "displayName": "Impressions per title by source",
+      "queryLines": [
+        "SELECT source, COUNT(*) AS titles, ROUND(AVG(impressions_4w)) AS impressions_per_title,\n",
+        "  ROUND(100 * SUM(completions_4w) / SUM(play_starts_4w), 1) AS completion_pct, ROUND(AVG(completeness_score), 1) AS avg_completeness\n",
+        "FROM gold_title_scorecard GROUP BY source"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "weekly",
+      "displayName": "Weekly impressions per title by library group",
+      "queryLines": [
+        "SELECT week_start, library_group, ROUND(SUM(impressions) / COUNT(DISTINCT title_id)) AS impressions_per_title,\n",
+        "  ROUND(SUM(play_starts) / COUNT(DISTINCT title_id), 1) AS play_starts_per_title\n",
+        "FROM gold_title_weekly WHERE week_start >= DATE'2026-04-13' GROUP BY week_start, library_group"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "bands",
+      "displayName": "Completeness band vs discovery",
+      "queryLines": [
+        "SELECT completeness_band, COUNT(*) AS titles, ROUND(AVG(impressions_4w)) AS impressions_per_title,\n",
+        "  ROUND(100 * SUM(completions_4w) / SUM(play_starts_4w), 1) AS completion_pct\n",
+        "FROM gold_title_scorecard GROUP BY completeness_band"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "pilot",
+      "displayName": "Re-tag pilot lift",
+      "queryLines": [
+        "SELECT pilot_group, COUNT(*) AS titles,\n  CAST(SUM(impressions_4w_before) / COUNT(*) AS BIGINT) AS impressions_per_title_before,\n  CAST(SUM(impressions_4w_after) / COUNT(*) AS BIGINT) AS impressions_per_title_after,\n  CONCAT(CAST(ROUND(SUM(impressions_4w_after) / SUM(impressions_4w_before), 1) AS STRING), '×') AS impressions_lift,\n  CONCAT(CAST(ROUND(SUM(play_starts_4w_after) / SUM(play_starts_4w_before), 1) AS STRING), '×') AS play_starts_lift\nFROM gold_retag_pilot GROUP BY pilot_group ORDER BY pilot_group DESC"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "gems",
+      "displayName": "Hidden gems",
+      "queryLines": [
+        "SELECT title, source, primary_genre, completeness_score, ai_completeness_score, impressions_4w, peer_impressions_4w,\n  CAST(ROUND(100 * completion_rate_4w) AS BIGINT) AS completion_pct, CAST(ROUND(100 * peer_completion_rate_4w) AS BIGINT) AS peer_completion_pct,\n  discovery_gap_impressions_4w, retag_priority_score\nFROM gold_title_scorecard WHERE hidden_gem ORDER BY retag_priority_score DESC LIMIT 50"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "safety",
+      "displayName": "Safety risk by source",
+      "queryLines": [
+        "SELECT source, ai_brand_safety_tier AS should_be_tier, COUNT(*) AS titles\n",
+        "FROM gold_title_scorecard WHERE safety_risk GROUP BY source, ai_brand_safety_tier"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "safety_list",
+      "displayName": "Safety review list",
+      "queryLines": [
+        "SELECT title, source, maturity_rating, brand_safety_tier AS live_tier, ai_brand_safety_tier AS ai_tier,\n",
+        "  array_join(missing_warnings, ', ') AS missing_warnings, array_join(collections, ', ') AS home_rows, impressions_4w\n",
+        "FROM gold_title_scorecard WHERE safety_risk\n",
+        "ORDER BY (array_contains(collections, 'Little Ones (under 7)') OR array_contains(collections, 'Family Movie Night')) DESC, impressions_4w DESC LIMIT 50"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    },
+    {
+      "name": "tagged_by",
+      "displayName": "Who tagged the library",
+      "queryLines": [
+        "SELECT t.source, CASE m.tagged_by WHEN 'studio_feed' THEN 'Studio feed' WHEN 'vendor_feed' THEN 'Vendor feed' WHEN 'editor' THEN 'Editor' ELSE m.tagged_by END AS tagged_by, COUNT(*) AS titles, ROUND(AVG(m.completeness_score), 1) AS avg_completeness\nFROM titles t JOIN title_metadata m USING (title_id) GROUP BY t.source, CASE m.tagged_by WHEN 'studio_feed' THEN 'Studio feed' WHEN 'vendor_feed' THEN 'Vendor feed' WHEN 'editor' THEN 'Editor' ELSE m.tagged_by END"
+      ],
+      "catalog": "media_advertising",
+      "schema": "content_metadata_copilot"
+    }
+  ],
+  "pages": [
+    {
+      "name": "discovery",
+      "displayName": "Discovery gap",
+      "layout": [
+        {
+          "widget": {
+            "name": "w1",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Orbitline+ — the Harborlight discovery gap\n",
+                "\n",
+                "The 420-title Harborlight Library (acquired April 2026) arrived with vendor-feed metadata. Home rows and search are tag-driven — so it is barely shown, although viewers who find it finish it as often as anything else. Trend counters show the latest complete week; the others cover the last 4 weeks."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "hb_share_catalogue_pct",
+                      "expression": "`hb_share_catalogue_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "hb_share_catalogue_pct",
+                  "displayName": "Harborlight share of catalogue (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Harborlight share of catalogue (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(hb_share_impressions)",
+                      "expression": "SUM(`hb_share_impressions`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(hb_share_impressions)",
+                  "displayName": "Harborlight share of impressions",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Harborlight share of impressions, latest week"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "hb_avg_completeness",
+                      "expression": "`hb_avg_completeness`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "hb_avg_completeness",
+                  "displayName": "Harborlight avg metadata completeness (/100)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Harborlight avg metadata completeness (/100)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(hb_completion_rate)",
+                      "expression": "SUM(`hb_completion_rate`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(hb_completion_rate)",
+                  "displayName": "Harborlight completion rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Harborlight completion rate, latest week"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly_kpi",
+                  "fields": [
+                    {
+                      "name": "sum(rest_completion_rate)",
+                      "expression": "SUM(`rest_completion_rate`)"
+                    },
+                    {
+                      "name": "weekly(week_start)",
+                      "expression": "DATE_TRUNC(\"WEEK\", `week_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(rest_completion_rate)",
+                  "displayName": "Rest of library completion rate",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "weekly(week_start)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Rest of library completion"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "pct_library_at_80",
+                      "expression": "`pct_library_at_80`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_library_at_80",
+                  "displayName": "Library at ≥ 80 completeness (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Library at ≥ 80 completeness (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 2,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "by_source",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "impressions_per_title",
+                      "expression": "`impressions_per_title`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Source"
+                },
+                "y": {
+                  "fieldName": "impressions_per_title",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Impressions per title"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Impressions per title (4 wk) by source"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "bands",
+                  "fields": [
+                    {
+                      "name": "completeness_band",
+                      "expression": "`completeness_band`"
+                    },
+                    {
+                      "name": "impressions_per_title",
+                      "expression": "`impressions_per_title`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "completeness_band",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Completeness band"
+                },
+                "y": {
+                  "fieldName": "impressions_per_title",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Impressions per title"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Impressions per title by metadata completeness band"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "weekly",
+                  "fields": [
+                    {
+                      "name": "week_start",
+                      "expression": "`week_start`"
+                    },
+                    {
+                      "name": "impressions_per_title",
+                      "expression": "`impressions_per_title`"
+                    },
+                    {
+                      "name": "library_group",
+                      "expression": "`library_group`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "week_start",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Week start"
+                },
+                "y": {
+                  "fieldName": "impressions_per_title",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Impressions per title",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "library_group",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Library group"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly impressions per title — the July re-tag pilot vs the rest of Harborlight"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "pilot",
+                  "fields": [
+                    {
+                      "name": "pilot_group",
+                      "expression": "`pilot_group`"
+                    },
+                    {
+                      "name": "titles",
+                      "expression": "`titles`"
+                    },
+                    {
+                      "name": "impressions_per_title_before",
+                      "expression": "`impressions_per_title_before`"
+                    },
+                    {
+                      "name": "impressions_per_title_after",
+                      "expression": "`impressions_per_title_after`"
+                    },
+                    {
+                      "name": "impressions_lift",
+                      "expression": "`impressions_lift`"
+                    },
+                    {
+                      "name": "play_starts_lift",
+                      "expression": "`play_starts_lift`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "pilot_group",
+                    "displayName": "Group"
+                  },
+                  {
+                    "fieldName": "titles",
+                    "displayName": "Titles"
+                  },
+                  {
+                    "fieldName": "impressions_per_title_before",
+                    "displayName": "Impressions per title, before"
+                  },
+                  {
+                    "fieldName": "impressions_per_title_after",
+                    "displayName": "Impressions per title, after"
+                  },
+                  {
+                    "fieldName": "impressions_lift",
+                    "displayName": "Impressions lift"
+                  },
+                  {
+                    "fieldName": "play_starts_lift",
+                    "displayName": "Play-starts lift"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Engagement lift after re-tag (4 weeks before vs after 2026-07-27)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 17,
+            "width": 6,
+            "height": 3
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    },
+    {
+      "name": "operations",
+      "displayName": "Metadata operations",
+      "layout": [
+        {
+          "widget": {
+            "name": "w12",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Metadata operations\n",
+                "\n",
+                "Where to spend editor time: **hidden gems** (viewers finish them, the service rarely shows them) and **safety risks** (AI-detected content warnings missing on titles sold as Family-Safe or sitting in kids rows)."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "hidden_gems",
+                      "expression": "`hidden_gems`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "hidden_gems",
+                  "displayName": "Hidden gems to re-tag"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hidden gems to re-tag"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "safety_risk_titles",
+                      "expression": "`safety_risk_titles`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "safety_risk_titles",
+                  "displayName": "Titles with a safety risk"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Titles with a safety risk"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "pct_library_at_80",
+                      "expression": "`pct_library_at_80`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "pct_library_at_80",
+                  "displayName": "Library at ≥ 80 completeness (%)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Library at ≥ 80 completeness (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w16",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "safety",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "titles",
+                      "expression": "`titles`"
+                    },
+                    {
+                      "name": "should_be_tier",
+                      "expression": "`should_be_tier`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Source"
+                },
+                "y": {
+                  "fieldName": "titles",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Titles"
+                },
+                "color": {
+                  "fieldName": "should_be_tier",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Should be tier"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Safety-risk titles by source and the tier they should be"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w17",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "tagged_by",
+                  "fields": [
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "titles",
+                      "expression": "`titles`"
+                    },
+                    {
+                      "name": "tagged_by",
+                      "expression": "`tagged_by`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "source",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reverse"
+                    }
+                  },
+                  "displayName": "Source"
+                },
+                "y": {
+                  "fieldName": "titles",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Titles"
+                },
+                "color": {
+                  "fieldName": "tagged_by",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Tagged by"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Who tagged the library (titles by source and tagging origin)"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 5,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w18",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "gems",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "expression": "`title`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "primary_genre",
+                      "expression": "`primary_genre`"
+                    },
+                    {
+                      "name": "completeness_score",
+                      "expression": "`completeness_score`"
+                    },
+                    {
+                      "name": "ai_completeness_score",
+                      "expression": "`ai_completeness_score`"
+                    },
+                    {
+                      "name": "impressions_4w",
+                      "expression": "`impressions_4w`"
+                    },
+                    {
+                      "name": "completion_pct",
+                      "expression": "`completion_pct`"
+                    },
+                    {
+                      "name": "discovery_gap_impressions_4w",
+                      "expression": "`discovery_gap_impressions_4w`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "title",
+                    "displayName": "Title"
+                  },
+                  {
+                    "fieldName": "source",
+                    "displayName": "Source"
+                  },
+                  {
+                    "fieldName": "primary_genre",
+                    "displayName": "Genre"
+                  },
+                  {
+                    "fieldName": "completeness_score",
+                    "displayName": "Completeness"
+                  },
+                  {
+                    "fieldName": "ai_completeness_score",
+                    "displayName": "AI completeness"
+                  },
+                  {
+                    "fieldName": "impressions_4w",
+                    "displayName": "Impressions (4 wk)"
+                  },
+                  {
+                    "fieldName": "completion_pct",
+                    "displayName": "Completion (%)"
+                  },
+                  {
+                    "fieldName": "discovery_gap_impressions_4w",
+                    "displayName": "Discovery gap"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Hidden gems — highest re-tag priority first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "w19",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "safety_list",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "expression": "`title`"
+                    },
+                    {
+                      "name": "source",
+                      "expression": "`source`"
+                    },
+                    {
+                      "name": "maturity_rating",
+                      "expression": "`maturity_rating`"
+                    },
+                    {
+                      "name": "live_tier",
+                      "expression": "`live_tier`"
+                    },
+                    {
+                      "name": "ai_tier",
+                      "expression": "`ai_tier`"
+                    },
+                    {
+                      "name": "impressions_4w",
+                      "expression": "`impressions_4w`"
+                    },
+                    {
+                      "name": "missing_warnings",
+                      "expression": "`missing_warnings`"
+                    },
+                    {
+                      "name": "home_rows",
+                      "expression": "`home_rows`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "title",
+                    "displayName": "Title"
+                  },
+                  {
+                    "fieldName": "source",
+                    "displayName": "Source"
+                  },
+                  {
+                    "fieldName": "maturity_rating",
+                    "displayName": "Rating"
+                  },
+                  {
+                    "fieldName": "live_tier",
+                    "displayName": "Live tier"
+                  },
+                  {
+                    "fieldName": "ai_tier",
+                    "displayName": "AI tier"
+                  },
+                  {
+                    "fieldName": "impressions_4w",
+                    "displayName": "Impressions (4 wk)",
+                    "format": {
+                      "type": "number-plain",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "missing_warnings",
+                    "displayName": "Missing warnings"
+                  },
+                  {
+                    "fieldName": "home_rows",
+                    "displayName": "Home rows"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Safety review — kids & family rows first"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 18,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

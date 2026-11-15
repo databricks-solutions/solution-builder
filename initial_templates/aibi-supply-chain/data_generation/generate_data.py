@@ -45,7 +45,7 @@ Local run (use a Python 3.12 venv — Spark Connect UDFs need the client's minor
 Python version to match serverless; a 3.11 client fails the pandas_udf step):
   uv venv --python 3.12 .venv && . .venv/bin/activate
   uv pip install "databricks-connect>=16.4,<17.4" numpy pandas
-  DATABRICKS_CONFIG_PROFILE=field-eng \
+  DATABRICKS_CONFIG_PROFILE=<your-profile> \
       python generate_data.py --catalog dbdemos_templates --schema aibi_supply_chain
 """
 
@@ -225,7 +225,6 @@ grid_df = spark.createDataFrame(grid, ["product_id", "week_off", "dc_id"])
 def demand_udf(product_id, week_off, dc_id):
     import numpy as np
     import pandas as pd
-    rng = np.random.default_rng()
     base = {1: 5200, 2: 1800, 3: 2600, 4: 4200, 5: 2200}    # City E-Bike biggest
     dc_w = [0.18, 0.16, 0.14, 0.12, 0.10, 0.08, 0.12, 0.10]
     out = []
@@ -240,7 +239,8 @@ def demand_udf(product_id, week_off, dc_id):
         if p == 1 and w >= SO and d in (1, 2, 3):
             ramp = min(1.0, (w - SO) / 6.0)
             val = val * (1.0 + ramp * 2.4)
-        val = val * rng.uniform(0.92, 1.08)
+        # Noise seeded per (product, week, dc): identical data on every re-run/upgrade.
+        val = val * np.random.default_rng(p * 100_000 + w * 100 + d).uniform(0.92, 1.08)
         out.append(int(max(val, 0)))
     return pd.Series(out)
 

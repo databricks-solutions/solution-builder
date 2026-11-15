@@ -1,0 +1,22 @@
+{
+    "short_description": "A utilization-management nurse workbench for a health plan's prior-authorization queue. AI Functions (ai_query) pre-review every open request's clinical notes against the medical policy, quoting evidence criterion by criterion; clear cases go to an approve-only auto-approval lane, gaps get an auto-drafted provider request, possible denials go to a Medical Director. The Genie agent answers policy questions from the policy documents, decisions write back to Lakebase + Delta, and an AI/BI dashboard + Genie track CMS-0057-F turnaround (72h expedited / 7-day standard). Synthetic data only.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "unity-catalog",
+            "ai-functions",
+            "metric-views",
+            "aibi-dashboards",
+            "genie",
+            "unstructured-documents",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "genie-one",
+            "genie-code"
+        ]
+    },
+    "created_resources": {}
+}

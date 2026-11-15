@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections import deque
 
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -20,7 +21,9 @@ from sqlmodel import select
 from ..core import Dependencies, create_router
 from ..core._config import logger
 from ..core.auth import (
+    SP_DRIVER_SENTINEL,
     detect_mode,
+    project_runs_as_sp,
     request_user_pat,
     resolve_host,
     target_deploy_active,
@@ -70,6 +73,229 @@ def _get_user_email(headers) -> str:
     if headers and headers.user_id:
         return headers.user_id
     return "anonymous@local"
+
+
+async def run_agent_turn(
+    *,
+    project_id: str,
+    message: str,
+    stream: "ActiveStream",
+    engine,
+    mode,
+    context_hint: str | None = None,
+    images: list[str] | None = None,
+    cluster_id: str | None = None,
+    warehouse_id: str | None = None,
+    default_catalog: str | None = None,
+    default_schema: str | None = None,
+    databricks_profile: str | None = None,
+    session_id: str | None = None,
+    template_lineage: dict | None = None,
+    operator_notice: str | None = None,
+    target_deploy: bool = False,
+    project_mode: str | None = None,
+) -> None:
+    """Run ONE agent turn to completion + persist the result. THE single background
+    turn-runner, shared by `invoke_agent` (a user send) and the boot-time resume
+    service (`services/resume_agent`). It:
+
+      1. streams `stream_agent_response` into a bounded accumulator,
+      2. on a stale-session error, clears `Project.session_id` + retries once fresh,
+      3. in a completion step, persists the assistant message + `session_id` and
+         **clears `Project.active_execution_id`** — the self-healing step that makes
+         `active_execution_id != NULL` a reliable "was interrupted" signal.
+
+    Runs even if the browser disconnected (decoupled from the SSE consumer). The
+    caller is responsible for `_persist_start` (user message + setting
+    `active_execution_id`) and for `manager.start_stream(stream, ...)`. This
+    function must stay auth-agnostic — the identity is already baked into the
+    project's on-disk `.databrickscfg` + `mode`/`target_deploy` the caller resolved.
+    Extracted verbatim from invoke_agent so there is ONE persistence path (no drift).
+    """
+    from ..services.active_stream import MAX_EVENTS, _cap_event_data
+    collected_events: deque = deque(maxlen=MAX_EVENTS)
+    was_cancelled = False
+    # execution_id is only needed for a log line; read it off the stream.
+    execution_id = stream.execution_id
+
+    async def _run_once(effective_session_id: str | None) -> None:
+        nonlocal was_cancelled
+        try:
+            async for event in stream_agent_response(
+                project_id=project_id,
+                message=message,
+                context_hint=context_hint,
+                images=images,
+                stream=stream,
+                mode=mode,
+                cluster_id=cluster_id,
+                warehouse_id=warehouse_id,
+                default_catalog=default_catalog,
+                default_schema=default_schema,
+                databricks_profile=databricks_profile,
+                session_id=effective_session_id,
+                template_lineage=template_lineage,
+                operator_notice=operator_notice,
+                target_deploy=target_deploy,
+                project_mode=project_mode,
+            ):
+                collected_events.append(_cap_event_data(event))
+        except asyncio.CancelledError:
+            was_cancelled = True
+            stream.is_cancelled = True
+            logger.info(f"Agent execution {execution_id} cancelled by user")
+            raise
+        except Exception as e:
+            logger.exception(f"Agent execution failed: {e}")
+            stream.mark_error(str(e))
+
+    nonlocal_session_id = session_id  # local mutable copy for the stale-retry path
+    try:
+        await _run_once(nonlocal_session_id)
+
+        # Safety net for stale resume: if the SDK bailed because
+        # project.session_id pointed at a transcript that no longer
+        # exists on disk (e.g. transcript not yet restored from PG,
+        # forked project, or CLAUDE_CONFIG_DIR introduced after the
+        # session was created), clear the stale id and retry once
+        # with a fresh session. Same execution_id, same SSE stream —
+        # transparent to the client.
+        if nonlocal_session_id and is_stale_session_error(stream.error_message):
+            stale = nonlocal_session_id
+            logger.warning(
+                f"Stale session_id {stale} for project {project_id} — "
+                f"clearing and retrying with a fresh session."
+            )
+            from sqlmodel import Session as SQLSession
+
+            def _clear_stale() -> None:
+                with SQLSession(engine) as db:
+                    proj = db.get(Project, project_id)
+                    if proj and proj.session_id == stale:
+                        proj.session_id = None
+                        db.add(proj)
+                        db.commit()
+
+            await asyncio.to_thread(_clear_stale)
+
+            # Reset the stream's error state so the retry's events
+            # aren't masked by the prior failure marker.
+            stream.is_error = False
+            stream.error_message = None
+            collected_events.clear()
+            nonlocal_session_id = None
+            await _run_once(None)
+    except asyncio.CancelledError:
+        # Already handled inside _run_once; fall through to persist.
+        pass
+
+    # Save assistant response, session_id, and clear active_execution_id.
+    # This runs even if the browser disconnected — the task is decoupled
+    # from the SSE consumer. Always attempt to save: even when the text
+    # response is empty (tool-heavy sessions that hit max turns), we still
+    # need to persist the session_id so the next invocation can resume.
+    # Runs on a worker thread because sync psycopg would otherwise block
+    # the event loop (freezing every other SSE/HTTP request).
+    try:
+        full_response = collect_text_response(collected_events)
+        reasoning = collect_reasoning(collected_events)
+
+        from sqlmodel import Session as SQLSession
+
+        def _persist_completion() -> None:
+            with SQLSession(engine) as db:
+                # Save assistant message if we got any text OR were cancelled
+                # (so the partial reasoning + cancel marker survive refresh).
+                if full_response or was_cancelled or reasoning:
+                    raw_reasoning = {"reasoning": reasoning} if reasoning else None
+                    reasoning_data = compress_reasoning(raw_reasoning)
+                    # If the stream errored AFTER producing some text or
+                    # reasoning, append the error to the body and flag
+                    # is_error so the bubble renders red. Without this the
+                    # partial answer would appear as a successful (but
+                    # truncated) reply.
+                    body_text = full_response
+                    is_error_flag = bool(stream.is_error and stream.error_message)
+                    if is_error_flag:
+                        err = stream.error_message or "Agent error (no details)"
+                        body_text = (
+                            f"{body_text}\n\n---\n\n**Agent error:** {err}"
+                            if body_text
+                            else f"**Agent error:** {err}"
+                        )
+                    assistant_msg = Message(
+                        project_id=project_id,
+                        role="assistant",
+                        content=body_text,
+                        is_error=is_error_flag,
+                        is_cancelled=was_cancelled,
+                        reasoning_data=reasoning_data,
+                    )
+                    db.add(assistant_msg)
+                elif stream.is_error and stream.error_message:
+                    # The agent failed before producing any text or
+                    # reasoning — typical when the Claude Code
+                    # subprocess exits during connect/initialize.
+                    # Persist as an assistant message with
+                    # is_error=True so the chat bubble renders it
+                    # with the destructive style on refresh (without
+                    # is_error the bubble would render as a normal
+                    # answer). Content uses the same shape the
+                    # frontend builds at stream-end so the in-memory
+                    # and reloaded views match.
+                    error_msg = Message(
+                        project_id=project_id,
+                        role="assistant",
+                        content=f"**Agent error:** {stream.error_message}",
+                        is_error=True,
+                        is_cancelled=False,
+                    )
+                    db.add(error_msg)
+                else:
+                    logger.warning(f"Agent returned empty text response for project {project_id}")
+
+                # Persist session_id and clear active_execution_id
+                proj = db.get(Project, project_id)
+                if proj:
+                    if stream.session_id:
+                        proj.session_id = stream.session_id
+                    proj.active_execution_id = None
+                    proj.updated_at = utc_now()
+                    # A turn that COMPLETED (not cancelled, no error) resets the
+                    # boot-resume crash-loop guard — the conversation is healthy
+                    # again. A cancelled/errored turn leaves the counter so a
+                    # crash-looping turn still trips the cap. (getattr for the
+                    # pre-migration case.)
+                    if (
+                        not was_cancelled
+                        and not stream.is_error
+                        and getattr(proj, "resume_attempts", 0)
+                    ):
+                        proj.resume_attempts = 0
+                    db.add(proj)
+
+                db.commit()
+
+        await asyncio.to_thread(_persist_completion)
+
+        if full_response:
+            logger.info(f"Saved assistant message for project {project_id} ({len(full_response)} chars)")
+        if stream.session_id:
+            logger.info(f"Persisted session_id for project {project_id}: {stream.session_id}")
+    except Exception as e:
+        logger.exception(f"Failed to save agent response for project {project_id}: {e}")
+
+    # Record the conversation's token usage (main + subagents) for the "$" chip.
+    # Best-effort and AFTER persistence: a transcript problem never costs the reply.
+    if stream.session_id:
+        try:
+            from ..services.agent_usage import ingest_session_from_disk
+            await asyncio.to_thread(
+                ingest_session_from_disk,
+                engine, project_id, get_project_directory(project_id), stream.session_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[usage] ingest failed for project {project_id}: {e!r}")
 
 
 @router.post(
@@ -141,6 +367,18 @@ async def invoke_agent(
 
     # (Driver gate + deployed token refresh moved inside the lock below.)
 
+    # Pasted images → context/uploads/ (after the write gate). The message names
+    # their paths, so the chat history shows them and later turns can re-open them.
+    image_paths: list[str] = []
+    message = body.message
+    if body.images:
+        from ..services import chat_images
+        try:
+            image_paths = await asyncio.to_thread(chat_images.save_images, _project_dir, body.images)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        message = "\n\n".join(p for p in (body.message.strip(), chat_images.attachment_note(image_paths)) if p)
+
     # DB reads (run on thread so we don't block the event loop on sync psycopg).
     def _load_initial():
         # Running the agent mutates the project (files, resources) — viewers
@@ -191,12 +429,62 @@ async def invoke_agent(
     # Per-project lock prevents two concurrent POSTs from both creating agents
     # (e.g. browser refresh races between reconnect and autoKick effects).
     async with manager.get_project_lock(body.project_id):
-        # Check for existing running execution
+        # Check for existing running execution.
         existing_stream = manager.get_project_stream(body.project_id)
         if existing_stream:
-            return InvokeAgentResponse(
-                execution_id=existing_stream.execution_id,
-                project_id=body.project_id,
+            # A turn is already in flight for this project. There are two callers:
+            #   • A RECONNECT (resume/autoKick paths) — the client just wants to
+            #     re-attach to the running turn and does NOT carry a new user
+            #     message (`save_user_message=False`). Hand back the live
+            #     execution_id; that's the correct, idempotent behavior.
+            #   • A genuine NEW turn (`save_user_message=True`) sent while turn 1
+            #     is still running — this happens when the UI briefly re-enabled
+            #     the composer during an SSE drop (the orphan-return window). If we
+            #     returned the existing execution_id here we would SILENTLY DROP
+            #     this message: it's never persisted and never delivered to the
+            #     SDK client, so the user sees only turn 1's answer and thinks they
+            #     had to "send twice". Reject it loudly instead (409) + save it as
+            #     a visible marker so nothing is lost. Mirrors the stale-token 409.
+            if not body.save_user_message:
+                return InvokeAgentResponse(
+                    execution_id=existing_stream.execution_id,
+                    project_id=body.project_id,
+                )
+
+            def _save_dropped_message() -> None:
+                # Persist the un-sent user message so it survives + is visible,
+                # then an assistant note explaining it wasn't delivered. Without
+                # this the text vanishes entirely on a dropped send.
+                session.add(
+                    Message(
+                        project_id=body.project_id,
+                        role="user",
+                        content=message,
+                        context_hint=body.context_hint,
+                    )
+                )
+                session.add(
+                    Message(
+                        project_id=body.project_id,
+                        role="assistant",
+                        content=(
+                            "The previous turn was still running, so this message "
+                            "wasn't sent. It's saved above — resend it once the "
+                            "current turn finishes."
+                        ),
+                        is_error=True,
+                    )
+                )
+                session.commit()
+
+            await asyncio.to_thread(_save_dropped_message)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A turn is already running for this project. Your message was "
+                    "saved but not sent — wait for the current turn to finish, then "
+                    "resend."
+                ),
             )
 
         # DRIVER GATE + token refresh — INSIDE the lock so check→claim→write is
@@ -213,10 +501,55 @@ async def invoke_agent(
 
         def _driver_gate_and_token() -> None:
             nonlocal handoff_notice
+            proj = session.get(Project, body.project_id)
+
+            # ── SP MODE: the whole driver model is bypassed ──────────────────
+            # A cross-workspace project authenticates as the deployer SP (oauth-m2m,
+            # non-expiring machine creds), NOT a per-user OBO PAT. The driver dance
+            # (claim / token-freshness 409 / take-over / handoff) exists only to
+            # manage a per-user PAT (see AUTH.md "Conversation driver") and is
+            # meaningless here — there's one identity and nothing to take over. So
+            # we just (re)write the SP `.databrickscfg` and stamp the sentinel; no
+            # claim, no freshness gate, no handoff. This is also what makes an
+            # interrupted SP turn RESUMABLE on boot (services/resume_agent) — the
+            # SP creds are always present, unlike a dead OBO token.
+            if project_runs_as_sp(config, proj):
+                try:
+                    wrote = write_project_databrickscfg(
+                        get_project_directory(body.project_id),
+                        config=config,
+                        target_workspace_host=getattr(proj, "target_workspace_host", None),
+                        user_pat=None,   # SP path ignores these; creds come from config
+                        user_host=None,
+                    )
+                    if wrote is None:
+                        logger.warning(
+                            "invoke_agent SP-mode project %s but no SP .databrickscfg "
+                            "written (deployer SP creds missing?)",
+                            body.project_id,
+                        )
+                except Exception:
+                    logger.exception(
+                        "failed to write SP .databrickscfg for project %s",
+                        body.project_id,
+                    )
+                # Stamp the SP sentinel so active_driver_email stays meaningful/
+                # queryable (never used to gate anything in SP mode). Clear any
+                # stale handoff flag from a prior OBO life so it can't fire.
+                if proj is not None and (
+                    proj.active_driver_email != SP_DRIVER_SENTINEL
+                    or proj.driver_handoff_pending
+                ):
+                    proj.active_driver_email = SP_DRIVER_SENTINEL
+                    proj.driver_handoff_pending = False
+                    session.add(proj)
+                    session.commit()
+                return
+
+            # ── OBO MODE (classic per-user driver model) ─────────────────────
             # Consume a pending take-over handoff → tell Claude ONCE on this turn
             # (folded into the query in stream_agent_response). Clear the flag so
             # it never repeats. Whoever runs the next turn delivers the notice.
-            proj = session.get(Project, body.project_id)
             if proj is not None and proj.driver_handoff_pending:
                 handoff_notice = (
                     f"[System note] The operator of this conversation changed — the "
@@ -322,7 +655,7 @@ async def invoke_agent(
                 user_msg = Message(
                     project_id=body.project_id,
                     role="user",
-                    content=body.message,
+                    content=message,
                     context_hint=body.context_hint,
                 )
                 session.add(user_msg)
@@ -335,169 +668,33 @@ async def invoke_agent(
         await asyncio.to_thread(_persist_start)
 
     # Capture engine reference for use in background task (request session
-    # will be closed by the time run_agent's completion code executes)
+    # will be closed by the time the completion code executes)
     engine = request.app.state.engine
+    _target_deploy = target_deploy_active(config, effective_target)
 
-    # Start agent in background
+    # Start the shared background turn-runner (the SINGLE persistence path — same
+    # helper the boot-time resume service uses). Bind the request-resolved values
+    # into a zero-arg coroutine for start_stream.
     async def run_agent():
-        nonlocal session_id
-        collected_events = []
-        was_cancelled = False
-
-        async def _run_once(effective_session_id: str | None) -> None:
-            nonlocal was_cancelled
-            try:
-                async for event in stream_agent_response(
-                    project_id=body.project_id,
-                    message=body.message,
-                    context_hint=body.context_hint,
-                    stream=stream,
-                    mode=mode,
-                    cluster_id=project.cluster_id,
-                    warehouse_id=project.warehouse_id,
-                    default_catalog=project.default_catalog,
-                    default_schema=project.default_schema,
-                    databricks_profile=databricks_profile,
-                    session_id=effective_session_id,
-                    template_lineage=template_lineage,
-                    operator_notice=handoff_notice,
-                    target_deploy=target_deploy_active(
-                        config, effective_target
-                    ),
-                ):
-                    collected_events.append(event)
-            except asyncio.CancelledError:
-                was_cancelled = True
-                stream.is_cancelled = True
-                logger.info(f"Agent execution {execution_id} cancelled by user")
-                raise
-            except Exception as e:
-                logger.exception(f"Agent execution failed: {e}")
-                stream.mark_error(str(e))
-
-        try:
-            await _run_once(session_id)
-
-            # Safety net for stale resume: if the SDK bailed because
-            # project.session_id pointed at a transcript that no longer
-            # exists on disk (e.g. transcript not yet restored from PG,
-            # forked project, or CLAUDE_CONFIG_DIR introduced after the
-            # session was created), clear the stale id and retry once
-            # with a fresh session. Same execution_id, same SSE stream —
-            # transparent to the client.
-            if session_id and is_stale_session_error(stream.error_message):
-                stale = session_id
-                logger.warning(
-                    f"Stale session_id {stale} for project {body.project_id} — "
-                    f"clearing and retrying with a fresh session."
-                )
-                from sqlmodel import Session as SQLSession
-
-                def _clear_stale() -> None:
-                    with SQLSession(engine) as db:
-                        proj = db.get(Project, body.project_id)
-                        if proj and proj.session_id == stale:
-                            proj.session_id = None
-                            db.add(proj)
-                            db.commit()
-
-                await asyncio.to_thread(_clear_stale)
-
-                # Reset the stream's error state so the retry's events
-                # aren't masked by the prior failure marker.
-                stream.is_error = False
-                stream.error_message = None
-                collected_events.clear()
-                session_id = None
-                await _run_once(None)
-        except asyncio.CancelledError:
-            # Already handled inside _run_once; fall through to persist.
-            pass
-
-        # Save assistant response, session_id, and clear active_execution_id.
-        # This runs even if the browser disconnected — the task is decoupled
-        # from the SSE consumer. Always attempt to save: even when the text
-        # response is empty (tool-heavy sessions that hit max turns), we still
-        # need to persist the session_id so the next invocation can resume.
-        # Runs on a worker thread because sync psycopg would otherwise block
-        # the event loop (freezing every other SSE/HTTP request).
-        try:
-            full_response = collect_text_response(collected_events)
-            reasoning = collect_reasoning(collected_events)
-
-            from sqlmodel import Session as SQLSession
-
-            def _persist_completion() -> None:
-                with SQLSession(engine) as db:
-                    # Save assistant message if we got any text OR were cancelled
-                    # (so the partial reasoning + cancel marker survive refresh).
-                    if full_response or was_cancelled or reasoning:
-                        raw_reasoning = {"reasoning": reasoning} if reasoning else None
-                        reasoning_data = compress_reasoning(raw_reasoning)
-                        # If the stream errored AFTER producing some text or
-                        # reasoning, append the error to the body and flag
-                        # is_error so the bubble renders red. Without this the
-                        # partial answer would appear as a successful (but
-                        # truncated) reply.
-                        body_text = full_response
-                        is_error_flag = bool(stream.is_error and stream.error_message)
-                        if is_error_flag:
-                            err = stream.error_message or "Agent error (no details)"
-                            body_text = (
-                                f"{body_text}\n\n---\n\n**Agent error:** {err}"
-                                if body_text
-                                else f"**Agent error:** {err}"
-                            )
-                        assistant_msg = Message(
-                            project_id=body.project_id,
-                            role="assistant",
-                            content=body_text,
-                            is_error=is_error_flag,
-                            is_cancelled=was_cancelled,
-                            reasoning_data=reasoning_data,
-                        )
-                        db.add(assistant_msg)
-                    elif stream.is_error and stream.error_message:
-                        # The agent failed before producing any text or
-                        # reasoning — typical when the Claude Code
-                        # subprocess exits during connect/initialize.
-                        # Persist as an assistant message with
-                        # is_error=True so the chat bubble renders it
-                        # with the destructive style on refresh (without
-                        # is_error the bubble would render as a normal
-                        # answer). Content uses the same shape the
-                        # frontend builds at stream-end so the in-memory
-                        # and reloaded views match.
-                        error_msg = Message(
-                            project_id=body.project_id,
-                            role="assistant",
-                            content=f"**Agent error:** {stream.error_message}",
-                            is_error=True,
-                            is_cancelled=False,
-                        )
-                        db.add(error_msg)
-                    else:
-                        logger.warning(f"Agent returned empty text response for project {body.project_id}")
-
-                    # Persist session_id and clear active_execution_id
-                    proj = db.get(Project, body.project_id)
-                    if proj:
-                        if stream.session_id:
-                            proj.session_id = stream.session_id
-                        proj.active_execution_id = None
-                        proj.updated_at = utc_now()
-                        db.add(proj)
-
-                    db.commit()
-
-            await asyncio.to_thread(_persist_completion)
-
-            if full_response:
-                logger.info(f"Saved assistant message for project {body.project_id} ({len(full_response)} chars)")
-            if stream.session_id:
-                logger.info(f"Persisted session_id for project {body.project_id}: {stream.session_id}")
-        except Exception as e:
-            logger.exception(f"Failed to save agent response for project {body.project_id}: {e}")
+        await run_agent_turn(
+            project_id=body.project_id,
+            message=message,
+            stream=stream,
+            engine=engine,
+            mode=mode,
+            context_hint=body.context_hint,
+            images=image_paths or None,
+            cluster_id=project.cluster_id,
+            warehouse_id=project.warehouse_id,
+            default_catalog=project.default_catalog,
+            default_schema=project.default_schema,
+            databricks_profile=databricks_profile,
+            session_id=session_id,
+            template_lineage=template_lineage,
+            operator_notice=handoff_notice,
+            target_deploy=_target_deploy,
+            project_mode=project.mode,
+        )
 
     await manager.start_stream(stream, run_agent)
 

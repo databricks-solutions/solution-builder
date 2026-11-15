@@ -4,7 +4,7 @@ Tables and columns referenced here are defined in 01-lakeflow.md (Section C).
 Your goal is to create a Genie space and an AI/BI Dashboard for this story, respecting these specifications.
 
 > **Talking-track-only products mentioned in the README** — do **not** build resources for these:
-> - **Databricks One** is a workspace-level surface, not a buildable artifact. Once the dashboard, Genie space, and KA exist, they show up there for users with the right entitlement. Nothing to provision.
+> - **Databricks One** is a workspace-level surface, not a buildable artifact. Once the dashboard and the Genie Agent exist, they show up there for users with the right entitlement. Nothing to provision.
 > - **Genie Code** is the AI authoring assist *inside* the Genie/SQL editor — referenced in the README narrative, not a separate resource.
 > - **Unity Catalog** is the global governance layer — already in place at the workspace level, just ensure the catalog/schema/grants in `01-lakeflow.md` are applied.
 
@@ -12,9 +12,9 @@ Your goal is to create a Genie space and an AI/BI Dashboard for this story, resp
 
 ## A. Genie Space
 
-**Skill to use**: `databricks-genie` — read `SKILLS/databricks-genie/SKILL.md` before implementing.
+**Skill to use**: `databricks-genie-agents` — read `SKILLS/databricks-genie-agents/SKILL.md` before implementing.
 
-Create `LuxeBeauty Operations Analytics` Genie Space.
+Create `LuxeBeauty Operations Analytics` Genie Agent (Genie space). It answers data questions from the tables AND document questions from the PDF volume, in one agent.
 
 ### Tables
 
@@ -46,6 +46,12 @@ PREMIUM-COHORT FOLLOW-UP (after root cause is established):
 CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / "consistency is watery" / "texture feels off"
 ```
 
+### Documents (PDF volume)
+
+Attach the PDF volume to the agent as `data_sources.volumes`: `/Volumes/retail_consumer_goods/luxebeauty_demo/manufacturing_reports` (→ `<catalog>.<schema>.manufacturing_reports` at deploy time). The volume is dedicated to documents and holds only PDFs, copied there by `upload_pdfs` from `src/documents/pdf/`. It holds 13 PDFs: the Lyon homogenizer incident report PIR-2026-0531 (lot LOT-2026-0531), the QC summary, maintenance logs, returns policy handbook, packaging SOP, REACH note, supplier audit, SDS, COA index, sustainability roadmap, IT password policy, a marketing brief and a vendor invoice dispute.
+
+The agent must be in **Agent mode** to read documents. `deploy_genie` waits for the volume index to reach `SUCCEEDED` before the job finishes. Routing: numbers → tables; why / root cause / policy / SOP / incident → documents, citing the file.
+
 ### Sample Questions
 
 "What's our return rate this month?" (→ mv_returns) / "Why do I have so many returns?" / "Which products have the highest return rate?" / "What are customers saying about returns?" / "Show me returns trend for the last 8 weeks" / "Which lot has the most returns?" / "Tell me about lot [LOT-ID]" / **"How many of the affected customers are premium (tagged or predicted)?"** / **"How many hidden premiums did the model find in the affected cohort?"** / **"Which countries have the most affected premiums?"**
@@ -54,7 +60,9 @@ CUSTOMER FEEDBACK (from affected lot): "grainy texture" / "product separated" / 
 
 "What's our return rate this month?" → answered from mv_returns, matches the dashboard's Monthly Return Rate KPI tile exactly. "Why so many returns?" → 3x spike, SKU-1001/1002/1003, common lot, texture feedback. "What are customers saying?" → surfaces "grainy", "separated", "watery". "How many of the affected customers are premium?" → ~67 of 250 (final_tier='premium'), answered from `gold_customer_premium_predictions`. "How many hidden premiums?" → ~49 (`premium_status_labeled IS NULL AND is_premium_predicted = true`).
 
-Add genie_space_id to `resources.json`.
+**Document questions** (answered from the PDFs, cited): "What was the root cause of the Lyon homogenizer incident on lot LOT-2026-0531?" (→ PIR-2026-0531: calibration drift in valve PRV-03B) / "How many affected customers are premium, and why was the lot released despite the QC note?" (mixed: tables + the incident report's QC disposition).
+
+Add genie_space_id and documents_volume to `resources.json`.
 
 
 ## B. Dashboard

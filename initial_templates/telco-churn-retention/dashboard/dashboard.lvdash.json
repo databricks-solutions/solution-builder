@@ -1,0 +1,1297 @@
+{
+  "datasets": [
+    {
+      "name": "ds_kpi",
+      "displayName": "Headline KPIs",
+      "queryLines": [
+        "WITH m AS (SELECT month, sum(churned) c, sum(active_start) a FROM gold_churn_monthly GROUP BY month),\n",
+        "s AS (SELECT sum(annual_revenue_at_risk) risk, count_if(risk_tier='Critical') crit FROM churn_scores WHERE risk_tier IN ('Critical','High')),\n",
+        "h AS (SELECT avg(CASE WHEN offer_strategy LIKE 'Driver%' THEN CAST(saved AS INT) END) matched,\n",
+        "             avg(CASE WHEN offer_strategy LIKE 'Blanket%' THEN CAST(saved AS INT) END) blanket,\n",
+        "             sum(annual_revenue_saved) hist_saved FROM retention_offer_history WHERE offer_date >= '2026-08-01'),\n",
+        "d AS (SELECT coalesce(sum(annual_revenue_saved),0) live_saved, count(*) live_n FROM retention_decisions)\n",
+        "SELECT (SELECT c/a FROM m WHERE month = DATE'2026-09-01') AS churn_rate_current,\n",
+        "       (SELECT sum(c)/sum(a) FROM m WHERE month < DATE'2026-07-01') AS churn_rate_baseline,\n",
+        "       s.risk AS revenue_at_risk, s.crit AS critical_accounts,\n",
+        "       h.matched AS save_rate_matched, h.blanket AS save_rate_blanket,\n",
+        "       h.hist_saved + d.live_saved AS revenue_saved, d.live_n AS desk_decisions\n",
+        "FROM s, h, d\n"
+      ]
+    },
+    {
+      "name": "ds_churn_month",
+      "displayName": "Churn by month",
+      "queryLines": [
+        "SELECT month, round(sum(churned) / sum(active_start), 4) AS churn_rate ",
+        "FROM gold_churn_monthly GROUP BY month ORDER BY month"
+      ]
+    },
+    {
+      "name": "ds_monthly_region",
+      "displayName": "Monthly churn by region",
+      "queryLines": [
+        "SELECT month, region, sum(active_start) AS active_start, sum(churned) AS churned,\n",
+        "       round(100 * sum(churned) / sum(active_start), 2) AS churn_rate_pct, sum(monthly_revenue_lost) AS monthly_revenue_lost\n",
+        "FROM gold_churn_monthly GROUP BY month, region\n"
+      ]
+    },
+    {
+      "name": "ds_segment",
+      "displayName": "Churn by segment before vs after July",
+      "queryLines": [
+        "SELECT segment, region, CASE WHEN month >= DATE'2026-07-01' THEN 'Jul–Sep 2026' ELSE 'Oct 2025–Jun 2026' END AS period,\n",
+        "       round(100 * sum(churned) / sum(active_start), 2) AS churn_rate_pct\n",
+        "FROM gold_churn_monthly GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_risk_driver",
+      "displayName": "Revenue at risk by driver",
+      "queryLines": [
+        "SELECT c.region, c.market, c.segment, s.risk_tier,\n",
+        "       CASE s.top_driver WHEN 'network' THEN 'Network quality' WHEN 'bill_shock' THEN 'Bill shock (promo roll-off)'\n",
+        "         WHEN 'competitor' THEN 'Competitor (Crest)' WHEN 'care' THEN 'Care experience' ELSE 'Account profile' END AS top_driver,\n",
+        "       count(*) AS accounts, sum(s.annual_revenue_at_risk) AS revenue_at_risk, sum(s.monthly_bill * 12) AS arpu_book\n",
+        "FROM churn_scores s JOIN customers c USING (customer_id)\n",
+        "WHERE s.risk_tier IN ('Critical','High') GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_strategy",
+      "displayName": "Save rate by offer strategy (Aug–Sep)",
+      "queryLines": [
+        "SELECT offer_strategy, count(*) AS offers, round(100 * avg(CAST(saved AS INT)), 1) AS save_rate_pct,\n",
+        "       round(avg(offer_cost), 0) AS avg_offer_cost, sum(annual_revenue_saved) AS revenue_saved\n",
+        "FROM retention_offer_history WHERE offer_date >= '2026-08-01' GROUP BY 1\n"
+      ]
+    },
+    {
+      "name": "ds_offer_driver",
+      "displayName": "Save rate by driver x offer",
+      "queryLines": [
+        "SELECT CASE primary_driver WHEN 'network' THEN 'Network' WHEN 'bill_shock' THEN 'Bill shock' WHEN 'competitor' THEN 'Competitor' ELSE 'Care' END AS driver,\n",
+        "       o.offer_name, count(*) AS offers, round(100 * avg(CAST(saved AS INT)), 1) AS save_rate_pct\n",
+        "FROM retention_offer_history h JOIN offer_catalog o USING (offer_code)\n",
+        "GROUP BY ALL HAVING count(*) >= 25\n"
+      ]
+    },
+    {
+      "name": "ds_sites",
+      "displayName": "Worst cell sites (Sep 2026)",
+      "queryLines": [
+        "SELECT cell_site_id, market, region, accounts, avg_dropped_call_rate_pct, avg_5g_download_mbps, churned,\n",
+        "       CASE WHEN migrated_to_5g_sa_core THEN 'Yes (Jun 10)' ELSE 'No' END AS migrated_5g_sa_core\n",
+        "FROM gold_network_sites WHERE month = DATE'2026-09-01' ORDER BY avg_dropped_call_rate_pct DESC LIMIT 12\n"
+      ]
+    },
+    {
+      "name": "ds_voice",
+      "displayName": "Voice of customer (AI Functions)",
+      "queryLines": [
+        "SELECT CASE i.primary_intent WHEN 'competitor_offer' THEN 'Competitor offer' WHEN 'billing_dispute' THEN 'Billing dispute' WHEN 'plan_change' THEN 'Plan change' WHEN 'network_complaint' THEN 'Network complaint' WHEN 'device_support' THEN 'Device support' WHEN 'bill_shock' THEN 'Bill shock' ELSE i.primary_intent END AS intent, i.sentiment, c.region, count(*) AS calls, count_if(i.cancel_threat) AS cancel_threats\nFROM care_call_insights i JOIN customers c USING (customer_id) GROUP BY ALL\n"
+      ]
+    },
+    {
+      "name": "ds_decisions",
+      "displayName": "Retention desk decisions (live write-back)",
+      "queryLines": [
+        "SELECT d.decided_at, d.customer_id, c.customer_name, c.region, d.offer_code, d.decision, d.offer_cost,\n",
+        "       d.annual_revenue_saved, d.primary_driver, d.decided_by\n",
+        "FROM retention_decisions d LEFT JOIN customers c USING (customer_id) ORDER BY d.decided_at DESC\n"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "cmo",
+      "displayName": "CMO — Churn & Retention",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Veridian Mobile — Churn & Retention (CMO view)\n",
+                "Postpaid churn rose from **~0.94%/month to 1.73%** since July 2026. Three drivers: a **5G core migration** that degraded 5 Southwest sites (Jun 10), the **Switch & Save** promo roll-off, and **Crest Wireless' $25/line** promo in 8 markets. The retention desk's **driver-matched offers save ~50%** of at-risk customers vs **~30%** for the blanket 20% discount — at a third of the cost."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 9,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_churn_month",
+                  "disaggregated": false,
+                  "fields": [
+                    {
+                      "name": "max(churn_rate)",
+                      "expression": "MAX(`churn_rate`)"
+                    },
+                    {
+                      "name": "monthly(month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `month`)"
+                    }
+                  ]
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(churn_rate)",
+                  "displayName": "Monthly churn (Sep)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "monthly(month)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly churn (Sep)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "churn_rate_baseline",
+                      "expression": "`churn_rate_baseline`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "churn_rate_baseline",
+                  "displayName": "Baseline churn (pre-Jul)",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 2
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Baseline churn (pre-Jul)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "revenue_at_risk",
+                      "expression": "`revenue_at_risk`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "revenue_at_risk",
+                  "displayName": "Revenue at risk (Critical+High)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Revenue at risk (Critical+High)"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "critical_accounts",
+                      "expression": "`critical_accounts`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "critical_accounts",
+                  "displayName": "Critical accounts",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Critical accounts"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "save_rate_matched",
+                      "expression": "`save_rate_matched`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "save_rate_matched",
+                  "displayName": "Save rate: matched offer",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Save rate: matched offer"
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "k6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_kpi",
+                  "fields": [
+                    {
+                      "name": "save_rate_blanket",
+                      "expression": "`save_rate_blanket`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "save_rate_blanket",
+                  "displayName": "Save rate: blanket 20%",
+                  "format": {
+                    "type": "number-percent",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Save rate: blanket 20%"
+              }
+            }
+          },
+          "position": {
+            "x": 10,
+            "y": 3,
+            "width": 2,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_monthly_region",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "churn_rate_pct",
+                      "expression": "`churn_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "Month"
+                },
+                "y": {
+                  "fieldName": "churn_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Churn rate %"
+                },
+                "color": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Southwest",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Texas",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "West",
+                        "color": "#6B7785"
+                      },
+                      {
+                        "value": "Southeast",
+                        "color": "#8795A1"
+                      },
+                      {
+                        "value": "Midwest",
+                        "color": "#AEB6BF"
+                      },
+                      {
+                        "value": "Northeast",
+                        "color": "#9AA7B2"
+                      }
+                    ]
+                  },
+                  "displayName": "Region"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Monthly churn rate by region — the Southwest breaks away in July"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 7,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "seg",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    {
+                      "name": "segment",
+                      "expression": "`segment`"
+                    },
+                    {
+                      "name": "period",
+                      "expression": "`period`"
+                    },
+                    {
+                      "name": "avg(churn_rate_pct)",
+                      "expression": "AVG(`churn_rate_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "segment",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Segment"
+                },
+                "y": {
+                  "fieldName": "avg(churn_rate_pct)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Churn rate % (avg of regions)"
+                },
+                "color": {
+                  "fieldName": "period",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Jul–Sep 2026",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Oct 2025–Jun 2026",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "Period"
+                }
+              },
+              "mark": {
+                "stack": "none"
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Churn by segment — before vs since July"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 6,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "risk",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_risk_driver",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "top_driver",
+                      "expression": "`top_driver`"
+                    },
+                    {
+                      "name": "sum(revenue_at_risk)",
+                      "expression": "SUM(`revenue_at_risk`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  },
+                  "displayName": "Region"
+                },
+                "y": {
+                  "fieldName": "sum(revenue_at_risk)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Revenue at risk ($)",
+                  "format": {
+                    "type": "number-currency",
+                    "currencyCode": "USD",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                },
+                "color": {
+                  "fieldName": "top_driver",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Competitor (Crest)",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "Network quality",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Bill shock (promo roll-off)",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "Top driver (SHAP)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "ARPU at risk by region and churn driver (Critical + High accounts)"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 13,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "strat",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_strategy",
+                  "fields": [
+                    {
+                      "name": "offer_strategy",
+                      "expression": "`offer_strategy`"
+                    },
+                    {
+                      "name": "save_rate_pct",
+                      "expression": "`save_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "save_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Save rate %"
+                },
+                "y": {
+                  "fieldName": "offer_strategy",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Driver-matched (pilot)",
+                        "Blanket discount",
+                        "Rep discretion"
+                      ]
+                    }
+                  },
+                  "displayName": "Offer strategy"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Save rate by offer strategy (Aug–Sep 2026)"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "cost",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_strategy",
+                  "fields": [
+                    {
+                      "name": "offer_strategy",
+                      "expression": "`offer_strategy`"
+                    },
+                    {
+                      "name": "avg_offer_cost",
+                      "expression": "`avg_offer_cost`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg_offer_cost",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Avg offer cost ($)"
+                },
+                "y": {
+                  "fieldName": "offer_strategy",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Driver-matched (pilot)",
+                        "Rep discretion",
+                        "Blanket discount"
+                      ]
+                    }
+                  },
+                  "displayName": "Offer strategy"
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Average cost per offer"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 13,
+            "width": 3,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "od",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_offer_driver",
+                  "fields": [
+                    {
+                      "name": "driver",
+                      "expression": "`driver`"
+                    },
+                    {
+                      "name": "offer_name",
+                      "expression": "`offer_name`"
+                    },
+                    {
+                      "name": "save_rate_pct",
+                      "expression": "`save_rate_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "heatmap",
+              "encodings": {
+                "x": {
+                  "fieldName": "driver",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Churn driver"
+                },
+                "y": {
+                  "fieldName": "offer_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Offer"
+                },
+                "color": {
+                  "fieldName": "save_rate_pct",
+                  "scale": {
+                    "type": "quantitative",
+                    "colorRamp": {
+                      "mode": "custom-sequential",
+                      "start": "#E8EEF5",
+                      "end": "#094074"
+                    }
+                  },
+                  "displayName": "Save rate %"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Save rate by offer × churn driver — the matched offer wins every driver"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 7,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "voice",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_voice",
+                  "fields": [
+                    {
+                      "name": "intent",
+                      "expression": "`intent`"
+                    },
+                    {
+                      "name": "sentiment",
+                      "expression": "`sentiment`"
+                    },
+                    {
+                      "name": "sum(calls)",
+                      "expression": "SUM(`calls`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(calls)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Calls"
+                },
+                "y": {
+                  "fieldName": "intent",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Competitor offer",
+                        "Billing dispute",
+                        "Plan change",
+                        "Network complaint",
+                        "Device support",
+                        "Bill shock"
+                      ]
+                    }
+                  },
+                  "displayName": "Call intent (ai_classify)"
+                },
+                "color": {
+                  "fieldName": "sentiment",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "negative",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "mixed",
+                        "color": "#FE9000"
+                      },
+                      {
+                        "value": "neutral",
+                        "color": "#C7CDD4"
+                      },
+                      {
+                        "value": "positive",
+                        "color": "#2E8B57"
+                      }
+                    ]
+                  },
+                  "displayName": "Sentiment (ai_analyze_sentiment)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Voice of customer — Jul–Sep calls read by AI Functions"
+              }
+            }
+          },
+          "position": {
+            "x": 7,
+            "y": 20,
+            "width": 5,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "sites",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_sites",
+                  "fields": [
+                    {
+                      "name": "cell_site_id",
+                      "expression": "`cell_site_id`"
+                    },
+                    {
+                      "name": "market",
+                      "expression": "`market`"
+                    },
+                    {
+                      "name": "avg_dropped_call_rate_pct",
+                      "expression": "`avg_dropped_call_rate_pct`"
+                    },
+                    {
+                      "name": "avg_5g_download_mbps",
+                      "expression": "`avg_5g_download_mbps`"
+                    },
+                    {
+                      "name": "churned",
+                      "expression": "`churned`"
+                    },
+                    {
+                      "name": "migrated_5g_sa_core",
+                      "expression": "`migrated_5g_sa_core`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cell_site_id",
+                    "displayName": "Site"
+                  },
+                  {
+                    "fieldName": "market",
+                    "displayName": "Market"
+                  },
+                  {
+                    "fieldName": "avg_dropped_call_rate_pct",
+                    "displayName": "Dropped-call %",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 2
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "avg_5g_download_mbps",
+                    "displayName": "5G Mbps",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "churned",
+                    "displayName": "Churned (Sep)",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "migrated_5g_sa_core",
+                    "displayName": "5G SA migration"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Worst cell sites in September — all 5 migrated sites top the list"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 27,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "dec",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "decided_at",
+                      "expression": "`decided_at`"
+                    },
+                    {
+                      "name": "customer_name",
+                      "expression": "`customer_name`"
+                    },
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "offer_code",
+                      "expression": "`offer_code`"
+                    },
+                    {
+                      "name": "decision",
+                      "expression": "`decision`"
+                    },
+                    {
+                      "name": "annual_revenue_saved",
+                      "expression": "`annual_revenue_saved`"
+                    },
+                    {
+                      "name": "decided_by",
+                      "expression": "`decided_by`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "decided_at",
+                    "displayName": "When"
+                  },
+                  {
+                    "fieldName": "customer_name",
+                    "displayName": "Customer"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region"
+                  },
+                  {
+                    "fieldName": "offer_code",
+                    "displayName": "Offer"
+                  },
+                  {
+                    "fieldName": "decision",
+                    "displayName": "Decision"
+                  },
+                  {
+                    "fieldName": "annual_revenue_saved",
+                    "displayName": "Revenue saved",
+                    "format": {
+                      "type": "number-currency",
+                      "currencyCode": "USD",
+                      "abbreviation": "compact",
+                      "decimalPlaces": {
+                        "type": "max",
+                        "places": 0
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "decided_by",
+                    "displayName": "Specialist"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Retention desk decisions — live write-back from the app"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 34,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "f_region",
+            "queries": [
+              {
+                "name": "f_region_ds_monthly_region",
+                "query": {
+                  "datasetName": "ds_monthly_region",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_region_ds_segment",
+                "query": {
+                  "datasetName": "ds_segment",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_region_ds_risk_driver",
+                "query": {
+                  "datasetName": "ds_risk_driver",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_region_ds_voice",
+                "query": {
+                  "datasetName": "ds_voice",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "f_region_ds_decisions",
+                "query": {
+                  "datasetName": "ds_decisions",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "f_region_ds_monthly_region"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "f_region_ds_segment"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "f_region_ds_risk_driver"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "f_region_ds_voice"
+                  },
+                  {
+                    "fieldName": "region",
+                    "displayName": "Region",
+                    "queryName": "f_region_ds_decisions"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Region"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

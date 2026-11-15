@@ -43,6 +43,18 @@
         "question": [
           "Which production lot is driving the spike, and what does the QC note say?"
         ]
+      },
+      {
+        "id": "be4180d634ef4890b647301d47a70c1f",
+        "question": [
+          "What was the root cause of the Lyon homogenizer incident on lot LOT-2026-0430?"
+        ]
+      },
+      {
+        "id": "6b5d597453684e269b340e4cc7aef588",
+        "question": [
+          "How many affected customers are premium, and why was the lot released despite the QC note?"
+        ]
       }
     ]
   },
@@ -61,10 +73,18 @@
         "identifier": "<your-catalog>.<your-schema>.mv_returns"
       },
       {
-        "identifier": "<your-catalog>.<your-schema>.silver_returns"
+        "identifier": "<your-catalog>.<your-schema>.silver_production_lots"
       },
       {
-        "identifier": "<your-catalog>.<your-schema>.silver_production_lots"
+        "identifier": "<your-catalog>.<your-schema>.silver_returns"
+      }
+    ],
+    "volumes": [
+      {
+        "path": "/Volumes/<your-catalog>/<your-schema>/manufacturing_reports",
+        "description": [
+          "Dedicated PDF document volume (policies, SOPs, QC and production incident reports, maintenance logs, supplier audits, safety data sheets). Cite the file you used by name. Use it for WHY and WHAT-SHOULD-WE-DO questions, not for numbers. Key document: the Lyon homogenizer incident report PIR-2026-0430 (lot LOT-2026-0430)."
+        ]
       }
     ]
   },
@@ -76,7 +96,7 @@
           "What's our return rate this month, and how does it compare to baseline?"
         ],
         "sql": [
-          "-- Spike-vs-baseline headline \u00b7 3-week peak ~$180K vs $60K normal\n",
+          "-- Spike-vs-baseline headline · 3-week peak ~$180K vs $60K normal\n",
           "SELECT date_trunc('week', date) AS week,\n",
           "       MEASURE(total_refunds) AS refunds,\n",
           "       MEASURE(return_rate)   AS return_rate\n",
@@ -108,7 +128,7 @@
           "How many affected customers are premium (tagged or model-predicted)?"
         ],
         "sql": [
-          "-- Premium-cohort split \u2014 distinguishes CS-tagged vs model-found 'hidden' premiums\n",
+          "-- Premium-cohort split — distinguishes CS-tagged vs model-found 'hidden' premiums\n",
           "SELECT p.final_tier,\n",
           "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled = 'premium' THEN r.customer_id END) AS cs_tagged,\n",
           "       COUNT(DISTINCT CASE WHEN p.premium_status_labeled IS NULL    THEN r.customer_id END) AS model_found,\n",
@@ -124,20 +144,24 @@
       {
         "id": "0f4a1be44b174968af3ce2074c7265c6",
         "content": [
-          "\u2550\u2550\u2550 THE STORY (always honor this context when answering) \u2550\u2550\u2550\n",
-          "LuxeBeauty Co. \u2014 D2C beauty brand. Persona: Claire Dubois, VP of Operations (non-technical).\n",
-          "WHAT HAPPENED: 3 weeks ago weekly refunds spiked to ~$180K, 3\u00d7 the $60K baseline. We've traced the cause: production lot **LOT-2026-0430** of 3 Skincare SKUs (SKU-1001 Hydrating Serum, SKU-1002 Vitamin C Cream, SKU-1003 HA Moisture Boost) was released from the Lyon facility despite a QC note about texture variations from a homogenizer pressure issue. ~250 customers affected, concentrated in EU markets (Paris is the single largest cluster, then London / Milan / Madrid / Berlin).\n",
+          "═══ THE STORY (always honor this context when answering) ═══\n",
+          "LuxeBeauty Co. — D2C beauty brand. Persona: Claire Dubois, VP of Operations (non-technical).\n",
+          "WHAT HAPPENED: 3 weeks ago weekly refunds spiked to ~$180K, 3× the $60K baseline. We've traced the cause: production lot **LOT-2026-0430** of 3 Skincare SKUs (SKU-1001 Hydrating Serum, SKU-1002 Vitamin C Cream, SKU-1003 HA Moisture Boost) was released from the Lyon facility despite a QC note about texture variations from a homogenizer pressure issue. ~250 customers affected, concentrated in EU markets (Paris is the single largest cluster, then London / Milan / Madrid / Berlin).\n",
           "WHAT TO HELP CLAIRE DO: track the recovery, drill into the affected lot, surface customer feedback (texture complaints: \"grainy\", \"separated\", \"watery\"), and segment the affected customers by their premium tier (CS-tagged vs model-predicted) for the retention offer.\n",
           "TONE: Lead with the number. Concise. Claire is busy.\n",
           "\n",
           "You analyze LuxeBeauty operations data for Claire (VP Ops, non-technical). Lead with the number; keep answers concise.\n",
           "BASELINES: Normal weekly returns ~$60K, normal return rate ~8%, anomaly threshold >20%.\n",
-          "HEADLINE NUMBERS \u2014 always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
-          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds \u2192 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
-          "PREMIUM-COHORT QUESTIONS \u2014 join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
+          "HEADLINE NUMBERS — always answer from `mv_returns` for return rate / revenue / refund rate (same definition the dashboard uses).\n",
+          "INVESTIGATION FLOW for 'Why so many returns?': (1) `mv_returns` weekly total_refunds → 3x spike, (2) `silver_returns` GROUP BY lot_id / product_name to identify SKU-1001/1002/1003 + the affected lot, (3) `silver_returns.customer_comment` for texture complaints.\n",
+          "PREMIUM-COHORT QUESTIONS — join `gold_customer_returns` (affected lot) with `gold_customer_premium_predictions` on `customer_id`. `final_tier` is the rule: 'premium' if CS tagged premium OR model predicted; else 'standard'. `premium_status_labeled` is the original CS hand-tag (NULL = never reviewed).\n",
           "HIDDEN PREMIUMS = `is_premium_predicted = true AND (premium_status_labeled IS NULL OR premium_status_labeled <> 'premium')`. The story beat: 'CS tagged X, the model found Y hidden ones'.\n",
-          "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' \u2014 these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`.",
-          "\n"
+          "CUSTOMER FEEDBACK on the affected lot: 'grainy texture' / 'product separated' / 'consistency is watery' — these are visible in `silver_returns.customer_comment` where `is_bad_lot = true`.",
+          "DOCUMENTS ROUTING (the PDF volume is attached to this agent):\n",
+          "- Numbers, counts, rates, refunds, customers, lots, tiers -> query the TABLES (SQL). Never answer numbers from a document.\n",
+          "- Why / root cause / what happened / policy / procedure / SOP / QC or incident / equipment / maintenance / supplier / safety questions -> search the DOCUMENTS volume and cite the file.\n",
+          "- For a 'why did this lot have problems' question: combine both. Get the lot and the affected counts from the tables, then quote the root cause and QC disposition from PIR-2026-0430 (pir_lot_2026_0430_homogenizer_lyon.pdf) with its citation.\n",
+          "- Quote incident summaries verbatim when you have them. Lead with the number or the root cause; keep answers short.\n"
         ]
       }
     ]

@@ -1,0 +1,1132 @@
+{
+  "datasets": [
+    {
+      "name": "kpis",
+      "displayName": "kpis",
+      "queryLines": [
+        "SELECT\n",
+        "  (SELECT count_if(is_down) FROM gold_site_status) AS sites_down,\n",
+        "  (SELECT sum(IF(is_down, subscribers_served, 0)) FROM gold_site_status) AS subscribers_on_down_sites,\n",
+        "  (SELECT round(100 * avg(IF(is_down, 0, 1)), 2) FROM gold_site_status) AS sites_in_service_pct,\n",
+        "  (SELECT count(*) FROM silver_alarms WHERE raised_ts > (SELECT max(raised_ts) FROM silver_alarms) - INTERVAL 24 HOURS) AS alarms_24h,\n",
+        "  (SELECT count(*) FROM noc_incidents) AS open_incidents,\n",
+        "  (SELECT count(*) FROM noc_incidents WHERE incident_type = 'kpi_anomaly') AS silent_degradations\n"
+      ]
+    },
+    {
+      "name": "network_hourly",
+      "displayName": "network hourly",
+      "queryLines": [
+        "SELECT ts, market, availability_pct, alarms_raised, sites_down, drop_call_rate_pct\nFROM gold_network_hourly\nWHERE ts > (SELECT max(ts) FROM gold_network_hourly) - INTERVAL 36 HOURS"
+      ]
+    },
+    {
+      "name": "router_status",
+      "displayName": "router status",
+      "queryLines": [
+        "WITH r AS (\n  SELECT agg_router_id, count_if(is_down) AS down_cnt, count_if(NOT is_down) AS up_cnt, count(*) AS tot\n  FROM gold_site_status GROUP BY agg_router_id\n)\nSELECT agg_router_id, 'down' AS status, down_cnt AS sites FROM r\nUNION ALL\nSELECT agg_router_id, 'up' AS status, up_cnt AS sites FROM r"
+      ]
+    },
+    {
+      "name": "incidents",
+      "displayName": "incidents",
+      "queryLines": [
+        "SELECT incident_id, suggested_priority AS priority, incident_type, title, market, CAST(detected_ts AS STRING) AS detected, sites_affected, subscribers_served, alarm_count, active_alarms\n",
+        "FROM noc_incidents ORDER BY suggested_priority, detected_ts DESC\n"
+      ]
+    },
+    {
+      "name": "top_anomalies",
+      "displayName": "top anomalies",
+      "queryLines": [
+        "SELECT cell_id, CAST(day AS STRING) AS day, anomaly_score, array_join(top_factors, ' · ') AS why_flagged\n",
+        "FROM cell_health_daily WHERE is_anomaly AND day >= (SELECT date_sub(max(day), 1) FROM cell_health_daily)\n",
+        "QUALIFY row_number() OVER (PARTITION BY cell_id ORDER BY anomaly_score DESC) = 1 ORDER BY anomaly_score DESC LIMIT 10\n"
+      ]
+    },
+    {
+      "name": "slow_burn",
+      "displayName": "slow burn",
+      "queryLines": [
+        "WITH top AS (SELECT cell_id FROM cell_health_daily WHERE is_anomaly GROUP BY cell_id ORDER BY max(drop_call_rate_pct - baseline_drop_call_rate_pct) DESC LIMIT 1)\n",
+        "SELECT k.day, k.cell_id, k.drop_call_rate_pct, k.max_vswr FROM gold_cell_kpi_daily k\n",
+        "WHERE k.site_id IN (SELECT substring(cell_id, 1, 7) FROM top)\n"
+      ]
+    },
+    {
+      "name": "mttr",
+      "displayName": "mttr",
+      "queryLines": [
+        "SELECT CASE category WHEN 'congestion' THEN 'Congestion' WHEN 'fiber_cut' THEN 'Fiber cut' WHEN 'interference' THEN 'Interference' WHEN 'microwave' THEN 'Microwave' WHEN 'optics_degradation' THEN 'Optics degradation' WHEN 'planned_work_overrun' THEN 'Planned work overrun' WHEN 'power' THEN 'Power' WHEN 'rf_hardware' THEN 'RF hardware' WHEN 'software' THEN 'Software' ELSE category END AS category_label, count(*) AS tickets, round(avg(mttr_hours), 1) AS avg_mttr_hours ",
+        "FROM trouble_tickets ",
+        "WHERE opened_ts >= add_months((SELECT max(opened_ts) FROM trouble_tickets), -12) ",
+        "GROUP BY 1 ORDER BY avg_mttr_hours DESC"
+      ]
+    },
+    {
+      "name": "early_warning",
+      "displayName": "early warning",
+      "queryLines": [
+        "SELECT CASE category WHEN 'congestion' THEN 'Congestion' WHEN 'fiber_cut' THEN 'Fiber cut' WHEN 'interference' THEN 'Interference' WHEN 'microwave' THEN 'Microwave' WHEN 'optics_degradation' THEN 'Optics degradation' WHEN 'planned_work_overrun' THEN 'Planned work overrun' WHEN 'power' THEN 'Power' WHEN 'rf_hardware' THEN 'RF hardware' WHEN 'software' THEN 'Software' ELSE category END AS category_label, round(100 * count_if(precursor = 'early warning ignored') / count(*), 1) AS pct_early_warning_ignored, count(*) AS tickets ",
+        "FROM trouble_ticket_insights ",
+        "GROUP BY 1 HAVING count_if(precursor = 'early warning ignored') > 0 ",
+        "ORDER BY pct_early_warning_ignored DESC"
+      ]
+    },
+    {
+      "name": "duplicates",
+      "displayName": "duplicates",
+      "queryLines": [
+        "SELECT date_trunc('MONTH', opened_ts) AS month, sum(duplicate_tickets_opened) AS duplicate_tickets, count(*) AS tickets FROM trouble_tickets ",
+        "WHERE opened_ts < DATE'2026-07-01' GROUP BY 1\n"
+      ]
+    },
+    {
+      "name": "kpi_daily",
+      "displayName": "kpi daily",
+      "queryLines": [
+        "SELECT h.day, h.sites_down, h.alarms, COALESCE(i.incidents,0) AS incidents, COALESCE(i.silent_degradations,0) AS silent_degradations\nFROM (\n  SELECT date_trunc('DAY', ts) AS day, max(sites_down) AS sites_down, sum(alarms_raised) AS alarms\n  FROM gold_network_hourly GROUP BY 1\n) h\nLEFT JOIN (\n  SELECT date_trunc('DAY', detected_ts) AS day, count(*) AS incidents, count_if(incident_type = 'kpi_anomaly') AS silent_degradations\n  FROM noc_incidents GROUP BY 1\n) i ON h.day = i.day\nORDER BY h.day"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "noc",
+      "displayName": "Network Operations",
+      "layout": [
+        {
+          "widget": {
+            "name": "title",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# Halcyon Wireless — Network Operations\n",
+                "\n",
+                "**The story** — this morning at **05:57** a contractor cut the fiber of aggregation router **AGG-DEN-04**; the secondary path failed under load and the router isolated, taking **64 of its 68 cell sites** offline (**~100K subscribers**). One root cause sits behind **hundreds** of alarms.\n",
+                "\n",
+                "**What to see** — the KPI counters carry the live network state with a 4-week sparkline · the storm timeline shows the cliff the instant the router isolated · the topology bar proves it is **one** router, not a scattered outage · the KPI-anomaly model (bottom-left table) also flags a sector **degrading for three weeks that never raised an alarm**."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "w1",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_daily",
+                  "fields": [
+                    {
+                      "name": "sites_down",
+                      "expression": "MAX(`sites_down`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sites_down",
+                  "displayName": "Cell sites down now",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cell sites down now"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w2",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "subscribers_on_down_sites",
+                      "expression": "`subscribers_on_down_sites`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "subscribers_on_down_sites",
+                  "displayName": "Subscribers on down sites",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Subscribers on down sites"
+              }
+            }
+          },
+          "position": {
+            "x": 1,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w3",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "sites_in_service_pct",
+                      "expression": "`sites_in_service_pct`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sites_in_service_pct",
+                  "displayName": "Sites in service (%)",
+                  "format": {
+                    "type": "number-plain",
+                    "decimalPlaces": {
+                      "type": "exact",
+                      "places": 1
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sites in service (%)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w4",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_daily",
+                  "fields": [
+                    {
+                      "name": "alarms_24h",
+                      "expression": "MAX(`alarms`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "alarms_24h",
+                  "displayName": "Alarms, peak day",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alarms, peak day"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w5",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpi_daily",
+                  "fields": [
+                    {
+                      "name": "open_incidents",
+                      "expression": "SUM(`incidents`)"
+                    },
+                    {
+                      "name": "daily(day)",
+                      "expression": "DATE_TRUNC(\"DAY\", `day`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "open_incidents",
+                  "displayName": "Open correlated incidents",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                },
+                "period": {
+                  "fieldName": "daily(day)"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Open correlated incidents"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w6",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "kpis",
+                  "fields": [
+                    {
+                      "name": "silent_degradations",
+                      "expression": "`silent_degradations`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "silent_degradations",
+                  "displayName": "Silent degradations (no alarm)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 0
+                    }
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Silent degradations (no alarm)"
+              }
+            }
+          },
+          "position": {
+            "x": 5,
+            "y": 4,
+            "width": 1,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "w7",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "network_hourly",
+                  "fields": [
+                    {
+                      "name": "ts",
+                      "expression": "`ts`"
+                    },
+                    {
+                      "name": "alarms_raised",
+                      "expression": "`alarms_raised`"
+                    },
+                    {
+                      "name": "market",
+                      "expression": "`market`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "ts",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "hour"
+                },
+                "y": {
+                  "fieldName": "alarms_raised",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "alarms raised"
+                },
+                "color": {
+                  "fieldName": "market",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Denver",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Fort Collins",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Boulder",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Colorado Springs",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Pueblo",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "market"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Alarm storm timeline — alarms per hour by market",
+                "showDescription": true,
+                "description": "Flat background noise, then the 06:00 cliff: the AGG-DEN-04 fiber cut raises hundreds of alarms in minutes — one root cause."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w8",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "network_hourly",
+                  "fields": [
+                    {
+                      "name": "ts",
+                      "expression": "`ts`"
+                    },
+                    {
+                      "name": "sites_down",
+                      "expression": "`sites_down`"
+                    },
+                    {
+                      "name": "market",
+                      "expression": "`market`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "ts",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "hour"
+                },
+                "y": {
+                  "fieldName": "sites_down",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "sites down"
+                },
+                "color": {
+                  "fieldName": "market",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Denver",
+                        "color": "#094074"
+                      },
+                      {
+                        "value": "Fort Collins",
+                        "color": "#3C6997"
+                      },
+                      {
+                        "value": "Boulder",
+                        "color": "#5ADBFF"
+                      },
+                      {
+                        "value": "Colorado Springs",
+                        "color": "#FFDD4A"
+                      },
+                      {
+                        "value": "Pueblo",
+                        "color": "#FE9000"
+                      }
+                    ]
+                  },
+                  "displayName": "market"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sites isolated after the fiber cut — per hour",
+                "showDescription": true,
+                "description": "Zero all night, then 64 Denver sites drop the instant the router isolates at 05:57. The step IS the incident."
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w9",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "router_status",
+                  "fields": [
+                    {
+                      "name": "agg_router_id",
+                      "expression": "`agg_router_id`"
+                    },
+                    {
+                      "name": "sites",
+                      "expression": "`sites`"
+                    },
+                    {
+                      "name": "status",
+                      "expression": "`status`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sites",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "cell sites"
+                },
+                "y": {
+                  "fieldName": "agg_router_id",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "AGG-DEN-04",
+                        "AGG-BLD-01",
+                        "AGG-BLD-02",
+                        "AGG-COS-01",
+                        "AGG-COS-02",
+                        "AGG-COS-03",
+                        "AGG-DEN-01",
+                        "AGG-DEN-02",
+                        "AGG-DEN-03",
+                        "AGG-DEN-05",
+                        "AGG-DEN-06",
+                        "AGG-FTC-01",
+                        "AGG-FTC-02",
+                        "AGG-PUE-01"
+                      ]
+                    }
+                  },
+                  "displayName": "aggregation router"
+                },
+                "color": {
+                  "fieldName": "status",
+                  "scale": {
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "down",
+                        "color": "#D62728"
+                      },
+                      {
+                        "value": "up",
+                        "color": "#C7CDD4"
+                      }
+                    ]
+                  },
+                  "displayName": "status"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Sites by aggregation router — down vs in service",
+                "showDescription": true,
+                "description": "One router is almost fully down (red); the rest of the fleet is healthy. The outage is topological, not scattered."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w10",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "incidents",
+                  "fields": [
+                    {
+                      "name": "incident_id",
+                      "expression": "`incident_id`"
+                    },
+                    {
+                      "name": "priority",
+                      "expression": "`priority`"
+                    },
+                    {
+                      "name": "title",
+                      "expression": "`title`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "incident_id",
+                    "displayName": "Incident"
+                  },
+                  {
+                    "fieldName": "priority",
+                    "displayName": "Priority"
+                  },
+                  {
+                    "fieldName": "title",
+                    "displayName": "Alert"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Correlated incident queue (alarm correlation + KPI anomaly model)"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 14,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w11",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "top_anomalies",
+                  "fields": [
+                    {
+                      "name": "cell_id",
+                      "expression": "`cell_id`"
+                    },
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "anomaly_score",
+                      "expression": "`anomaly_score`"
+                    },
+                    {
+                      "name": "why_flagged",
+                      "expression": "`why_flagged`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "cell_id",
+                    "displayName": "Cell"
+                  },
+                  {
+                    "fieldName": "day",
+                    "displayName": "Day"
+                  },
+                  {
+                    "fieldName": "anomaly_score",
+                    "displayName": "Anomaly score",
+                    "format": {
+                      "type": "number-plain",
+                      "abbreviation": "none",
+                      "decimalPlaces": {
+                        "type": "exact",
+                        "places": 1
+                      }
+                    }
+                  },
+                  {
+                    "fieldName": "why_flagged",
+                    "displayName": "Why flagged"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Cells flagged by the KPI anomaly model"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 21,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w12",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "slow_burn",
+                  "fields": [
+                    {
+                      "name": "day",
+                      "expression": "`day`"
+                    },
+                    {
+                      "name": "drop_call_rate_pct",
+                      "expression": "`drop_call_rate_pct`"
+                    },
+                    {
+                      "name": "cell_id",
+                      "expression": "`cell_id`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "day"
+                },
+                "y": {
+                  "fieldName": "drop_call_rate_pct",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "dropped-call rate %"
+                },
+                "color": {
+                  "fieldName": "cell_id",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "cell"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Slow burn: dropped-call rate by sector at the most degraded site",
+                "showDescription": true,
+                "description": "One sector creeps up for three weeks; VSWR never reaches the 2.0 alarm threshold."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 27,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w13",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "mttr",
+                  "fields": [
+                    {
+                      "name": "category_label",
+                      "expression": "`category_label`"
+                    },
+                    {
+                      "name": "avg_mttr_hours",
+                      "expression": "`avg_mttr_hours`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg_mttr_hours",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "avg MTTR (hours)"
+                },
+                "y": {
+                  "fieldName": "category_label",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Interference",
+                        "RF hardware",
+                        "Fiber cut",
+                        "Congestion",
+                        "Power",
+                        "Optics degradation",
+                        "Planned work overrun",
+                        "Software",
+                        "Microwave"
+                      ]
+                    }
+                  },
+                  "displayName": "category"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "MTTR by ticket category, last 12 months",
+                "showDescription": true,
+                "description": "Mean time to repair in hours: interference and RF hardware take the longest."
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 33,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w14",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "early_warning",
+                  "fields": [
+                    {
+                      "name": "category_label",
+                      "expression": "`category_label`"
+                    },
+                    {
+                      "name": "pct_early_warning_ignored",
+                      "expression": "`pct_early_warning_ignored`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "pct_early_warning_ignored",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "% ignored"
+                },
+                "y": {
+                  "fieldName": "category_label",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "custom-order",
+                      "orderedValues": [
+                        "Optics degradation",
+                        "RF hardware",
+                        "Power",
+                        "Fiber cut",
+                        "Planned work overrun",
+                        "Congestion"
+                      ]
+                    }
+                  },
+                  "displayName": "category"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Outages preceded by an ignored early warning",
+                "showDescription": true,
+                "description": "Share of tickets per category where an early warning was raised and ignored (ai_classify on resolution notes)."
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 33,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "w15",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "duplicates",
+                  "fields": [
+                    {
+                      "name": "month",
+                      "expression": "`month`"
+                    },
+                    {
+                      "name": "duplicate_tickets",
+                      "expression": "`duplicate_tickets`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "displayName": "month"
+                },
+                "y": {
+                  "fieldName": "duplicate_tickets",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "duplicate tickets"
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Duplicate per-site tickets opened for one root cause",
+                "showDescription": true,
+                "description": "One root cause spawns many per-site tickets — correlation collapses them into a single incident."
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 33,
+            "width": 2,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "sec_incident",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Live incident — the AGG-DEN-04 fiber cut"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "sec_patterns",
+            "multilineTextboxSpec": {
+              "lines": [
+                "## Patterns the correlation + anomaly models surface"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 1
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}

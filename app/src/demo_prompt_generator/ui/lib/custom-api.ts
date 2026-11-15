@@ -97,6 +97,10 @@ export interface Project {
   is_driver?: boolean | null;
   driver_token_age_seconds?: number | null;
   driver_token_expired?: boolean | null;
+  /** SP mode: the agent runs as the deployer service principal (not a per-user
+   *  OBO token), so the whole driver/take-over model is bypassed. When true the
+   *  UI hides the driver banner + take-over control and never gates sending. */
+  is_sp_mode?: boolean | null;
 }
 
 /** Light poll payload for the chat's driver banner (GET /driver-status). */
@@ -105,11 +109,91 @@ export interface DriverStatus {
   is_driver: boolean;
   driver_token_age_seconds: number | null;
   driver_token_expired: boolean;
+  /** SP mode — driver model bypassed; UI hides the banner + never gates sending. */
+  is_sp_mode?: boolean;
 }
 
 export async function getDriverStatus(projectId: string): Promise<DriverStatus> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/driver-status`));
   if (!resp.ok) throw new Error(`Failed to get driver status: ${resp.status}`);
+  return resp.json();
+}
+
+// --- /internal live runtime metrics -----------------------------------------
+export interface InternalMetricsSample {
+  t: number;                        // unix seconds
+  // Memory breakdown (see the /internal Memory chart). RSS is per-process; the
+  // container total is the cgroup number (the OOM signal).
+  rss_mb: number | null;            // alias of main_rss_mb (back-compat)
+  main_rss_mb: number | null;       // the uvicorn app process
+  children_rss_mb: number | null;   // sum of ALL child processes
+  total_rss_mb: number | null;      // main + children (summed RSS; overcounts shared)
+  claude_rss_mb: number | null;     // Claude Code session subprocesses
+  preview_rss_mb: number | null;    // live preview-app subprocess trees
+  other_rss_mb: number | null;      // bash / databricks CLI / uv children
+  children: number | null;          // child process count
+  cgroup_used_mb: number | null;    // container memory charged (authoritative)
+  cgroup_limit_mb: number | null;   // container memory limit (OOM boundary)
+  cgroup_percent: number | null;
+  mem_percent: number | null;
+  agent_sessions: number | null;
+  agent_sessions_busy: number | null;
+  active_streams: number | null;
+  live_streams: number | null;
+  collab_rooms: number | null;
+  collab_members: number | null;
+  preview_states: number | null;
+  preview_running: number | null;
+  // Wedge-diagnosis gauges: threadpool saturation, DB-pool exhaustion, loop lag.
+  threadpool_total: number | null;
+  threadpool_borrowed: number | null;
+  threadpool_waiting: number | null;
+  db_pool_checked_out: number | null;
+  db_pool_size: number | null;
+  db_pool_overflow: number | null;
+  loop_lag_ms: number | null;
+  uptime_s: number;
+  [k: string]: number | null;
+}
+export interface InternalMetrics {
+  gauges: InternalMetricsSample;
+  counters: Record<string, number>;
+  history: InternalMetricsSample[];
+  sample_interval_s: number;
+}
+
+export async function getInternalMetrics(): Promise<InternalMetrics> {
+  const resp = await fetch(apiUrl("/api/internal/metrics"));
+  if (!resp.ok) {
+    const e = new Error(`Failed to get metrics: ${resp.status}`) as Error & { status?: number };
+    e.status = resp.status;
+    throw e;
+  }
+  return resp.json();
+}
+
+/** One project currently holding a live Claude Code agent session. Admin-only. */
+export interface ActiveSession {
+  project_id: string;
+  project_name: string | null;
+  owner_email: string | null;
+  is_busy: boolean;
+  has_live_stream: boolean;
+  idle_seconds: number;
+  age_seconds: number;
+  project_url: string;
+}
+
+export interface ActiveSessionsResponse {
+  is_admin: boolean;
+  sessions: ActiveSession[];
+}
+
+/** Admin-only. Returns 403 for non-admins (caller should catch and hide the section). */
+export async function getActiveSessions(): Promise<ActiveSessionsResponse> {
+  const resp = await fetch(apiUrl("/api/internal/active-sessions"));
+  if (resp.status === 403) return { is_admin: false, sessions: [] };
+  if (!resp.ok) throw new Error(`Failed to get active sessions: ${resp.status}`);
   return resp.json();
 }
 
@@ -121,6 +205,8 @@ export interface ProjectListItem {
   customer?: string | null;
   project_type: string;
   stage: ProjectStage;
+  /** Home entry mode: a full solution ("story"), an architecture or a workshop. */
+  mode?: "story" | "architecture" | "workshop";
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -416,6 +502,9 @@ export interface BrandOut {
   logo_data_url: string | null;
   logos: BrandLogoCandidate[];
   palette: string[];
+  /** Square symbol without the name, SVG data URL (fresh resolves only). */
+  symbol_data_url?: string | null;
+  symbol_source?: string | null; // "bimi" | "simpleicons"
   source: string | null;
   warnings: string[];
   // debug / "see reasoning" surfaces
@@ -423,6 +512,25 @@ export interface BrandOut {
   logo_provenance?: BrandLogoProvenance[];
   site_screenshot?: string | null; // data URL of the official-site screenshot
   trace?: BrandTraceStep[];
+  /** Server log lines from this resolve (empty on a cache hit). */
+  logs?: string[];
+}
+
+export interface BrandDiagnostics {
+  playwright_browsers_path: string | null;
+  installed_browsers: string[];
+  /** Tail of start.sh's Playwright browser install output. */
+  install_log: string | null;
+  packages: Record<string, string | null>;
+  /** Shared libs the headless shell can't load (ldd "not found"). */
+  missing_libs: string[];
+  os: string | null;
+}
+
+export async function getBrandDiagnostics(): Promise<BrandDiagnostics> {
+  const resp = await fetch(apiUrl("/api/brands/diagnostics"));
+  if (!resp.ok) throw new Error(`Brand diagnostics failed: ${resp.status}`);
+  return resp.json();
 }
 
 /**
@@ -940,7 +1048,11 @@ export async function saveProjectFile(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content }),
   });
-  if (!resp.ok) throw new Error(`Failed to save file: ${resp.status}`);
+  if (!resp.ok) {
+    const e = new Error(`Failed to save file: ${resp.status}`) as Error & { status?: number };
+    e.status = resp.status;
+    throw e;
+  }
   return resp.json();
 }
 
@@ -1023,19 +1135,15 @@ export async function getDeployedResources(projectId: string): Promise<DeployedR
   return resp.json();
 }
 
-export async function downloadProjectAsZip(projectId: string): Promise<void> {
-  const resp = await fetch(apiUrl(`/api/projects/${projectId}/download`));
-  if (!resp.ok) throw new Error(`Failed to download project: ${resp.status}`);
-
-  // Get the filename from Content-Disposition header or use default
+/** Save a zip response to disk, named by its Content-Disposition (or fallback). */
+async function saveZipResponse(resp: Response, fallbackName: string): Promise<void> {
   const contentDisposition = resp.headers.get("Content-Disposition");
-  let filename = "project.zip";
+  let filename = fallbackName;
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="(.+)"/);
     if (match) filename = match[1];
   }
 
-  // Download the blob
   const blob = await resp.blob();
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1043,8 +1151,22 @@ export async function downloadProjectAsZip(projectId: string): Promise<void> {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
+  // Revoke later: revoking right after click() can cancel the download.
+  setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+}
+
+export async function downloadProjectAsZip(projectId: string): Promise<void> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/download`));
+  if (!resp.ok) throw new Error(`Failed to download project: ${resp.status}`);
+  await saveZipResponse(resp, "project.zip");
+}
+
+/** Genie Code workshop attendee kit (workshop page + CONTEXT + specs + data gen). */
+export async function downloadWorkshopKit(projectId: string): Promise<void> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/workshop-kit`));
+  if (!resp.ok) throw new Error(`Failed to download workshop kit: ${resp.status}`);
+  await saveZipResponse(resp, "workshop-kit.zip");
 }
 
 
@@ -1089,6 +1211,38 @@ export async function getMessageReasoning(
   return data.reasoning_data ?? null;
 }
 
+/** Token totals + list-price cost. `cache_write_tokens` = 5-minute + 1-hour writes. */
+export interface UsageTotals {
+  responses: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  /** Responses from a model with no known price — not included in cost_usd. */
+  unpriced_responses: number;
+}
+
+export interface ProjectUsage {
+  totals: UsageTotals;
+  conversations: {
+    session_id: string;
+    started_at: string;
+    ended_at: string;
+    totals: UsageTotals;
+    /** "main" first, then one entry per subagent type. */
+    agents: { agent: string; subagents: number; totals: UsageTotals }[];
+  }[];
+  models: { model: string; priced_as: string | null; estimated: boolean; totals: UsageTotals }[];
+}
+
+/** What the project's agent conversations cost so far (main agent + subagents, cleared chats included). */
+export async function getProjectUsage(projectId: string): Promise<ProjectUsage> {
+  const resp = await fetch(apiUrl(`/api/projects/${projectId}/usage`));
+  if (!resp.ok) throw new Error(`Failed to fetch usage: ${resp.status}`);
+  return resp.json();
+}
+
 export async function clearProjectSession(projectId: string): Promise<{ success: boolean; deleted_count: number }> {
   const resp = await fetch(apiUrl(`/api/projects/${projectId}/session/clear`), {
     method: "POST",
@@ -1101,10 +1255,17 @@ export async function clearProjectSession(projectId: string): Promise<{ success:
 // Agent API
 // ---------------------------------------------------------------------------
 
+/** An image pasted into the chat composer (base64 without the data: prefix). */
+export interface ChatImage {
+  filename: string;
+  media_type: string;
+  data_b64: string;
+}
+
 export async function invokeAgent(
   projectId: string,
   message: string,
-  options: { saveUserMessage?: boolean; contextHint?: string } = {},
+  options: { saveUserMessage?: boolean; contextHint?: string; images?: ChatImage[] } = {},
 ): Promise<InvokeAgentResponse> {
   const resp = await fetch(apiUrl("/api/invoke_agent"), {
     method: "POST",
@@ -1115,6 +1276,8 @@ export async function invokeAgent(
       save_user_message: options.saveUserMessage ?? true,
       // Only send when set — omitted on overview/story tabs.
       ...(options.contextHint ? { context_hint: options.contextHint } : {}),
+      // Saved under context/uploads/ and sent to the model as image blocks.
+      ...(options.images?.length ? { images: options.images } : {}),
     }),
   });
   if (!resp.ok) {
@@ -1155,7 +1318,11 @@ export async function* streamAgentProgress(
         signal: combinedSignal,
       });
 
-      if (!resp.ok) throw new Error(`Stream failed: ${resp.status}`);
+      if (!resp.ok) {
+        const e = new Error(`Stream failed: ${resp.status}`) as Error & { status?: number };
+        e.status = resp.status;
+        throw e;
+      }
 
       const reader = resp.body!.getReader();
       const decoder = new TextDecoder();
@@ -1175,6 +1342,9 @@ export async function* streamAgentProgress(
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        // Data arrived, so the connection is healthy: the retry budget is for
+        // consecutive failures, not a lifetime cap on a long-running turn.
+        reconnectAttempts = 0;
 
         buf += decoder.decode(value, { stream: true });
         const parts = buf.split("\n\n");
@@ -1242,14 +1412,24 @@ export async function* streamAgentProgress(
       if ((error as Error).name === "AbortError" && signal?.aborted) {
         return;
       }
-      // Timeout or connection error — retry with backoff.
+      // Auth / not-found won't heal on retry. After a backend restart the
+      // execution is gone (404), and retrying 10x in lockstep from every open
+      // tab just hammers the server. Surface it now, like exhausted retries.
+      const status = (error as { status?: number }).status;
+      if (status === 401 || status === 403 || status === 404) {
+        throw new Error(
+          `Stream failed (${status}). The run may have ended — try reloading the page.`
+        );
+      }
+      // Timeout or connection error — retry with full-jitter backoff so tabs
+      // that lost the same connection don't reconnect in lockstep.
       reconnectAttempts++;
       if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         throw new Error(
           `Stream failed after ${MAX_RECONNECT_ATTEMPTS} retries. The backend may be unresponsive — try reloading the page.`
         );
       }
-      await new Promise(r => setTimeout(r, 1000 * reconnectAttempts));
+      await new Promise(r => setTimeout(r, Math.random() * 1000 * reconnectAttempts));
     } finally {
       clearTimeout(timeoutId);
     }
@@ -1737,8 +1917,36 @@ export interface TemplateListItem {
   has_screenshot?: boolean;
   /** Total gallery images (hero + extras). >1 → the sheet shows a carousel. */
   screenshot_count?: number;
+  /** Deployed live in THIS app's workspace → "Live" badge + "Try it live" buttons. */
+  has_live_demo?: boolean;
   submitted_at: string;
   reviewed_at: string | null;
+}
+
+/** Kind of a live-demo resource (drives the button icon + tone). */
+export type LiveDemoAssetKind =
+  | "app"
+  | "dashboard"
+  | "genie"
+  | "pipeline"
+  | "job"
+  | "knowledge_assistant"
+  | "model"
+  | "data"
+  | "folder";
+
+export interface LiveDemoAsset {
+  kind: LiveDemoAssetKind | string;
+  label: string;
+  url: string;
+}
+
+/** Where a seed template is deployed live. Only returned when that deployment is
+ *  in the SAME workspace as this app (the seeder drops it everywhere else). */
+export interface LiveDemo {
+  workspace: string;
+  assets: LiveDemoAsset[];
+  demo_questions: string[];
 }
 
 /** URL for a template's hero screenshot (PNG). Use as an <img src>. */
@@ -1772,15 +1980,8 @@ export interface TemplateDetail extends TemplateListItem {
   reviewed_by: string | null;
   source_project_id: string | null;
   file_count: number;
-}
-
-/** Live-resource links for an official demo, keyed by template id/slug. Used
- *  ONLY by the internal /internal-demos gallery (never stored in the DB). */
-export interface DemoResourceLinks {
-  dashboard?: string;
-  genie?: string;
-  data?: string;
-  app?: string;
+  /** "Try it live" links — null unless deployed in this app's workspace. */
+  live_demo?: LiveDemo | null;
 }
 
 export interface TemplateFile {
@@ -1963,8 +2164,8 @@ export interface Capability {
   name: string;
   category: string;
   disabled?: boolean;
-  /** Offered in the "Prepare a workshop" (Genie Code) mode? Defaults true;
-   *  the workshop tab hides capabilities where this is false. */
+  /** In the Genie Code workshop pool? Backend allowlist (WORKSHOP_CAPABILITIES):
+   *  the workshop mode shows only capabilities where this is true. */
   genie_code_workshop?: boolean;
 }
 
@@ -2063,9 +2264,15 @@ export async function* streamSuggestCapabilities(
   /** "Use existing data" opt-in: when false (default) suggested use-cases are
    *  read-only analytics; when true the demo may create its own auxiliary data
    *  so write-needing capabilities are proposed too. */
-  allowDataWrite = false
+  allowDataWrite = false,
+  /** Home-page entry mode. "workshop" pins the capability pool to the
+   *  workshop-buildable set and always yields 3 stories. */
+  mode?: "story" | "architecture" | "workshop",
 ): AsyncGenerator<SuggestEvent> {
   const body: Record<string, unknown> = { prompt, capabilities };
+  if (mode) {
+    body.mode = mode;
+  }
   if (previousIdeas && previousIdeas.length > 0) {
     body.previous_ideas = previousIdeas;
     body.previous_capabilities = previousCapabilities ?? [];

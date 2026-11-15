@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 // ── Templated configuration (resolved by `databricks apps init`) ────────────
 const APP_CONFIG = {
-  name: 'mas-chat-demo',
+  name: 'genie-agent-demo',
   plugins: [
   ],
 } as const;

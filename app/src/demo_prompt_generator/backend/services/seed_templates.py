@@ -27,7 +27,8 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 
 from ..models import Template, TemplateScreenshot, TemplateStatus, TemplateType, utc_now
-from .file_sync import compress_content, compute_file_hash
+from .file_sync import compress_content, compute_file_hash, is_skipped_hidden_path
+from .live_demo import app_workspace_host, build_live_demo
 from .template_service import (
     _should_include_in_template,
     _clear_created_resources,
@@ -99,7 +100,7 @@ def _collect_files(template_dir: Path) -> list[tuple[str, bytes]]:
         if not path.is_file():
             continue
         rel_path = str(path.relative_to(template_dir))
-        if any(part.startswith(".") or part == "__pycache__" for part in Path(rel_path).parts):
+        if is_skipped_hidden_path(rel_path) or "__pycache__" in Path(rel_path).parts:
             continue
         if not _should_include_in_template(rel_path):
             continue
@@ -207,7 +208,7 @@ def _folder_signature(template_dir: Path, meta: str) -> str:
         if not path.is_file():
             continue
         rel_path = str(path.relative_to(template_dir))
-        if any(part.startswith(".") or part == "__pycache__" for part in Path(rel_path).parts):
+        if is_skipped_hidden_path(rel_path) or "__pycache__" in Path(rel_path).parts:
             continue
         # include the screenshots in the signature (they're excluded from the
         # fork file-set but ARE written to the Template.screenshot column +
@@ -265,6 +266,8 @@ def seed_default_templates(engine: Engine, ws: "WorkspaceClient | None" = None) 
 
     owner_email = "system@databricks.com"
     inserted = updated = skipped = 0
+    # Live-demo links are only kept for demos deployed in THIS app's workspace.
+    app_host = app_workspace_host(ws)
 
     with Session(engine) as session:
         for template_dir in _discover_template_dirs(templates_dir):
@@ -294,11 +297,15 @@ def seed_default_templates(engine: Engine, ws: "WorkspaceClient | None" = None) 
                 # Template kind (SOLUTION default / WORKSHOP / GENIE_WORKSHOP /
                 # ARCHITECTURE) from the manifest — drives the gallery tag + ?type= filter.
                 template_type = entry.get("template_type") or TemplateType.SOLUTION.value
+                # "Try it live" links — None unless deployed in this app's workspace.
+                live = build_live_demo(entry.get("live_demo"), app_host)
+                live_json = json.dumps(live) if live else None
                 # Metadata that, if changed, should trigger a re-seed even when files are identical.
+                # (live_json is in it, so moving the app to another workspace refreshes the links.)
                 meta = "|".join([
                     entry.get("name", ""), entry.get("industry", "") or "",
                     entry.get("customer", "") or "", short_description or "",
-                    narrative or "", capabilities_json, template_type,
+                    narrative or "", capabilities_json, template_type, live_json or "",
                 ])
 
                 # CHEAP skip check: stat-based signature vs the stored checksum.
@@ -343,6 +350,7 @@ def seed_default_templates(engine: Engine, ws: "WorkspaceClient | None" = None) 
                         template_type=template_type,
                         screenshot=screenshot,
                         content_checksum=checksum,
+                        live_demo=live_json,
                         submitted_at=now,
                         reviewed_at=now,
                         reviewed_by=owner_email,
@@ -362,6 +370,7 @@ def seed_default_templates(engine: Engine, ws: "WorkspaceClient | None" = None) 
                     existing.template_type = template_type
                     existing.screenshot = screenshot
                     existing.content_checksum = checksum
+                    existing.live_demo = live_json
                     session.add(existing)
                     is_new = False
 

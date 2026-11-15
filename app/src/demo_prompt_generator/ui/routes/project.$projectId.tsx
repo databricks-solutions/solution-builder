@@ -18,7 +18,7 @@ import {
 import { FileViewer } from "@/components/project/file-viewer";
 import type { StoryAdaptMode } from "@/components/project/story-adapt-dialog";
 import type { AutoFixApi } from "@/preview";
-import { BuildStepper } from "@/components/project/build-stepper";
+import { BuildStepper, WORKSHOP_HTML_PATH } from "@/components/project/build-stepper";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ChatPanel, type ThinkingBlock } from "@/components/project/chat-panel";
 import { HeaderStatusPill } from "@/components/project/project-overview";
@@ -29,6 +29,7 @@ import { BuildSolutionDialog } from "@/components/project/build-solution-dialog"
 import { extractArchitectureCapabilities } from "@/lib/architecture-capabilities";
 import { DescriptionEditDialog } from "@/components/project/description-edit-dialog";
 import { ShareDialog } from "@/components/project/share-dialog";
+import { DabDeployDialog } from "@/components/project/dab-deploy-dialog";
 import {
   ResourcesPopover,
   type ProjectResources,
@@ -75,6 +76,7 @@ import {
   provisionArchitectureProject,
   getTemplateByProject,
   downloadProjectAsZip,
+  downloadWorkshopKit,
   getDeployedResources,
   generateProjectNarrative,
   saveArchitectureSnapshot,
@@ -89,11 +91,14 @@ import {
   type TemplateDetail,
   type DeployedResources,
   type ReasoningEntry,
+  type ChatImage,
 } from "@/lib/custom-api";
 import { AUTO_BUILD_KICKOFF, ARCHITECTURE_MIGRATION_PROMPT, buildArchitectureFixPrompt } from "@/lib/auto-build-prompt";
 import { isLegacyArchitectureFormat, validateArchitecture, type ArchitectureIssue } from "@/lib/platform-architecture";
 import { captureDiagramPngDataUrl } from "@/components/project/platform-diagram/export-image";
 import { cn, isTemplateEligible } from "@/lib/utils";
+import { deckEditMessage, enqueueDeckEdit, MAX_QUEUED_DECK_EDITS } from "@/lib/deck-edits";
+import { POV_DECK_AVAILABLE } from "@/components/project/deck-view";
 
 /** Tabs the project page can deep-link to. Mirrors `ViewTab` in
  *  file-viewer.tsx. Kept here as a literal-union so the router can
@@ -102,7 +107,9 @@ const PROJECT_TABS = [
   "overview",
   "story",
   "architecture",
+  "workshop",
   "app",
+  "deck",
   "files",
 ] as const;
 export type ProjectTab = (typeof PROJECT_TABS)[number];
@@ -115,10 +122,12 @@ export function buildContextHint(
   activeTab: ProjectTab,
   selectedFile: string | null,
   previewPath: string | null,
+  archTab?: string | null,
 ): string | undefined {
   if (activeTab === "story") return "the demo story (README)";
+  if (activeTab === "workshop") return "the Genie Code workshop (`notebooks_html/workshop.html`)";
   if (activeTab === "architecture")
-    return "the architecture diagram — a screenshot of the current diagram is auto-rendered to `architecture.png` at the project root, so read that file to SEE it before editing `architecture.md`";
+    return `the architecture diagram${archTab ? `, tab "${archTab}"` : ""} — a screenshot of what the user sees is at \`architecture.png\` (project root); read it if you need to see their view`;
   if (activeTab === "files" && selectedFile) return `the file \`${selectedFile}\``;
   if (activeTab === "app") {
     const path = (previewPath ?? "/").replace(/\/+$/, "");
@@ -170,6 +179,7 @@ function buildChronologicalReasoning(
     | { kind: "tool"; t: number; id: string; tool: { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string } };
   const rows: Row[] = [];
   for (const b of thinkingBlocks) {
+    if (!b.content.trim()) continue; // omitted thinking: nothing to persist
     const t = b.startedAt ? new Date(b.startedAt).getTime() : 0;
     rows.push({ kind: "thinking", t: isNaN(t) ? 0 : t, block: b });
   }
@@ -225,6 +235,9 @@ function ProjectPage() {
   // calls `navigate({ search })` which pushes a new browser history
   // entry, so the back/forward arrows walk through tab history.
   const { tab: tabFromUrl, archTab: archTabFromUrl } = Route.useSearch();
+  // Current diagram tab for the chat context hint (the send path reads refs).
+  const archTabRef = useRef(archTabFromUrl);
+  archTabRef.current = archTabFromUrl;
   // Deep-link intent, captured ONCE at mount: a shared link carrying `?archTab=`
   // but no `?tab=` should OPEN on the Architecture tab. This must be a one-shot —
   // if we let "?archTab= present → architecture" win on every render, then once
@@ -234,32 +247,6 @@ function ProjectPage() {
   // later navigation (an explicit tab, or its absence = overview) win. useRef
   // initializer runs on the first render only.
   const openedFromArchDeepLink = useRef(tabFromUrl == null && archTabFromUrl != null);
-  // NOTE: `activeTab` is derived AFTER the project state below — an
-  // architecture-first project defaults to the Architecture tab.
-  const setActiveTab = useCallback(
-    (next: ProjectTab) => {
-      // The user has actively chosen a tab → the mount deep-link intent is spent
-      // (so a later Overview click, which leaves ?archTab= in the URL, isn't
-      // overridden back to Architecture).
-      openedFromArchDeepLink.current = false;
-      // Drop the `tab` key entirely when picking the default so URLs
-      // stay clean for the most common landing state. Pinning `to` makes
-      // TanStack pick this route's typed search schema instead of the
-      // global union (which collapses to `never`). Preserve `archTab` (it's
-      // independent of the workspace tab) so leaving + returning to the
-      // Architecture tab reopens the same diagram.
-      void navigate({
-        to: "/project/$projectId",
-        params: { projectId },
-        search: (prev) => ({
-          ...(next === "overview" ? { tab: undefined } : { tab: next }),
-          archTab: prev.archTab,
-        }),
-        replace: false,
-      });
-    },
-    [navigate, projectId],
-  );
   // Sync the active DIAGRAM sub-tab (by name) to ?archTab= — replace: true so
   // switching diagram tabs doesn't spam browser history. No-op if unchanged.
   const setArchTab = useCallback(
@@ -302,22 +289,34 @@ function ProjectPage() {
   // project load. This is what lets a DISPLACED former driver notice a handoff:
   // even if `project.is_driver` is stale-true, the poll flips `isDriver` false
   // so the "on behalf of X" strip appears and A knows the agent now runs as X.
+  // SP mode: the agent runs as the deployer service principal, not a per-user
+  // OBO token — the whole driver/take-over model is bypassed server-side. Hide
+  // the banner + never gate sending. (Backend reports it on both payloads.)
+  const isSpMode = driverStatus?.is_sp_mode ?? project?.is_sp_mode ?? false;
   const liveIsDriver = driverStatus?.is_driver ?? project?.is_driver ?? true;
   const isDriver = !!project && !isReadOnly && liveIsDriver;
-  // Someone else drives → show the banner (never flash during load).
-  const showTakeover = !!project && !isReadOnly && liveIsDriver === false;
+  // Someone else drives → show the banner (never flash during load). Never in SP
+  // mode — there's no driver to take over.
+  const showTakeover =
+    !isSpMode && !!project && !isReadOnly && liveIsDriver === false;
   const activeDriver =
     driverStatus?.active_driver_email ?? project?.active_driver_email ?? null;
   // Driver-token freshness: prefer the live poll, else the initial project load.
   const driverTokenExpired =
     driverStatus?.driver_token_expired ?? project?.driver_token_expired ?? false;
   // A non-driver may SEND while the driver's token is still fresh; blocked once
-  // expired. The driver can always send. (Backend 409 is the authoritative gate.)
-  const canSend = isDriver || (showTakeover && !driverTokenExpired);
+  // expired. The driver can always send. In SP mode any writer may always send
+  // (no token to expire). (Backend 409 is the authoritative gate.)
+  const canSend =
+    (isSpMode && !isReadOnly) || isDriver || (showTakeover && !driverTokenExpired);
   const [isCloning, setIsCloning] = useState(false);
   // Sharing is owner-only (admins too). Editors/viewers don't manage access.
   const canShare = project?.my_role === "owner" || project?.my_role === "admin";
   const [shareOpen, setShareOpen] = useState(false);
+  // Workshop projects have no App tab and default to the Workshop tab.
+  const isWorkshopProject = project?.mode === "workshop";
+  const requestedTab: ProjectTab | undefined =
+    tabFromUrl ?? (openedFromArchDeepLink.current ? "architecture" : undefined);
   // ARCHITECTURE-FIRST projects hide Overview + Story and live on the
   // Architecture tab — force it even if a stale ?tab= points at a now-hidden
   // tab. Otherwise the URL param wins, defaulting to Overview.
@@ -329,7 +328,35 @@ function ProjectPage() {
     // for the one-shot deep-link case (a shared `?archTab=` link opened fresh) —
     // NOT whenever `?archTab=` merely lingers in the URL, or the user could never
     // navigate back to Overview (clicking it clears `?tab=` but leaves `?archTab=`).
-    : (tabFromUrl ?? (openedFromArchDeepLink.current ? "architecture" : "overview"));
+    : isWorkshopProject
+      ? (requestedTab === "app" ? "workshop" : (requestedTab ?? "workshop"))
+      : (requestedTab ?? "overview");
+  const setActiveTab = useCallback(
+    (next: ProjectTab) => {
+      // The user has actively chosen a tab → the mount deep-link intent is spent
+      // (so a later Overview click, which leaves ?archTab= in the URL, isn't
+      // overridden back to Architecture).
+      openedFromArchDeepLink.current = false;
+      // Drop the `tab` key entirely when picking the default so URLs
+      // stay clean for the most common landing state. Pinning `to` makes
+      // TanStack pick this route's typed search schema instead of the
+      // global union (which collapses to `never`). Preserve `archTab` (it's
+      // independent of the workspace tab) so leaving + returning to the
+      // Architecture tab reopens the same diagram.
+      void navigate({
+        to: "/project/$projectId",
+        params: { projectId },
+        search: (prev) => ({
+          // The default landing tab (Overview, or Workshop for workshop
+          // projects) drops the `tab` key so URLs stay clean.
+          ...(next === (isWorkshopProject ? "workshop" : "overview") ? { tab: undefined } : { tab: next }),
+          archTab: prev.archTab,
+        }),
+        replace: false,
+      });
+    },
+    [navigate, projectId, isWorkshopProject],
+  );
   const [projectNotFound, setProjectNotFound] = useState(false);
   const [files, setFiles] = useState<ProjectFile[]>([]);
   // True once the initial file list has loaded — guards the architecture
@@ -340,6 +367,10 @@ function ProjectPage() {
   const [fileContent, setFileContent] = useState<ProjectFileContent | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [fileContentKey, setFileContentKey] = useState(0);
+  // Bumped only when README.md / resources.json themselves change on disk, so
+  // their effects don't refetch on every fileContentKey bump (any other file).
+  const [readmeRevision, setReadmeRevision] = useState(0);
+  const [resourcesRevision, setResourcesRevision] = useState(0);
   const [architectureContent, setArchitectureContent] = useState<string | null>(null);
   // Current route INSIDE the live preview iframe (child-app path, e.g.
   // "/operations"), reported by the preview shim via postMessage. Drives the
@@ -376,6 +407,13 @@ function ProjectPage() {
   const [streamingThinkingBlocks, setStreamingThinkingBlocks] = useState<ThinkingBlock[]>([]);
   const [streamingTools, setStreamingTools] = useState<Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>>(new Map());
   const [executionId, setExecutionId] = useState<string | null>(null);
+  // Synchronous mirror of "a turn exists server-side". Unlike `isStreaming`,
+  // this is NOT cleared during the orphan-return / resume-handoff window (when
+  // our SSE reader detached but the agent is still running) — it's set the
+  // instant a turn starts and cleared only when the turn truly ends
+  // (stream.completed, error, or a getActiveExecution that reports not-running).
+  // The send-guard reads it so a message can't be accepted mid-turn and dropped.
+  const executionIdRef = useRef<string | null>(null);
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
   const [lastReasoning, setLastReasoning] = useState<{ thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean }> } | null>(null);
 
@@ -519,8 +557,8 @@ function ProjectPage() {
   }, [files]);
 
   // Load README.md content for the overview's "About this demo" expander.
-  // Refetches on fileContentKey bumps (agent edits) so the expander stays
-  // current after iterating on the story.
+  // Refetches when README.md itself changes on disk (readmeRevision) so the
+  // expander stays current after iterating on the story.
   const hasReadmeFile = useMemo(
     () => files.some((f) => f.path === "README.md"),
     [files],
@@ -541,7 +579,45 @@ function ProjectPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, hasReadmeFile, fileContentKey]);
+  }, [projectId, hasReadmeFile, readmeRevision]);
+
+  // Workshop projects: the workshop HTML for the Workshop tab (and the kit).
+  // Refetched only when the agent writes that file (workshopRevision), not on
+  // every fileContentKey bump. While the agent streams we hold the shown page
+  // steady and surface "Updated — reload"; it applies itself once the turn ends.
+  const hasWorkshopFile = useMemo(
+    () => isWorkshopProject && files.some((f) => f.path === WORKSHOP_HTML_PATH),
+    [files, isWorkshopProject],
+  );
+  const [workshopRevision, setWorkshopRevision] = useState(0);
+  const [workshopLatest, setWorkshopLatest] = useState<string | null>(null);
+  const [workshopHtml, setWorkshopHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hasWorkshopFile) {
+      setWorkshopLatest(null);
+      setWorkshopHtml(null);
+      return;
+    }
+    let cancelled = false;
+    getProjectFile(projectId, WORKSHOP_HTML_PATH)
+      .then((file) => {
+        if (!cancelled) setWorkshopLatest(file.content);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, hasWorkshopFile, workshopRevision]);
+  useEffect(() => {
+    if (workshopLatest === null) return;
+    // Show the newest page whenever the agent is idle, or on first load.
+    if (!isStreaming || workshopHtml === null) setWorkshopHtml(workshopLatest);
+  }, [workshopLatest, isStreaming, workshopHtml]);
+  const workshopUpdatePending =
+    workshopHtml !== null && workshopLatest !== null && workshopLatest !== workshopHtml;
+  const applyWorkshopUpdate = useCallback(() => {
+    if (workshopLatest !== null) setWorkshopHtml(workshopLatest);
+  }, [workshopLatest]);
 
   // ---------------------------------------------------------------------
   // LLM-generated narrative for the Overview hero.
@@ -594,12 +670,17 @@ function ProjectPage() {
   // Reactive hint for the composer's "C" badge — updates live as the user
   // switches tab / file / preview page (the send path uses refs instead).
   const contextHint = useMemo(
-    () => buildContextHint(activeTab, selectedFile, previewCurrentPath),
-    [activeTab, selectedFile, previewCurrentPath],
+    () => buildContextHint(activeTab, selectedFile, previewCurrentPath, archTabFromUrl),
+    [activeTab, selectedFile, previewCurrentPath, archTabFromUrl],
   );
 
   // Abort controller for cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
+  // One-shot flag: the streaming loop detached while the turn was still running
+  // server-side and handed off to tryResumeActiveExecution. Tells the loop's
+  // finally to SKIP its streaming-state teardown (resume now owns it), so the
+  // composer stays disabled and the turn stays in-flight across the reconnect.
+  const resumeHandoffRef = useRef(false);
 
   // Wall-clock timestamp of the most recent event drained from the SSE
   // stream (any event — text/thinking/tool/keepalive/etc). Used by the
@@ -616,19 +697,44 @@ function ProjectPage() {
   // `showHidden` via a ref so toggling the flag doesn't recreate the
   // debouncer; the existing useEffect below covers the toggle case.
   const fileRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileRefreshLastRef = useRef(0);
   const showHiddenRef = useRef(false);
-  const debouncedRefreshFiles = useCallback(() => {
-    if (fileRefreshTimerRef.current) clearTimeout(fileRefreshTimerRef.current);
-    fileRefreshTimerRef.current = setTimeout(() => {
-      // force: bypass the backend's in-memory file cache. This refresh fires
-      // right after the agent wrote files (tool-completion / SSE file_changed),
-      // so we must read disk truth — the cache resync depends on a filesystem
-      // watcher that may lag or (on some deploy filesystems) miss events.
-      listProjectFiles(projectId, { includeHidden: showHiddenRef.current, force: true })
-        .then(setFiles)
-        .catch(() => {});
-    }, 500);
+  // Forced refresh = force=true = a full disk walk on the server, and a build
+  // fires file_changed several times a second. So it is THROTTLED to one per
+  // FILE_REFRESH_MIN_MS per tab, leading + trailing: the first change shows at
+  // once, and the trailing run reads disk after the last change in a burst, so
+  // the list can't end stale. Forced (not cached) because the watcher's cache
+  // lags the agent's writes by its poll interval in the Apps container.
+  const FILE_REFRESH_MIN_MS = 5000;
+  const runFileRefresh = useCallback(() => {
+    fileRefreshLastRef.current = Date.now();
+    listProjectFiles(projectId, { includeHidden: showHiddenRef.current, force: true })
+      .then(setFiles)
+      .catch(() => {});
   }, [projectId]);
+  const debouncedRefreshFiles = useCallback(() => {
+    // A trailing run is already queued and will read disk after this change.
+    if (fileRefreshTimerRef.current) return;
+    const wait = fileRefreshLastRef.current + FILE_REFRESH_MIN_MS - Date.now();
+    if (wait <= 0) {
+      runFileRefresh();
+      return;
+    }
+    fileRefreshTimerRef.current = setTimeout(() => {
+      fileRefreshTimerRef.current = null;
+      runFileRefresh();
+    }, wait);
+  }, [runFileRefresh]);
+
+  // architecture.md reloads are debounced too: an agent rewrite is a burst of
+  // file_changed events, and each one would otherwise GET the whole diagram.
+  const archReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedReloadArchitecture = useCallback(() => {
+    if (archReloadTimerRef.current) clearTimeout(archReloadTimerRef.current);
+    archReloadTimerRef.current = setTimeout(() => {
+      reloadArchitectureRef.current();
+    }, 500);
+  }, []);
 
   // Deployed-resources refresh is debounced separately. The agent often
   // rewrites resources.json several times during a build (one update per
@@ -648,9 +754,13 @@ function ProjectPage() {
   // Keep the ref in sync, and re-fetch whenever the user toggles
   // "show hidden" so the file tree picks up .databrickscfg / .claude/
   // immediately. The hidden walk is uncached on the server, so this
-  // always reflects current disk state.
+  // always reflects current disk state. The initial run is skipped: loadProject
+  // already lists files for the same flag on mount.
+  const prevShowHiddenRef = useRef(showHidden);
   useEffect(() => {
     showHiddenRef.current = showHidden;
+    if (prevShowHiddenRef.current === showHidden) return;
+    prevShowHiddenRef.current = showHidden;
     listProjectFiles(projectId, { includeHidden: showHidden })
       .then(setFiles)
       .catch(() => {});
@@ -737,15 +847,239 @@ function ProjectPage() {
   // Ref to reach into the AppPreviewTab's auto-fix API (for budget reset).
   const autoFixApiRef = useRef<AutoFixApi | null>(null);
 
+  type StreamOutcome = {
+    sawStreamCompleted: boolean;
+    fullContent: string;
+    streamErrorMessage: string | null;
+    streamWasCancelled: boolean;
+    reasoning: { thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> } | null;
+  };
+  const consumeAgentStream = useCallback(
+    async (executionId: string, signal: AbortSignal): Promise<StreamOutcome> => {
+      let fullContent = "";
+      const thinkingBlocks: ThinkingBlock[] = [];
+      let openBlockId: string | null = null;
+      let openBlockLastDeltaAt: string | null = null;
+      let blockCounter = 0;
+      const closeOpenThinking = () => {
+        if (openBlockId === null) return;
+        const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+        if (idx !== -1 && !thinkingBlocks[idx].completedAt) {
+          thinkingBlocks[idx] = {
+            ...thinkingBlocks[idx],
+            completedAt: openBlockLastDeltaAt ?? new Date().toISOString(),
+          };
+        }
+        openBlockId = null;
+        openBlockLastDeltaAt = null;
+      };
+      const handleAggregatedThinking = (thinking: string) => {
+        const openIdx =
+          openBlockId === null
+            ? -1
+            : thinkingBlocks.findIndex((b) => b.id === openBlockId);
+        const openHasContent = openIdx !== -1 && thinkingBlocks[openIdx].content.length > 0;
+        const ts = openBlockLastDeltaAt ?? new Date().toISOString();
+        if (thinking && !openHasContent) {
+          if (openIdx !== -1) {
+            thinkingBlocks[openIdx] = { ...thinkingBlocks[openIdx], content: thinking, completedAt: ts };
+            openBlockId = null;
+            openBlockLastDeltaAt = null;
+          } else {
+            thinkingBlocks.push({ id: `tb-${++blockCounter}`, content: thinking, startedAt: ts, completedAt: ts });
+          }
+        } else if (!thinking && openIdx === -1) {
+          const id = `tb-${++blockCounter}`;
+          thinkingBlocks.push({ id, content: "", startedAt: ts });
+          openBlockId = id;
+          openBlockLastDeltaAt = null;
+        }
+      };
+      const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
+      let streamErrorMessage: string | null = null;
+      let streamWasCancelled = false;
+      let sawStreamCompleted = false;
+      const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
+      const updateRef = () => {
+        reasoningRef.current = {
+          thinking: thinkingBlocks.map((b) => b.content).join("\n\n"),
+          thinkingBlocks: snapshotThinking(),
+          tools: new Map(toolsMap),
+        };
+      };
+
+      for await (const event of streamAgentProgress(executionId, signal)) {
+        // Heartbeat for the visibility-recovery handler — any event
+        // (incl. ones we don't render) proves the stream is alive.
+        lastEventReceivedAtRef.current = Date.now();
+        if (event.type === "text_delta") {
+          closeOpenThinking();
+          fullContent += event.text;
+          setStreamingContent(fullContent);
+        } else if (event.type === "text_block_start") {
+          closeOpenThinking();
+          // Insert a paragraph break between consecutive text blocks
+          // within a turn so they don't render as one wall of text.
+          if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
+            fullContent += "\n\n";
+            setStreamingContent(fullContent);
+          }
+        } else if (event.type === "text") {
+          // Final aggregated text event. In the normal streaming case the
+          // deltas already gave us the same content — skip. But when the
+          // backend short-circuits (e.g. "Not logged in" before streaming
+          // starts) this event arrives with no preceding deltas, so we
+          // must render it; otherwise the user only sees the error after
+          // a page refresh (DB has it, live UI doesn't).
+          if (fullContent.length === 0) {
+            closeOpenThinking();
+            fullContent += event.text;
+            setStreamingContent(fullContent);
+          }
+        } else if (event.type === "thinking_delta") {
+          const ts = event.timestamp || new Date().toISOString();
+          if (openBlockId === null) {
+            const id = `tb-${++blockCounter}`;
+            thinkingBlocks.push({ id, content: event.thinking, startedAt: ts });
+            openBlockId = id;
+          } else {
+            const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
+            if (idx !== -1) {
+              thinkingBlocks[idx] = { ...thinkingBlocks[idx], content: thinkingBlocks[idx].content + event.thinking };
+            }
+          }
+          openBlockLastDeltaAt = ts;
+          setStreamingThinkingBlocks(snapshotThinking());
+          updateRef();
+        } else if (event.type === "thinking") {
+          handleAggregatedThinking(event.thinking);
+          setStreamingThinkingBlocks(snapshotThinking());
+          updateRef();
+        } else if (event.type === "tool_use") {
+          closeOpenThinking();
+          setStreamingThinkingBlocks(snapshotThinking());
+          // Tool started - add with pending state. Fall back to client clock
+          // if the backend didn't stamp the event (older streams, replays).
+          toolsMap.set(event.tool_id, {
+            name: event.tool_name,
+            input: event.tool_input,
+            startedAt: event.timestamp || new Date().toISOString(),
+          });
+          setStreamingTools(new Map(toolsMap));
+          updateRef();
+        } else if (event.type === "tool_result") {
+          closeOpenThinking();
+          // Tool completed - update with result
+          const existing = toolsMap.get(event.tool_use_id);
+          if (existing) {
+            toolsMap.set(event.tool_use_id, {
+              ...existing,
+              result: event.content,
+              isError: event.is_error ?? false,
+              completedAt: event.timestamp || new Date().toISOString(),
+            });
+            setStreamingTools(new Map(toolsMap));
+            updateRef();
+            // Live-refresh the sidebar when a file-modifying tool succeeds
+            if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
+              debouncedRefreshFiles();
+            }
+          }
+        } else if (event.type === "file_changed") {
+          // Watchdog detected a file change — refresh file list and content
+          debouncedRefreshFiles();
+          // Live-update the deployed-resources tile grid whenever the
+          // agent rewrites resources.json (a new pipeline/dashboard/app
+          // landed). Debounced so a burst of writes coalesces.
+          if (event.path === "resources.json") {
+            debouncedRefreshDeployed();
+            setResourcesRevision((r) => r + 1);
+          }
+          if (event.path === "README.md") {
+            setReadmeRevision((r) => r + 1);
+          }
+          // Agent rewrote the architecture — reload the diagram from disk
+          // (with a spinner), debounced so a write burst fetches once.
+          if (event.path === "architecture.md") {
+            debouncedReloadArchitecture();
+          }
+          if (event.path === WORKSHOP_HTML_PATH) {
+            setWorkshopRevision((r) => r + 1);
+          }
+          if (selectedFileRef.current === event.path) {
+            setFileContentKey((k) => k + 1);
+          }
+        } else if (event.type === "narrative_updated") {
+          // Backend regenerated the narrative after a README write.
+          // Patch the project row in place — no fetch needed.
+          setProject((p) =>
+            p
+              ? {
+                  ...p,
+                  narrative: event.narrative,
+                  narrative_readme_hash: event.narrative_readme_hash,
+                }
+              : p,
+          );
+        } else if (event.type === "error") {
+          // The agent failed (typically: Claude Code subprocess died,
+          // FMAPI 4xx, etc.). Stash the message so we can surface it
+          // as an error-styled assistant bubble instead of just
+          // disappearing into the console.
+          console.error("Agent error:", event.error);
+          streamErrorMessage = event.error || "Agent error (no details)";
+        } else if (event.type === "stream.completed") {
+          // Backend includes the terminal status here. Capture cancel
+          // too so a stream that was cancelled mid-flight (e.g. via
+          // /stop_stream) renders with the warning style.
+          if (event.is_error && !streamErrorMessage) {
+            streamErrorMessage = "Agent error (no details)";
+          }
+          if (event.is_cancelled) {
+            streamWasCancelled = true;
+          }
+          sawStreamCompleted = true;
+          break;
+        }
+      }
+
+      // Close any still-open thinking block (e.g. loop ended on
+      // stream.completed without a trailing tool/text).
+      closeOpenThinking();
+      updateRef();
+
+      return {
+        sawStreamCompleted,
+        fullContent,
+        streamErrorMessage,
+        streamWasCancelled,
+        reasoning: reasoningRef.current,
+      };
+    },
+    [debouncedRefreshFiles, debouncedRefreshDeployed, debouncedReloadArchitecture],
+  );
+
   // Handle sending a message to the agent
   const handleSendMessage = useCallback(
     async (
       message: string,
-      options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean } = {},
+      options: { skipOptimisticUserMessage?: boolean; isAutoFix?: boolean; images?: ChatImage[] } = {},
     ) => {
       // Ref guard first (synchronous) — blocks a same-tick double-send that
-      // the async isStreaming state can't catch. Then claim the turn.
-      if (isStreamingRef.current || isStreaming) return;
+      // the async isStreaming state can't catch, AND a send fired while a turn
+      // is still live server-side but our SSE reader momentarily detached (the
+      // orphan-return / resume-handoff window — see line ~987). `isStreaming`
+      // alone is NOT a safe "a turn is in flight" signal because that window
+      // clears it while the agent keeps running; a send accepted then is
+      // silently dropped by the backend dedup (409) and looks like "I had to
+      // send twice". `abortControllerRef` (live SSE) + `executionIdRef` (a turn
+      // exists server-side, survives reader churn) close that gap.
+      if (
+        isStreamingRef.current ||
+        isStreaming ||
+        abortControllerRef.current ||
+        executionIdRef.current
+      ) return;
       isStreamingRef.current = true;
       // A non-driver may run the agent only while the driver's token is fresh;
       // once expired they must take over. The driver can always send.
@@ -769,8 +1103,16 @@ function ProjectPage() {
 
       // Show user message immediately (unless it's already in `messages` from
       // the DB, e.g. auto-kicking the project's opening prompt).
+      // Mirror the backend's attachment line so the bubble reads the same before
+      // and after a reload (the server may suffix a duplicate name).
+      const images = options.images ?? [];
+      const shownMessage = images.length
+        ? [message, `Attached image${images.length > 1 ? "s" : ""}: ${images.map((i) => `\`context/uploads/${i.filename}\``).join(", ")}`]
+            .filter(Boolean)
+            .join("\n\n")
+        : message;
       if (!skipOptimistic) {
-        setPendingUserMessage(message);
+        setPendingUserMessage(shownMessage);
       }
       setLastReasoning(null);
       reasoningRef.current = null;
@@ -787,7 +1129,7 @@ function ProjectPage() {
             id: Date.now(),
             project_id: projectId,
             role: "user",
-            content: message,
+            content: shownMessage,
             is_error: false,
             created_at: new Date().toISOString(),
           };
@@ -799,201 +1141,50 @@ function ProjectPage() {
         // persisted in the DB — tell the backend not to save it again.
         const response = await invokeAgent(projectId, message, {
           saveUserMessage: !skipOptimistic,
+          images,
           // What the user has open right now (read from refs — this callback is
           // stable and must not close over stale state).
           contextHint: buildContextHint(
             activeTabRef.current,
             selectedFileRef.current,
             previewPathRef.current,
+            archTabRef.current,
           ),
         });
+        executionIdRef.current = response.execution_id;
         setExecutionId(response.execution_id);
 
         // Create abort controller
         abortControllerRef.current = new AbortController();
 
-        // Stream progress
-        let fullContent = "";
-        // Thinking is tracked as a list of discrete blocks (one per
-        // ThinkingBlock the model emits) so each "Thought for Xs" can be
-        // rendered inline at the spot it actually happened in the
-        // timeline. Any non-thinking event closes the open block.
-        const thinkingBlocks: ThinkingBlock[] = [];
-        let openBlockId: string | null = null;
-        let openBlockLastDeltaAt: string | null = null;
-        let blockCounter = 0;
-        const closeOpenThinking = () => {
-          if (openBlockId === null) return;
-          const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
-          if (idx !== -1 && !thinkingBlocks[idx].completedAt) {
-            thinkingBlocks[idx] = {
-              ...thinkingBlocks[idx],
-              completedAt: openBlockLastDeltaAt ?? new Date().toISOString(),
-            };
-          }
-          openBlockId = null;
-          openBlockLastDeltaAt = null;
-        };
-        const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
-        let streamErrorMessage: string | null = null;
-        let streamWasCancelled = false;
-        let sawStreamCompleted = false;
-        const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
-        const updateRef = () => {
-          reasoningRef.current = {
-            thinking: thinkingBlocks.map((b) => b.content).join("\n\n"),
-            thinkingBlocks: snapshotThinking(),
-            tools: new Map(toolsMap),
-          };
-        };
-
-        for await (const event of streamAgentProgress(
+        const outcome = await consumeAgentStream(
           response.execution_id,
-          abortControllerRef.current.signal
-        )) {
-          // Heartbeat for the visibility-recovery handler — any event
-          // (incl. ones we don't render) proves the stream is alive.
-          lastEventReceivedAtRef.current = Date.now();
-          if (event.type === "text_delta") {
-            closeOpenThinking();
-            fullContent += event.text;
-            setStreamingContent(fullContent);
-          } else if (event.type === "text_block_start") {
-            closeOpenThinking();
-            // Insert a paragraph break between consecutive text blocks
-            // within a turn so they don't render as one wall of text.
-            if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
-              fullContent += "\n\n";
-              setStreamingContent(fullContent);
-            }
-          } else if (event.type === "text") {
-            // Final aggregated text event. In the normal streaming case the
-            // deltas already gave us the same content — skip. But when the
-            // backend short-circuits (e.g. "Not logged in" before streaming
-            // starts) this event arrives with no preceding deltas, so we
-            // must render it; otherwise the user only sees the error after
-            // a page refresh (DB has it, live UI doesn't).
-            if (fullContent.length === 0) {
-              closeOpenThinking();
-              fullContent += event.text;
-              setStreamingContent(fullContent);
-            }
-          } else if (event.type === "thinking_delta") {
-            const ts = event.timestamp || new Date().toISOString();
-            if (openBlockId === null) {
-              const id = `tb-${++blockCounter}`;
-              thinkingBlocks.push({ id, content: event.thinking, startedAt: ts });
-              openBlockId = id;
-            } else {
-              const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
-              if (idx !== -1) {
-                thinkingBlocks[idx] = { ...thinkingBlocks[idx], content: thinkingBlocks[idx].content + event.thinking };
-              }
-            }
-            openBlockLastDeltaAt = ts;
-            setStreamingThinkingBlocks(snapshotThinking());
-            updateRef();
-          } else if (event.type === "thinking") {
-            // Final aggregated thinking block — close the current open one.
-            closeOpenThinking();
-            setStreamingThinkingBlocks(snapshotThinking());
-            updateRef();
-          } else if (event.type === "tool_use") {
-            closeOpenThinking();
-            setStreamingThinkingBlocks(snapshotThinking());
-            // Tool started - add with pending state. Fall back to client clock
-            // if the backend didn't stamp the event (older streams, replays).
-            toolsMap.set(event.tool_id, {
-              name: event.tool_name,
-              input: event.tool_input,
-              startedAt: event.timestamp || new Date().toISOString(),
-            });
-            setStreamingTools(new Map(toolsMap));
-            updateRef();
-          } else if (event.type === "tool_result") {
-            closeOpenThinking();
-            // Tool completed - update with result
-            const existing = toolsMap.get(event.tool_use_id);
-            if (existing) {
-              toolsMap.set(event.tool_use_id, {
-                ...existing,
-                result: event.content,
-                isError: event.is_error ?? false,
-                completedAt: event.timestamp || new Date().toISOString(),
-              });
-              setStreamingTools(new Map(toolsMap));
-              updateRef();
-              // Live-refresh the sidebar when a file-modifying tool succeeds
-              if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
-                debouncedRefreshFiles();
-              }
-            }
-          } else if (event.type === "file_changed") {
-            // Watchdog detected a file change — refresh file list and content
-            debouncedRefreshFiles();
-            // Live-update the deployed-resources tile grid whenever the
-            // agent rewrites resources.json (a new pipeline/dashboard/app
-            // landed). Debounced so a burst of writes coalesces.
-            if (event.path === "resources.json") {
-              debouncedRefreshDeployed();
-            }
-            // Agent rewrote the architecture — reload the diagram from disk
-            // (with a spinner). Only acts if the tab was already loaded.
-            if (event.path === "architecture.md") {
-              reloadArchitectureRef.current();
-            }
-            if (selectedFileRef.current === event.path) {
-              setFileContentKey((k) => k + 1);
-            }
-          } else if (event.type === "narrative_updated") {
-            // Backend regenerated the narrative after a README write.
-            // Patch the project row in place — no fetch needed.
-            setProject((p) =>
-              p
-                ? {
-                    ...p,
-                    narrative: event.narrative,
-                    narrative_readme_hash: event.narrative_readme_hash,
-                  }
-                : p,
-            );
-          } else if (event.type === "error") {
-            // The agent failed (typically: Claude Code subprocess died,
-            // FMAPI 4xx, etc.). Stash the message so we can surface it
-            // as an error-styled assistant bubble instead of just
-            // disappearing into the console.
-            console.error("Agent error:", event.error);
-            streamErrorMessage = event.error || "Agent error (no details)";
-          } else if (event.type === "stream.completed") {
-            // Backend includes the terminal status here. Capture cancel
-            // too so a stream that was cancelled mid-flight (e.g. via
-            // /stop_stream) renders with the warning style.
-            if (event.is_error && !streamErrorMessage) {
-              streamErrorMessage = "Agent error (no details)";
-            }
-            if (event.is_cancelled) {
-              streamWasCancelled = true;
-            }
-            sawStreamCompleted = true;
-            break;
-          }
-        }
+          abortControllerRef.current.signal,
+        );
 
         // If the loop ended without an explicit `stream.completed` (the
         // SSE generator gave up retrying, network died, etc.), the agent
         // may still be running server-side. Don't append a fake assistant
         // bubble — kick the resume path so we re-attach and keep going.
-        if (!sawStreamCompleted && !streamErrorMessage) {
+        if (!outcome.sawStreamCompleted && !outcome.streamErrorMessage) {
+          // HANDOFF, not completion: the turn is still running server-side. Keep
+          // it marked in-flight (isStreaming / isStreamingRef / executionIdRef
+          // stay set) so the composer STAYS DISABLED across the reconnect — the
+          // window where they briefly cleared here was the "send twice" bug (a
+          // send accepted now is dropped by the backend dedup). `resumeHandoffRef`
+          // tells the finally below to skip its streaming-state teardown; only
+          // the SSE reader (abortControllerRef) is released so resume can open a
+          // fresh one. `tryResumeActiveExecution` owns teardown from here — and
+          // if the server reports the turn already finished, it tears down there.
+          try {
+            const msgs = await listProjectMessages(projectId);
+            setMessages(msgs);
+          } catch { /* ignore refresh errors */ }
+          resumeHandoffRef.current = true;
           abortControllerRef.current = null;
-          setExecutionId(null);
           setTimeout(() => { void tryResumeActiveExecution(); }, 0);
           return;
         }
-
-        // Close any still-open thinking block (e.g. loop ended on
-        // stream.completed without a trailing tool/text).
-        closeOpenThinking();
-        updateRef();
 
         // Add assistant message locally (user message already added above).
         // Tear down the streaming UI state in the SAME React batch as
@@ -1003,24 +1194,24 @@ function ProjectPage() {
         // duplicate-then-flicker. The `finally` block keeps the same
         // resets as a safety net for the error path.
         // Compose the message body. Three cases:
-        //   - happy path: fullContent (the streamed text)
+        //   - happy path: outcome.fullContent (the streamed text)
         //   - error: prepend the error so the bubble has visible body
         //     (the bubble's red `is_error` style needs content to render)
-        //   - cancel: fullContent (whatever streamed before /stop_stream
+        //   - cancel: outcome.fullContent (whatever streamed before /stop_stream
         //     fired) is enough; the bubble appends "Canceled by user"
-        const messageContent = streamErrorMessage
-          ? (fullContent
-              ? `${fullContent}\n\n---\n\n**Agent error:** ${streamErrorMessage}`
-              : `**Agent error:** ${streamErrorMessage}`)
-          : fullContent;
+        const messageContent = outcome.streamErrorMessage
+          ? (outcome.fullContent
+              ? `${outcome.fullContent}\n\n---\n\n**Agent error:** ${outcome.streamErrorMessage}`
+              : `**Agent error:** ${outcome.streamErrorMessage}`)
+          : outcome.fullContent;
         const finalReasoning = reasoningRef.current as null | { thinking: string; thinkingBlocks: ThinkingBlock[]; tools: Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }> };
         const assistantMsg: Message = {
           id: Date.now() + 1,
           project_id: projectId,
           role: "assistant",
           content: messageContent,
-          is_error: streamErrorMessage !== null,
-          is_cancelled: streamWasCancelled,
+          is_error: outcome.streamErrorMessage !== null,
+          is_cancelled: outcome.streamWasCancelled,
           reasoning_data: finalReasoning
             ? { reasoning: buildChronologicalReasoning(finalReasoning.thinkingBlocks, finalReasoning.tools) }
             : null,
@@ -1030,6 +1221,7 @@ function ProjectPage() {
           setLastReasoning(reasoningRef.current);
         }
         isStreamingRef.current = false;
+        executionIdRef.current = null;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingThinkingBlocks([]);
@@ -1044,8 +1236,10 @@ function ProjectPage() {
         // for any file the agent wrote, which already bumps fileContentKey
         // and triggers loadFileContent. The unconditional refetch we used
         // to do here was producing a duplicate GET after every chat turn.
+        // force: the turn's last write can be inside the watcher's poll lag, so
+        // a cached list could miss it. One forced walk per turn end is cheap.
         const [fileList, deployed] = await Promise.all([
-          listProjectFiles(projectId, { includeHidden: showHidden }),
+          listProjectFiles(projectId, { includeHidden: showHidden, force: true }),
           getDeployedResources(projectId).catch(() => null),
         ]);
         setFiles(fileList);
@@ -1061,10 +1255,27 @@ function ProjectPage() {
           }
         }
       } catch (error) {
-        // 409 = another user drives this conversation (stale UI raced the send).
-        // The backend already saved an error message; refresh the project so
-        // is_driver flips and the take-over banner appears, plus pull messages.
-        if ((error as { status?: number }).status === 409) {
+        // Two distinct 409s, disambiguated by the backend detail text:
+        const detail = (error as Error).message || "";
+        const status = (error as { status?: number }).status;
+        if (status === 409 && /already running/i.test(detail)) {
+          // A turn was still in flight, so this send was dropped (the UI briefly
+          // re-enabled the composer during an SSE reconnect). The backend SAVED
+          // the message + a note; pull them in so nothing looks lost, and tell
+          // the user to resend once the running turn finishes. Kick a resume so
+          // we re-attach to that running turn.
+          try {
+            const msgs = await listProjectMessages(projectId);
+            setMessages(msgs);
+          } catch { /* ignore refresh errors */ }
+          toast.error(
+            "A turn is still running — your message was saved but not sent. Resend it once the current turn finishes.",
+          );
+          setTimeout(() => { void tryResumeActiveExecution(); }, 0);
+        } else if (status === 409) {
+          // Another user drives this conversation (stale UI raced the send).
+          // The backend already saved an error message; refresh the project so
+          // is_driver flips and the take-over banner appears, plus pull messages.
           try {
             const [proj, msgs] = await Promise.all([
               getProject(projectId),
@@ -1089,7 +1300,7 @@ function ProjectPage() {
         try {
           const [msgs, fileList, deployed] = await Promise.all([
             listProjectMessages(projectId),
-            listProjectFiles(projectId, { includeHidden: showHidden }),
+            listProjectFiles(projectId, { includeHidden: showHidden, force: true }),
             getDeployedResources(projectId).catch(() => null),
           ]);
           setMessages(msgs);
@@ -1118,27 +1329,47 @@ function ProjectPage() {
           }
         } catch { /* ignore fetch errors during recovery */ }
       } finally {
-        // Safety net for the error path. The success path already cleared
-        // these in the try block (in the same batch as appending the
-        // assistant message, to avoid a flicker). Calling again here is a
-        // no-op when state is already empty.
-        if (reasoningRef.current) {
-          setLastReasoning(reasoningRef.current);
+        // RESUME HANDOFF: the orphan-return branch (turn still live server-side)
+        // set this flag and already scheduled tryResumeActiveExecution, which now
+        // OWNS the streaming state + teardown. Skip our teardown entirely so the
+        // composer stays disabled and the turn stays visibly in-flight across the
+        // reconnect — clearing here reopened the "send twice" window. Reset the
+        // one-shot flag; the SSE reader (abortControllerRef) was already released
+        // in the branch so resume can open a fresh one.
+        if (resumeHandoffRef.current) {
+          resumeHandoffRef.current = false;
+        } else {
+          // Safety net for the error path. The success path already cleared
+          // these in the try block (in the same batch as appending the
+          // assistant message, to avoid a flicker). Calling again here is a
+          // no-op when state is already empty.
+          if (reasoningRef.current) {
+            setLastReasoning(reasoningRef.current);
+          }
+          isStreamingRef.current = false;
+          executionIdRef.current = null;
+          setIsStreaming(false);
+          setStreamingContent("");
+          setStreamingThinkingBlocks([]);
+          setStreamingTools(new Map());
+          setPendingUserMessage(null);
+          setExecutionId(null);
+          abortControllerRef.current = null;
         }
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        setStreamingContent("");
-        setStreamingThinkingBlocks([]);
-        setStreamingTools(new Map());
-        setPendingUserMessage(null);
-        setExecutionId(null);
-        abortControllerRef.current = null;
       }
     },
-    // tryResumeActiveExecution is defined below in the same component
-    // scope — it's in the closure by the time this callback ever runs.
+    // consumeAgentStream + tryResumeActiveExecution are defined in the same
+    // component scope — they're in the closure by the time this callback ever
+    // runs, so they're intentionally omitted from the deps (they're called, not
+    // stored, and re-creating handleSendMessage when they change isn't needed).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [projectId, isStreaming, canSend]
+  );
+
+  // The chat composer passes pasted images as a second argument.
+  const handleChatSend = useCallback(
+    (message: string, images?: ChatImage[]) => handleSendMessage(message, { images }),
+    [handleSendMessage],
   );
 
   // Resume an in-flight server-side execution by attaching a fresh SSE
@@ -1151,14 +1382,56 @@ function ProjectPage() {
     // Already streaming on this client — nothing to do.
     if (abortControllerRef.current) return;
 
+    // Tear down any held-over in-flight state (from an orphan-return handoff,
+    // which deliberately LEFT isStreaming/executionIdRef set so the composer
+    // stayed disabled across the reconnect) and refetch the DB so a turn that
+    // finished during the handoff surfaces + the composer re-enables. Idempotent.
+    const reconcileNotRunning = async () => {
+      if (isStreamingRef.current || executionIdRef.current) {
+        isStreamingRef.current = false;
+        executionIdRef.current = null;
+        setIsStreaming(false);
+        setStreamingContent("");
+        setStreamingThinkingBlocks([]);
+        setStreamingTools(new Map());
+        setPendingUserMessage(null);
+        setExecutionId(null);
+        try {
+          const msgs = await listProjectMessages(projectId);
+          setMessages(msgs);
+        } catch { /* ignore refresh errors */ }
+      }
+    };
+
     type ExecutionInfo = { execution_id: string; project_id: string; is_running: boolean };
     let execution: ExecutionInfo | null = null;
     try {
       execution = (await getActiveExecution(projectId)) as ExecutionInfo | null;
     } catch {
+      // getActiveExecution failed — often the SAME network blip that orphaned
+      // the stream. Give it ONE short retry before giving up: reconciling on a
+      // transient blip would tear down a turn that's actually still running
+      // (composer re-enables → a resend hits the backend 409 dedup; recoverable
+      // but a needless "turn still running" toast). The retry lets a brief blip
+      // resolve to the real running/finished state.
+      try {
+        await new Promise((r) => setTimeout(r, 1500));
+        execution = (await getActiveExecution(projectId)) as ExecutionInfo | null;
+      } catch {
+        // Still failing — don't strand isStreaming/executionIdRef set forever
+        // (composer stuck; later sends silently no-op). Reconcile as if
+        // not-running: a finished turn's persisted reply surfaces; a still-live
+        // turn is picked up by the next on-mount/visibility recovery trigger.
+        await reconcileNotRunning();
+        return;
+      }
+    }
+    if (!execution || !execution.is_running) {
+      // AUTHORITATIVE "turn is done" signal — tear down + refresh from the DB so
+      // the completed turn's assistant message (persisted by run_agent) shows.
+      await reconcileNotRunning();
       return;
     }
-    if (!execution || !execution.is_running) return;
     // Re-check guard — we awaited an HTTP call, another path may have
     // started a stream in the meantime.
     if (abortControllerRef.current) return;
@@ -1166,134 +1439,38 @@ function ProjectPage() {
 
     // There's an active execution — resume streaming
     isStreamingRef.current = true;
+    executionIdRef.current = exec.execution_id;
     setIsStreaming(true);
     setExecutionId(exec.execution_id);
     abortControllerRef.current = new AbortController();
     lastEventReceivedAtRef.current = Date.now();
 
     try {
-      let fullContent = "";
-      const thinkingBlocks: ThinkingBlock[] = [];
-      let openBlockId: string | null = null;
-      let openBlockLastDeltaAt: string | null = null;
-      let blockCounter = 0;
-      const closeOpenThinking = () => {
-        if (openBlockId === null) return;
-        const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
-        if (idx !== -1 && !thinkingBlocks[idx].completedAt) {
-          thinkingBlocks[idx] = {
-            ...thinkingBlocks[idx],
-            completedAt: openBlockLastDeltaAt ?? new Date().toISOString(),
-          };
-        }
-        openBlockId = null;
-        openBlockLastDeltaAt = null;
-      };
-      const snapshotThinking = () => thinkingBlocks.map((b) => ({ ...b }));
-      const toolsMap = new Map<string, { name: string; input: unknown; result?: string; isError?: boolean; startedAt?: string; completedAt?: string }>();
-      const updateRef = () => {
-        reasoningRef.current = {
-          thinking: thinkingBlocks.map((b) => b.content).join("\n\n"),
-          thinkingBlocks: snapshotThinking(),
-          tools: new Map(toolsMap),
-        };
-      };
-      let sawStreamCompleted = false;
-
-      for await (const event of streamAgentProgress(
-        exec.execution_id,
-        abortControllerRef.current.signal
-      )) {
-        // Heartbeat for the visibility-recovery handler.
-        lastEventReceivedAtRef.current = Date.now();
-        if (event.type === "text_delta") {
-          closeOpenThinking();
-          fullContent += event.text;
-          setStreamingContent(fullContent);
-        } else if (event.type === "text_block_start") {
-          closeOpenThinking();
-          if (fullContent.length > 0 && !fullContent.endsWith("\n\n")) {
-            fullContent += "\n\n";
-            setStreamingContent(fullContent);
-          }
-        } else if (event.type === "text") {
-          // See live-stream path: render the aggregated text only when no
-          // deltas preceded it (short-circuit / error cases).
-          if (fullContent.length === 0) {
-            closeOpenThinking();
-            fullContent += event.text;
-            setStreamingContent(fullContent);
-          }
-        } else if (event.type === "thinking_delta") {
-          const ts = event.timestamp || new Date().toISOString();
-          if (openBlockId === null) {
-            const id = `tb-${++blockCounter}`;
-            thinkingBlocks.push({ id, content: event.thinking, startedAt: ts });
-            openBlockId = id;
-          } else {
-            const idx = thinkingBlocks.findIndex((b) => b.id === openBlockId);
-            if (idx !== -1) {
-              thinkingBlocks[idx] = { ...thinkingBlocks[idx], content: thinkingBlocks[idx].content + event.thinking };
-            }
-          }
-          openBlockLastDeltaAt = ts;
-          setStreamingThinkingBlocks(snapshotThinking());
-          updateRef();
-        } else if (event.type === "thinking") {
-          closeOpenThinking();
-          setStreamingThinkingBlocks(snapshotThinking());
-          updateRef();
-        } else if (event.type === "tool_use") {
-          closeOpenThinking();
-          setStreamingThinkingBlocks(snapshotThinking());
-          toolsMap.set(event.tool_id, { name: event.tool_name, input: event.tool_input, startedAt: event.timestamp || new Date().toISOString() });
-          setStreamingTools(new Map(toolsMap));
-          updateRef();
-        } else if (event.type === "tool_result") {
-          closeOpenThinking();
-          const existing = toolsMap.get(event.tool_use_id);
-          if (existing) {
-            toolsMap.set(event.tool_use_id, { ...existing, result: event.content, isError: event.is_error ?? false, completedAt: event.timestamp || new Date().toISOString() });
-            setStreamingTools(new Map(toolsMap));
-            updateRef();
-            if (!event.is_error && FILE_MUTATING_TOOLS.has(existing.name)) {
-              debouncedRefreshFiles();
-            }
-          }
-        } else if (event.type === "file_changed") {
-          debouncedRefreshFiles();
-          // Same deployed-resources refresh path as the initial-invoke
-          // handler above: resources.json rewrites land via the
-          // watcher during a resumed stream too. Without this, the
-          // "X of N ready" pill stays at its mount-time snapshot on
-          // any page reload mid-build.
-          if (event.path === "resources.json") {
-            debouncedRefreshDeployed();
-          }
-          if (event.path === "architecture.md") {
-            reloadArchitectureRef.current();
-          }
-          if (selectedFileRef.current === event.path) {
-            setFileContentKey((k) => k + 1);
-          }
-        } else if (event.type === "stream.completed") {
-          sawStreamCompleted = true;
-          break;
-        }
-      }
+      const outcome = await consumeAgentStream(exec.execution_id, abortControllerRef.current.signal);
 
       // Same defensive check as handleSendMessage: if the generator gave
       // up retrying without a real terminator, the agent may still be
-      // running on the server. Re-attach instead of declaring it done.
-      if (!sawStreamCompleted) {
+      // running on the server. Re-attach instead of declaring it done —
+      // keeping the turn marked in-flight (handoff flag) so the composer
+      // stays disabled across the reconnect.
+      if (!outcome.sawStreamCompleted) {
+        // Pull the latest persisted messages before re-attaching. The agent
+        // task + _persist_completion run server-side independent of this SSE
+        // reader, so the turn may have COMPLETED (and its assistant/error
+        // message committed) during this reconnect window. On a persistently
+        // flaky tab the re-opened stream can keep dropping before a clean
+        // `stream.completed`, so without this refetch the persisted reply is
+        // never surfaced and the composer stays disabled — the "no response on
+        // a stale session, only a dropdown pulses it" bug. Refetch here does
+        // NOT clear the in-flight refs (that would reopen the #174 double-send
+        // window); tryResumeActiveExecution still owns teardown once the server
+        // reports the turn finished.
+        try { setMessages(await listProjectMessages(projectId)); } catch { /* ignore refresh errors */ }
+        resumeHandoffRef.current = true;
         abortControllerRef.current = null;
-        setExecutionId(null);
         setTimeout(() => { void tryResumeActiveExecution(); }, 0);
         return;
       }
-
-      closeOpenThinking();
-      updateRef();
 
       // Refresh messages, files, and deployed resources from DB after agent
       // completion. Tear down streaming UI in the SAME React batch as
@@ -1303,11 +1480,12 @@ function ProjectPage() {
       // during the stream already refreshed the selected file's content.
       const [msgs, fileList, deployed] = await Promise.all([
         listProjectMessages(projectId),
-        listProjectFiles(projectId),
+        listProjectFiles(projectId, { includeHidden: showHidden, force: true }),
         getDeployedResources(projectId).catch(() => null),
       ]);
       if (reasoningRef.current) setLastReasoning(reasoningRef.current);
       isStreamingRef.current = false;
+      executionIdRef.current = null;
       setIsStreaming(false);
       setStreamingContent("");
       setStreamingThinkingBlocks([]);
@@ -1331,15 +1509,24 @@ function ProjectPage() {
         toast.error((error as Error).message || "Lost connection to agent");
       }
     } finally {
-      // Safety net — success path already cleared these.
-      if (reasoningRef.current) setLastReasoning(reasoningRef.current);
-      isStreamingRef.current = false;
-      setIsStreaming(false);
-      setStreamingContent("");
-      setStreamingThinkingBlocks([]);
-      setStreamingTools(new Map());
-      setExecutionId(null);
-      abortControllerRef.current = null;
+      // RESUME HANDOFF: the orphan-return branch above re-scheduled us and left
+      // the turn in-flight on purpose — skip teardown so the composer stays
+      // disabled across the reconnect (clearing here reopened the "send twice"
+      // window). Otherwise: safety net for the error path (success path already
+      // cleared these).
+      if (resumeHandoffRef.current) {
+        resumeHandoffRef.current = false;
+      } else {
+        if (reasoningRef.current) setLastReasoning(reasoningRef.current);
+        isStreamingRef.current = false;
+        executionIdRef.current = null;
+        setIsStreaming(false);
+        setStreamingContent("");
+        setStreamingThinkingBlocks([]);
+        setStreamingTools(new Map());
+        setExecutionId(null);
+        abortControllerRef.current = null;
+      }
     }
   }, [projectId, debouncedRefreshFiles, debouncedRefreshDeployed]);
 
@@ -1503,19 +1690,35 @@ function ProjectPage() {
   // non-drivers) so that: a non-driver tracks the driver's token age live, AND
   // a current driver notices if someone else takes over (their local
   // is_driver goes stale otherwise → they'd silently run as the new driver).
-  // Skipped for viewers (read-only) and while the project hasn't loaded. ~45s
-  // is well under the 50min cutoff so expiry is noticed with room to spare.
-  const canPollDriver = !!project && !isReadOnly;
+  // Skipped for viewers (read-only), while the project hasn't loaded, and in SP
+  // mode — SP mode has no driver/token to track, so the poll would just return a
+  // constant is_sp_mode payload every 45s for nothing. (Keyed off the initial
+  // project load's is_sp_mode, not the derived `isSpMode`, to avoid a chicken-
+  // and-egg with the poll that sets driverStatus.) ~45s is well under the 50min
+  // cutoff so expiry is noticed with room to spare.
+  const canPollDriver = !!project && !isReadOnly && !project.is_sp_mode;
   useEffect(() => {
     if (!canPollDriver) { setDriverStatus(null); return; }
     let cancelled = false;
-    const poll = () =>
+    // Hidden tabs skip the poll; becoming visible refreshes once so the
+    // status is current when the user returns.
+    const poll = () => {
+      if (document.visibilityState === "hidden") return;
       getDriverStatus(projectId)
         .then((s) => { if (!cancelled) setDriverStatus(s); })
         .catch(() => {});
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") poll();
+    };
     poll();
     const id = setInterval(poll, 45_000);
-    return () => { cancelled = true; clearInterval(id); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [canPollDriver, projectId]);
 
   // Handle stopping the stream — tell the backend to cancel, then let the
@@ -1698,34 +1901,148 @@ function ProjectPage() {
       "Package this project as a Databricks Asset Bundle. Follow these steps:\n\n" +
       "1. **Read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** for the authoring rules, then **mirror the layout of `.claude/skills/databricks-solution-builder/references/dab/example_databricks.yml`** — it's the canonical single-file shape (bundle / sync / variables / one `resources:` block / `dev` + `prod` targets).\n" +
       "2. **Scan the project files** and map each one to a resource in `databricks.yml`: pipelines, dashboards, jobs (for SQL/notebooks), apps, UC schemas/volumes. Don't split into multiple yaml files.\n" +
-      "3. **For components not declarable in the bundle** (Genie Spaces, Knowledge Assistants, Multi-Agent Supervisors, PDF uploads): copy the matching reference script from `.claude/skills/databricks-solution-builder/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
+      "3. **For components not declarable in the bundle** (Genie Spaces, the documents volume + PDF uploads): copy the matching reference script from `.claude/skills/databricks-solution-builder/references/dab/scripts/` into `src/deploy/` and wire it as a `notebook_task` (or `python_wheel_task`) in the bundle job.\n" +
       "4. **If the project has a Databricks App + Lakebase**: the `app/scripts/` Lakebase scripts already ship — reference them in `dab_instructions.md` (run before/after `bundle deploy`). Do NOT declare `postgres_*` resources in `databricks.yml`.\n" +
-      "5. **Validate** with `databricks bundle validate`.\n" +
-      "6. **Write a short `dab_instructions.md`** — just the commands to run (setup script if needed → `databricks bundle deploy` → grant script if needed → `bundle run`). Don't restate what's already in `databricks.yml`.\n\n"
+      "5. **Keep it grounded in THIS project** — every resource name, description, and comment comes from this project's own README / resources.json / specs, not from an example or another demo.\n" +
+      "6. **Validate** with `databricks bundle validate`.\n" +
+      "7. **Write a short `dab_instructions.md`** — just the commands to run (setup script if needed → `databricks bundle deploy` → grant script if needed → `bundle run`). Don't restate what's already in `databricks.yml`.\n\n"
     );
   }, [isPackagingDAB, isStreaming, handleSendMessage]);
+
+  // Handle Generate POV deck: one chat turn that runs the skill's POV deck stage
+  // (html-it, vendored at references/html-it-kit). Opens the Deck tab so the
+  // user watches it fill in while the agent works in the chat. The Deck tab's
+  // Regenerate sends this too, so it says to rebuild: a resumed session otherwise
+  // answers "already done" from memory without reading the files again.
+  // A deck turn is one of these two sends. Only then may the empty Deck tab say "Building the POV
+  // deck…" (lib/deck-status.ts); any other turn leaves it at "No POV deck yet". handleSendMessage
+  // sets isStreamingRef before its first await, so right after the call the ref says whether this
+  // turn started or the send was refused. The flag clears when the turn ends.
+  const [deckTurnRunning, setDeckTurnRunning] = useState(false);
+  const sendDeckTurn = useCallback(
+    (message: string) => {
+      if (isStreamingRef.current || abortControllerRef.current || executionIdRef.current) return;
+      void handleSendMessage(message);
+      if (isStreamingRef.current) setDeckTurnRunning(true);
+    },
+    [handleSendMessage],
+  );
+  useEffect(() => {
+    if (!isStreaming) setDeckTurnRunning(false);
+  }, [isStreaming]);
+
+  const handleGeneratePovDeck = useCallback(() => {
+    if (isStreaming) return;
+    setActiveTab("deck");
+    sendDeckTurn(
+      "Generate the POV deck for this project: read `.claude/skills/databricks-solution-builder/stages/pov-deck.md` and follow it end to end. " +
+      "Build it again from the project's current files even if a deck already exists or you built one earlier in this conversation: the files may have changed since."
+    );
+  }, [isStreaming, sendDeckTurn, setActiveTab]);
+
+  // Change notes from the deck's edit mode (Deck tab), each one confirmed by the user in the Deck
+  // tab's dialog. The deck clears its notes once it hands them over, so a batch is never dropped
+  // silently: while a turn runs it waits here and goes next, a user who cannot send gets the notes
+  // back to copy, a batch already waiting is refused (its text is queued), and one past the cap
+  // is refused with Copy (lib/deck-edits.ts).
+  const [queuedDeckEdits, setQueuedDeckEdits] = useState<string[]>([]);
+  const queuedDeckEditsRef = useRef<string[]>([]);
+  queuedDeckEditsRef.current = queuedDeckEdits;
+  const handleSendDeckEdits = useCallback(
+    (text: string) => {
+      if (!canSend) {
+        toast.error("This session can't run the agent right now, so your deck changes were not sent.", {
+          action: { label: "Copy changes", onClick: () => void navigator.clipboard?.writeText(text) },
+          duration: 15000,
+        });
+        return;
+      }
+      const { queue, result } = enqueueDeckEdit(queuedDeckEditsRef.current, text);
+      if (result === "duplicate") {
+        toast.info("These deck changes are already waiting to go.");
+        return;
+      }
+      if (result === "full") {
+        toast.error(`${MAX_QUEUED_DECK_EDITS} batches of deck changes are already waiting. Send this one after they run.`, {
+          action: { label: "Copy changes", onClick: () => void navigator.clipboard?.writeText(text) },
+          duration: 15000,
+        });
+        return;
+      }
+      if (isStreamingRef.current || isStreaming || abortControllerRef.current || executionIdRef.current) {
+        toast.info("The agent is busy. Your deck changes go next.");
+      }
+      queuedDeckEditsRef.current = queue;
+      setQueuedDeckEdits(queue);
+    },
+    [canSend, isStreaming],
+  );
+  useEffect(() => {
+    if (!queuedDeckEdits.length || !canSend || isStreaming) return;
+    if (isStreamingRef.current || abortControllerRef.current || executionIdRef.current) return;
+    const batches = queuedDeckEdits;
+    setQueuedDeckEdits([]);
+    setActiveTab("deck");
+    sendDeckTurn(deckEditMessage(batches));
+  }, [queuedDeckEdits, canSend, isStreaming, sendDeckTurn, setActiveTab]);
 
   // Handle Update DAB button click - sends message to agent to review and update
   const handleUpdateDAB = useCallback(() => {
     if (isStreaming) return;
     handleSendMessage(
-      "Update the existing `databricks.yml` to cover any new or changed project assets:\n\n" +
-      "1. **Re-read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** and skim `example_databricks.yml` for the resource shapes.\n" +
-      "2. **Diff the project tree against `databricks.yml`** — find any pipelines, dashboards, jobs, apps, or volumes that exist on disk but aren't declared.\n" +
-      "3. **Edit `databricks.yml` in place** (one file, one `resources:` block — don't split). For Genie/KA/MAS additions, drop the corresponding `references/dab/scripts/deploy_*.py` into `src/deploy/` and wire a new `notebook_task`.\n" +
-      "4. **Validate** with `databricks bundle validate`.\n" +
-      "5. **Update `dab_instructions.md`** only if the commands changed."
+      "Review the existing DAB against the latest project state and update it to match:\n\n" +
+      "1. **Re-read `.claude/skills/databricks-solution-builder/references/dab/dab.md`** (the authoring rules) and skim `example_databricks.yml` for the resource shapes.\n" +
+      "2. **Diff the current project tree against `databricks.yml`** — walk the files and recent changes and find everything that's new, changed, or removed since the bundle was last written: pipelines, dashboards, jobs (SQL/notebooks), apps, UC schemas/volumes, Genie configs and the documents volume.\n" +
+      "3. **Edit `databricks.yml` in place** (one file, one `resources:` block — don't split) so it reflects the current project. Add resources that appeared, update ones that changed, drop ones that are gone. For Genie / documents-volume additions, copy the corresponding `references/dab/scripts/deploy_*.py` into `src/deploy/` and wire a new `notebook_task`.\n" +
+      "4. **Keep it grounded in THIS project** — names, descriptions, and comments come from this project's own README / resources.json / specs, not from an example.\n" +
+      "5. **Validate** with `databricks bundle validate`.\n" +
+      "6. **Update `dab_instructions.md`** only if the commands changed."
     );
   }, [isStreaming, handleSendMessage]);
 
-  // Handle download DAB as zip
-  const handleDownloadDAB = useCallback(async () => {
+  // The zip download itself.
+  const doDownloadZip = useCallback(async () => {
     try {
       await downloadProjectAsZip(projectId);
     } catch (error) {
       console.error("Failed to download project:", error);
+      toast.error("Download failed", { description: String((error as Error)?.message ?? error) });
     }
   }, [projectId]);
+
+  // Workshop attendee kit (never the generic ZIP — it carries transcripts).
+  const doDownloadWorkshopKit = useCallback(async () => {
+    try {
+      await downloadWorkshopKit(projectId);
+    } catch (error) {
+      console.error("Failed to download workshop kit:", error);
+      toast.error("Download failed", { description: String((error as Error)?.message ?? error) });
+    }
+  }, [projectId]);
+
+  // Does this project ship a Databricks Asset Bundle? (root databricks.yml)
+  const hasDab = useMemo(
+    () => files.some((f) => f.path === "databricks.yml"),
+    [files],
+  );
+  // Whether the deploy runbook is present — from the same (auto-refreshed) file
+  // list, so the dialog re-fetches its content the moment the agent writes it.
+  const hasDabInstructions = useMemo(
+    () => files.some((f) => f.path === "dab_instructions.md"),
+    [files],
+  );
+
+  // Download button always opens the DAB dialog. With a DAB, it shows the deploy
+  // runbook + a download/update action; without one, it explains that a DAB
+  // makes redeploying elsewhere easier and offers to create it (both still let
+  // the user just download the zip as-is).
+  const [dabDialogOpen, setDabDialogOpen] = useState(false);
+  const handleDownloadDAB = useCallback(() => {
+    setDabDialogOpen(true);
+  }, []);
+  // Every workshop "Download the kit" button opens the same dialog (its
+  // workshop view explains the kit, then downloads it).
+  const handleDownloadWorkshopKit = handleDownloadDAB;
 
   // Handle update architecture - send message to agent
   const handleUpdateArchitecture = useCallback(() => {
@@ -1785,7 +2102,7 @@ function ProjectPage() {
       "4. Write specification files in dependency order — one stage per turn:\n" +
       "   - **Stage A**: `01-lakeflow.md`\n" +
       "   - **Stage B** (after reading Stage A): `02-uc-governance.md` (if needed)\n" +
-      "   - **Stage C** (after reading Stage B): `03-ai-bi.md`, `04-agent-bricks.md` (parallel within stage)\n" +
+      "   - **Stage C** (after reading Stage B): `03-ai-bi.md` (the Genie agent + its documents-volume Q&A live in the Genie spec; parallel within stage)\n" +
       "   - **Stage D** (after reading Stage C): `05-apps-infra.md` (if needed)\n" +
       "5. Only generate files for capabilities in resources.json — skip any not selected\n" +
       "6. Run a coherence check after all files are written"
@@ -1859,6 +2176,19 @@ function ProjectPage() {
     );
   }, [isStreaming, handleSendMessage]);
 
+  // Workshop projects: (re)build the Genie Code workshop HTML end to end.
+  const handleBuildWorkshop = useCallback(() => {
+    if (isStreaming) return;
+    handleSendMessage(
+      "(Re)build the Genie Code workshop for this project: read `DEMO_SKILL` and follow flow B " +
+      "(`DEMO_SKILL_DIR/stages/genie-workshop.md`) end to end: " +
+      "keep README.md (story), CONTEXT.md, specifications/ and the data generation consistent with the " +
+      "current story, then regenerate `notebooks_html/workshop.html`. Run straight through with no approval gates. " +
+      "Do NOT provision the demo's Databricks resources — the only workspace action allowed is the data-generation test " +
+      "into the project's default schema described there."
+    );
+  }, [isStreaming, handleSendMessage]);
+
   // Handle build resources - send message to agent
   const handleBuildResources = useCallback(() => {
     if (isStreaming) return;
@@ -1885,9 +2215,9 @@ function ProjectPage() {
   }, [isStreaming, handleSendMessage]);
 
   // Fetch + parse resources.json whenever it appears in or changes on the
-  // file list. Drives the DemoOverviewCard in the Summary tab. `fileContentKey`
-  // bumps after any file_changed event so a resources.json rewrite during
-  // build flips pending pills to live without a refresh.
+  // file list. Drives the DemoOverviewCard in the Summary tab. `resourcesRevision`
+  // bumps on a resources.json file_changed event so a rewrite during build flips
+  // pending pills to live without a refresh.
   const hasResourcesJson = useMemo(
     () => files.some((f) => f.path === "resources.json"),
     [files],
@@ -1924,7 +2254,7 @@ function ProjectPage() {
     return () => {
       cancelled = true;
     };
-  }, [projectId, hasResourcesJson, fileContentKey]);
+  }, [projectId, hasResourcesJson, resourcesRevision]);
 
   // After streaming completes when creating architecture, load the content
   useEffect(() => {
@@ -2168,7 +2498,7 @@ function ProjectPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
+    <div className="flex h-screen min-w-0 flex-col overflow-hidden">
       {/* Read-only banner for shared viewers */}
       {isReadOnly && (
         <div className="shrink-0 flex items-center justify-between gap-3 bg-amber-500/10 border-b border-amber-500/20 px-5 py-2">
@@ -2198,8 +2528,8 @@ function ProjectPage() {
       )}
       {/* Header — single dense row */}
       <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="px-5 py-3 border-b border-border">
-          <div className="flex items-center gap-3">
+        <div className="border-b border-border px-3 py-2.5 sm:px-5 sm:py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             {/* Back button */}
             <Link to="/">
               <Button variant="ghost" size="sm" className="gap-1 -ml-2 h-8 px-2">
@@ -2208,10 +2538,10 @@ function ProjectPage() {
               </Button>
             </Link>
 
-            <div className="h-5 w-px bg-border" />
+            <div className="hidden h-5 w-px bg-border sm:block" />
 
             {/* Project name */}
-            <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
               {isEditingName ? (
                 <div className="flex items-center gap-1.5">
                   <Input
@@ -2334,37 +2664,40 @@ function ProjectPage() {
             {/* Build stepper with action dropdown. expectedResourceCount
                 comes from capabilities.buildable so the RESOURCES pill
                 only marks "done" when every expected resource is live. */}
-            <BuildStepper
-              isStreaming={isStreaming}
-              files={files}
-              deployedResourceCount={deployedResources?.resources.length ?? 0}
-              expectedResourceCount={capabilities?.buildable?.length ?? 0}
-              onCreateArchitecture={handleCreateArchitecture}
-              onUpdateArchitecture={handleUpdateArchitecture}
-              // Architecture-first: the stepper's primary action becomes
-              // "Build the solution for this architecture" (wired only once
-              // the architecture has parsed).
-              onBuildSolution={
-                project?.architecture_first && extractedArchitecture
-                  ? () => setBuildDialogOpen(true)
-                  : undefined
-              }
-              onCreateSpec={handleCreateSpec}
-              onUpdateSpec={handleUpdateSpec}
-              onBuildResources={handleBuildResources}
-              onUpdateResources={handleUpdateResources}
-              onPackageDAB={handlePackageAsDAB}
-              onUpdateDAB={handleUpdateDAB}
-              onDownloadDAB={handleDownloadDAB}
-              onPublishTemplate={() => setIsTemplateDialogOpen(true)}
-              templateStatus={linkedTemplate?.status ?? null}
-              mode={project?.mode}
-            />
+            <div className="w-full min-w-0 sm:w-auto sm:shrink-0">
+              <BuildStepper
+                isStreaming={isStreaming}
+                files={files}
+                deployedResourceCount={deployedResources?.resources.length ?? 0}
+                expectedResourceCount={capabilities?.buildable?.length ?? 0}
+                onCreateArchitecture={handleCreateArchitecture}
+                onUpdateArchitecture={handleUpdateArchitecture}
+                // Architecture-first: the stepper's primary action becomes
+                // "Build the solution for this architecture" (wired only once
+                // the architecture has parsed).
+                onBuildSolution={
+                  project?.architecture_first && extractedArchitecture
+                    ? () => setBuildDialogOpen(true)
+                    : undefined
+                }
+                onCreateSpec={handleCreateSpec}
+                onUpdateSpec={handleUpdateSpec}
+                onBuildResources={isWorkshopProject ? handleBuildWorkshop : handleBuildResources}
+                onUpdateResources={handleUpdateResources}
+                onDownloadWorkshopKit={handleDownloadWorkshopKit}
+                onPackageDAB={handlePackageAsDAB}
+                onUpdateDAB={handleUpdateDAB}
+                onDownloadDAB={handleDownloadDAB}
+                onPublishTemplate={() => setIsTemplateDialogOpen(true)}
+                templateStatus={linkedTemplate?.status ?? null}
+                mode={project?.mode}
+              />
+            </div>
 
-            <div className="h-5 w-px bg-border" />
+            <div className="hidden h-5 w-px bg-border sm:block" />
 
             {/* Action buttons */}
-            <div className="flex items-center gap-1.5">
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
               {/* Share — owner-only. The primary way to hand a project to a
                   teammate (as viewer or editor). Solid brand button so it reads
                   as a distinct, everyday action vs. the violet "Publish to
@@ -2470,11 +2803,11 @@ function ProjectPage() {
           until the user dismisses it (persisted per-project in localStorage). */}
       {project?.source_template_name && !forkBannerDismissed && (
         <div className="shrink-0 border-b border-border bg-primary/5">
-          <div className="flex items-center gap-3 px-5 py-2.5">
+          <div className="flex items-start gap-3 px-3 py-2.5 sm:px-5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
               <GitFork className="h-3.5 w-3.5" />
             </div>
-            <div className="flex-1 min-w-0 text-sm">
+            <div className="min-w-0 flex-1 text-sm leading-snug">
               <span className="font-medium">Forked from {project.source_template_name}</span>
               <span className="text-muted-foreground">
                 {" "}— this is your editable copy. Tell the AI in the chat what to change for your scenario.
@@ -2500,9 +2833,9 @@ function ProjectPage() {
       )}
 
       {/* Main content */}
-      <div ref={containerRef} className="flex flex-1 min-h-0">
+      <div ref={containerRef} className="flex min-h-0 min-w-0 flex-1">
         {/* File viewer (left side) */}
-        <div className={`flex-1 min-w-0 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
+        <div className={`min-w-0 flex-1 overflow-hidden ${mobilePanel === "chat" ? "hidden md:flex" : "flex"} flex-col`}>
           <FileViewer
             projectId={projectId}
             project={project}
@@ -2512,6 +2845,10 @@ function ProjectPage() {
             projectCreatedAt={project?.created_at ?? null}
             isGeneratingNarrative={isGeneratingNarrative}
             onRegenerateNarrative={handleRegenerateNarrative}
+            workshopHtml={workshopHtml}
+            workshopUpdatePending={workshopUpdatePending}
+            onApplyWorkshopUpdate={applyWorkshopUpdate}
+            onDownloadWorkshopKit={handleDownloadWorkshopKit}
             activeTab={activeTab}
             onTabChange={setActiveTab}
             files={files}
@@ -2560,6 +2897,9 @@ function ProjectPage() {
             isForkedProject={!!project?.source_template_id}
             onAdaptStory={handleAdaptStory}
             onForkBuildAsIs={handleForkBuildAsIs}
+            onGeneratePovDeck={POV_DECK_AVAILABLE && canSend ? handleGeneratePovDeck : undefined}
+            deckTurnRunning={deckTurnRunning}
+            onSendDeckEdits={handleSendDeckEdits}
           />
         </div>
 
@@ -2586,11 +2926,13 @@ function ProjectPage() {
                 ? "hidden md:block md:shrink-0"
                 : "w-full md:w-auto md:shrink-0"
             }`}
-            style={isMobile && mobilePanel === "chat" ? undefined : { width: chatWidth }}
+            style={isMobile && mobilePanel === "chat"
+              ? undefined
+              : { width: chatWidth, maxWidth: "calc(100% - 360px)" }}
           >
             <ChatPanel
               messages={messages}
-              onSendMessage={handleSendMessage}
+              onSendMessage={handleChatSend}
               isStreaming={isStreaming}
               isLoadingMessages={isLoadingMessages}
               isClearingSession={isClearingSession}
@@ -2601,6 +2943,7 @@ function ProjectPage() {
               lastReasoning={lastReasoning}
               onStop={handleStop}
               onClearSession={handleClearSession}
+              projectId={projectId}
               onClose={handleToggleChat}
               onAutoBuild={handleAutoBuild}
               canAutoBuild={!isStreaming}
@@ -2793,6 +3136,22 @@ function ProjectPage() {
         onSubmitted={(template) => {
           setLinkedTemplate(template);
         }}
+      />
+
+      {/* DAB dialog — opened by the Download button. Renders the deploy runbook
+          when a DAB exists, or a "create a DAB" pitch when it doesn't; the zip
+          download and the create/update chat actions all live inside it. */}
+      <DabDeployDialog
+        projectId={projectId}
+        open={dabDialogOpen}
+        onOpenChange={setDabDialogOpen}
+        hasDab={hasDab}
+        hasInstructionsFile={hasDabInstructions}
+        isStreaming={isStreaming}
+        isWorkshop={project?.mode === "workshop"}
+        onDownload={project?.mode === "workshop" ? doDownloadWorkshopKit : doDownloadZip}
+        onCreateDab={handlePackageAsDAB}
+        onUpdateDab={() => { setDabDialogOpen(false); handleUpdateDAB(); }}
       />
     </div>
   );

@@ -1,0 +1,18 @@
+<h2>3/ Score everyone → find the hidden premiums</h2>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Batch-score every customer with <code>fe.score_batch</code> on the prod model (<code>result_type="double"</code>) — pass only <code>customer_id</code>, the features are looked up for you — into <code>customer_premium_predictions</code>: probability, predicted flag, CS label, and a final tier that's premium if either the model or CS says so. Then check: among the bad-lot customers, how many come out premium?</p>
+</blockquote>
+<p><span class="check">✅ Confirm — check the <em>shape</em>, not an absolute count.</span> Row counts here scale with the generated data, so verify the relationship instead:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Show me a 2x2 of CS label (premium / not_premium / unlabeled) against the model's prediction, with counts.</p>
+</blockquote>
+<p>Three things should be true:</p>
+<ol>
+  <li>There <strong>are</strong> model-found premiums — unlabeled customers the model flags <code>premium</code>. These are the hidden ones a <code>WHERE premium_status='premium'</code> filter can never return. That's the punchline.</li>
+  <li>The model <strong>mostly agrees with CS</strong> where CS actually labeled — the diagonal (premium→premium, not_premium→not_premium) should dominate the off-diagonal.</li>
+  <li>It is <strong>not</strong> flagging the majority of the unlabeled pool. If well over half of the unlabeled customers come back <code>premium</code>, the model has learned "say yes" — the labeled set is too small or too imbalanced to be useful. Say so: <em>"the model predicts premium for most unlabeled customers — check class balance and recalibrate the threshold."</em> A classifier that calls everyone premium tells the opposite of the story we're here to tell.</li>
+</ol>

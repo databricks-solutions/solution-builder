@@ -44,7 +44,7 @@ The handoff package uses the Databricks Asset Bundle `targets:` pattern. All wor
 The bundled Genie Code skill (`.assistant/skills/{{demo-slug}}-adaptation/`) reads a generated facts file (`ADAPTATION_FACTS.json`) and can, for THIS demo:
 
 - **Guarantees:** detect your workspace/catalog/schema/warehouse and write `databricks.yml`; deploy on synthetic data; rename table identifiers (with a data-handling choice); change silver/gold transform logic (thresholds, metric formulas, aggregations, grain) behind a check-first playbook; point at your real tables.
-- **Cannot do automatically (will tell you + hand off):** migrate existing data old→new tables; refactor SQL semantics beyond the requested change; rename columns that aren't factually wrong; edit Knowledge-Assistant source documents; create resources that `bundle deploy` does not own (e.g. a Genie space — see `dab_instructions.md`).
+- **Cannot do automatically (will tell you + hand off):** migrate existing data old→new tables; refactor SQL semantics beyond the requested change; rename columns that aren't factually wrong; edit the source documents in the Genie documents volume; create resources that `bundle deploy` does not own (e.g. a Genie space — see `dab_instructions.md`).
 - **Halts and asks the demo author when:** a needed fact is unresolved in `ADAPTATION_FACTS.json`; a source table/column is missing; a dependency map is incomplete; a verification query fails. A wrong change is worse than a paused one.
 
 ## Refreshing after an SA update (stale-skill detection)

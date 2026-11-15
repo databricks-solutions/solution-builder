@@ -1,0 +1,199 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "512dc6009ee6eb65537d59bc3ae1ef7d",
+    "question": [
+     "Which planned events next quarter are forecast to lose money?"
+    ]
+   },
+   {
+    "id": "95bf612bbb2ff4f1fe414d6aaa7a1048",
+    "question": [
+     "Which tactic gives the best ROI at ValuMax Stores?"
+    ]
+   },
+   {
+    "id": "961578c394031ee294b78ac848b9feac",
+    "question": [
+     "How much trade spend did we invest by retailer in the last 52 weeks, and what did it return?"
+    ]
+   },
+   {
+    "id": "ad33d74dd9e18841ff86a80f3c635c9d",
+    "question": [
+     "Which promotions lost money in the last 52 weeks?"
+    ]
+   },
+   {
+    "id": "af4739f55f44f185939f8fffdb21d0b7",
+    "question": [
+     "How big were the pantry-loading dip and cannibalization after ValuMax BOGO events?"
+    ]
+   },
+   {
+    "id": "dfeeb35b0f9fdd223609b6df5b231272",
+    "question": [
+     "What is ROI by retailer and tactic over the last 52 weeks?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "What does the ValuMax joint business plan require per quarter, and can BOGO events be switched to scan-based Feature + Display?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.gold_event_roi",
+    "description": [
+     "Post-event analysis, one row per COMPLETED promotion (last 104 weeks): retailer, SKU, tactic, depth, funding method, ML baseline vs actual units, gross incremental, pantry-loading dip, cannibalized sister units, forward-buy units, trade spend, incremental gross profit, net profit, ROI, verdict."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.gold_event_weekly",
+    "description": [
+     "Week-by-week curve per completed promotion (rel_week < 0 before, 0..weeks-1 during, then 4 post weeks): actual vs ML baseline units for the promoted SKU and its sister SKUs, shipments and units bought on deal."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.gold_plan_forecast",
+    "description": [
+     "NEXT QUARTER draft promo calendar (13 weeks), one row per planned event with the as-planned forecast: trade spend, net profit, ROI, forecast_flag (Money-losing / Below target / On track) and the recommended compliant alternative."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.gold_plan_scenarios",
+    "description": [
+     "Re-plan scenarios for every planned event x candidate tactic: forecast units, trade spend, net profit, ROI, TPG-2027 policy check, recommended flag, deltas vs as planned."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.gold_tactic_response",
+    "description": [
+     "Historical response by retailer x tactic x funding method: events, lift multiplier, pantry-loading dip ratio, cannibalization ratio, forward-buy ratio, trade spend, net profit, ROI."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.pos_weekly_sales",
+    "description": [
+     "Retailer POS sell-out by week x SKU: units, dollars, average shelf price, promo flag, event id."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.products",
+    "description": [
+     "The 10 Crestwood salty-snack SKUs: brand, brand family (cannibalization group), shelf price, list price, COGS, unit margin."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.promo_events",
+    "description": [
+     "Completed trade promotions from the TPM system: tactic, depth, feature/display, funding method, allowance per unit, fixed fees."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.retailer_shipments",
+    "description": [
+     "Crestwood sell-in (shipments) to each retailer by week x SKU, with units bought on deal (off-invoice allowances)."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.retailers",
+    "description": [
+     "The 5 retail accounts: channel, stores, default funding method, JBP minimum events per quarter, feature and display fees."
+    ]
+   },
+   {
+    "identifier": "retail_consumer_goods.trade_promotion_roi.trade_promo_metrics",
+    "description": [
+     "UC metric view of governed trade-promotion KPIs over gold_event_roi: Trade Spend, Net Profit, ROI, Volume Lift, Pantry Loading Share, Cannibalization Share, Money Losing Events by Retailer, Tactic, Funding Method, Brand, Quarter."
+    ]
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "1cb251ec0d568de6a929b520c4aed8d1",
+    "content": [
+     "Crestwood Snacks Co. (fictional) is a salty-snacks CPG (brands Crestwood Kettle, Crestwood Classic, Ridgeline Tortilla, Twistwell Pretzels, Crestwood Variety) selling through 5 retail accounts: ValuMax Stores (Mass, off-invoice funding), Greenleaf Market and Harbor Fresh Grocers (Grocery, scan-based), QuickPantry (Convenience) and BulkWise Club (Club, off-invoice). Tactics: BOGO (50% effective), Feature + Display (~22% TPR + circular + endcap), TPR (~18% shelf discount), Multi-buy (~30%, 2 for $X).\n",
+     "POST-EVENT ROI (Crestwood TPG-2027 definitions): ROI = SUM(net_profit_usd) / SUM(trade_spend_usd) \u2014 always aggregate as a ratio of sums, never average the per-event roi column. net_profit = incremental gross profit - trade spend; a negative ROI / net profit means the event LOST money. Volume lift = SUM(gross_incremental_units) / SUM(baseline_units). The baseline comes from the ML model baseline_demand_model@champion. Show ROI and lifts as percentages with 1 decimal.\n",
+     "LEAKAGE: pantry loading = post_event_dip_units (the dip in the 4 weeks after the event), share of lift = SUM(post_event_dip_units)/SUM(gross_incremental_units). Cannibalization = cannibalized_units (sister SKUs of the same brand family at the same retailer during the event), share = SUM(cannibalized_units)/SUM(gross_incremental_units). Forward buying = forward_buy_units (units the retailer bought on deal beyond what shoppers bought; only off-invoice funding). subsidised_baseline_usd = allowance paid on units that would have sold anyway.\n",
+     "TIME: gold_event_roi covers the last 104 weeks; 'last year' / 'last 52 weeks' = is_last_52_weeks = true. 'Next quarter' / 'the plan' / 'planned events' = gold_plan_forecast (never gold_event_roi). Money-losing planned events: forecast_flag = 'Money-losing' (net_profit_usd < 0).\n",
+     "Retailer names: use retailer_name (e.g. 'ValuMax Stores'); users may say ValuMax. Products: product_name or sku. Always include trade spend and net profit in dollars (rounded to whole dollars) next to ROI.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "3a47f99639ee6268de5cba57725a8ca4",
+    "question": [
+     "Show the weekly sales curve of the last ValuMax BOGO event versus its baseline"
+    ],
+    "sql": [
+     "SELECT w.rel_week, w.phase, w.week_start, w.actual_units, w.baseline_units, w.sister_actual_units, w.sister_baseline_units FROM retail_consumer_goods.trade_promotion_roi.gold_event_weekly w JOIN (SELECT event_id FROM retail_consumer_goods.trade_promotion_roi.gold_event_roi WHERE retailer_name = 'ValuMax Stores' AND tactic = 'BOGO' ORDER BY start_week DESC LIMIT 1) e ON w.event_id = e.event_id ORDER BY w.rel_week"
+    ]
+   },
+   {
+    "id": "467c08da7dc34908fb85a3ced6594315",
+    "question": [
+     "How much trade spend did we invest by retailer in the last 52 weeks, and what did it return?"
+    ],
+    "sql": [
+     "SELECT retailer_name, COUNT(*) AS events, ROUND(SUM(trade_spend_usd), 0) AS trade_spend_usd, ROUND(SUM(incremental_gross_profit_usd), 0) AS incremental_gross_profit_usd, ROUND(SUM(net_profit_usd), 0) AS net_profit_usd, ROUND(100 * SUM(net_profit_usd) / SUM(trade_spend_usd), 1) AS roi_pct FROM retail_consumer_goods.trade_promotion_roi.gold_event_roi WHERE is_last_52_weeks GROUP BY retailer_name ORDER BY trade_spend_usd DESC"
+    ]
+   },
+   {
+    "id": "5e178c70f8c491e0dfb3685b392ba575",
+    "question": [
+     "Which promotions lost money in the last 52 weeks?"
+    ],
+    "sql": [
+     "SELECT retailer_name, tactic, COUNT(*) AS events_lost_money, ROUND(SUM(trade_spend_usd), 0) AS trade_spend_usd, ROUND(SUM(net_profit_usd), 0) AS net_profit_usd, ROUND(100 * SUM(net_profit_usd) / SUM(trade_spend_usd), 1) AS roi_pct FROM retail_consumer_goods.trade_promotion_roi.gold_event_roi WHERE is_last_52_weeks AND net_profit_usd < 0 GROUP BY retailer_name, tactic ORDER BY net_profit_usd ASC"
+    ]
+   },
+   {
+    "id": "64a0f8e5b2b36ad560482cd745f6f71f",
+    "question": [
+     "Which planned events next quarter are forecast to lose money?"
+    ],
+    "sql": [
+     "SELECT plan_event_id, retailer_name, product_name, tactic, start_week, ROUND(trade_spend_usd, 0) AS trade_spend_usd, ROUND(net_profit_usd, 0) AS forecast_net_profit_usd, ROUND(100 * roi, 1) AS forecast_roi_pct, recommended_scenario_label, ROUND(recommended_net_profit_usd, 0) AS recommended_net_profit_usd FROM retail_consumer_goods.trade_promotion_roi.gold_plan_forecast WHERE forecast_flag = 'Money-losing' ORDER BY start_week"
+    ]
+   },
+   {
+    "id": "716b751eef1c20477e9402377c9cfc8d",
+    "question": [
+     "How big were the pantry-loading dip and cannibalization after ValuMax BOGO events?"
+    ],
+    "sql": [
+     "SELECT COUNT(*) AS events, ROUND(100 * SUM(gross_incremental_units) / SUM(baseline_units), 1) AS volume_lift_pct, SUM(gross_incremental_units) AS gross_incremental_units, SUM(post_event_dip_units) AS pantry_loading_dip_units, ROUND(100 * SUM(post_event_dip_units) / SUM(gross_incremental_units), 1) AS pantry_loading_pct_of_lift, SUM(cannibalized_units) AS cannibalized_units, ROUND(100 * SUM(cannibalized_units) / SUM(gross_incremental_units), 1) AS cannibalization_pct_of_lift, SUM(forward_buy_units) AS forward_buy_units, ROUND(SUM(trade_spend_usd), 0) AS trade_spend_usd, ROUND(SUM(net_profit_usd), 0) AS net_profit_usd, ROUND(100 * SUM(net_profit_usd) / SUM(trade_spend_usd), 1) AS roi_pct FROM retail_consumer_goods.trade_promotion_roi.gold_event_roi WHERE retailer_name = 'ValuMax Stores' AND tactic = 'BOGO'"
+    ]
+   },
+   {
+    "id": "a25577dfc1ce7baf6e8a0178bc0bbbff",
+    "question": [
+     "Which tactic gives the best ROI at ValuMax Stores?"
+    ],
+    "sql": [
+     "SELECT tactic, funding_method, SUM(events) AS events, ROUND(SUM(trade_spend_usd), 0) AS trade_spend_usd, ROUND(SUM(net_profit_usd), 0) AS net_profit_usd, ROUND(100 * SUM(net_profit_usd) / SUM(trade_spend_usd), 1) AS roi_pct FROM retail_consumer_goods.trade_promotion_roi.gold_tactic_response WHERE retailer_name = 'ValuMax Stores' GROUP BY tactic, funding_method ORDER BY roi_pct DESC"
+    ]
+   },
+   {
+    "id": "c9a918f696e73865461b3fc1279276fe",
+    "question": [
+     "What is ROI by retailer and tactic over the last 52 weeks?"
+    ],
+    "sql": [
+     "SELECT retailer_name, tactic, COUNT(*) AS events, ROUND(SUM(trade_spend_usd), 0) AS trade_spend_usd, ROUND(SUM(net_profit_usd), 0) AS net_profit_usd, ROUND(100 * SUM(net_profit_usd) / SUM(trade_spend_usd), 1) AS roi_pct, ROUND(100 * SUM(gross_incremental_units) / SUM(baseline_units), 1) AS volume_lift_pct FROM retail_consumer_goods.trade_promotion_roi.gold_event_roi WHERE is_last_52_weeks GROUP BY retailer_name, tactic ORDER BY retailer_name, roi_pct DESC"
+    ]
+   }
+  ]
+ }
+}

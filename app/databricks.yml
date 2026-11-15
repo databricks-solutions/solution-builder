@@ -38,6 +38,9 @@ variables:
   deployer_sp_client_secret:
     description: "Model-3 ONLY. Deployer-SP OAuth secret. NEVER commit a real value — the default is a placeholder; supply the real secret at deploy via `export BUNDLE_VAR_deployer_sp_client_secret=...`."
     default: "<set-via-BUNDLE_VAR_deployer_sp_client_secret>"
+  mcp_caller_sp_id:
+    description: "Trusted MCP server service principal application id (not a secret). The only caller allowed to name a user on /api/mcp/* (X-MCP-Caller-Email). Empty = the MCP routes refuse every deployed call. Set via `export BUNDLE_VAR_mcp_caller_sp_id=...`."
+    default: ""
   app_env:
     # Runtime env injected into .build/app.yml by scripts/build.sh — keys here
     # become env vars in the deployed container. Add a key to databricks.prod.yml's
@@ -63,8 +66,10 @@ sync:
     - .build/pyproject.toml
     - .build/uv.lock
     - .build/.claude/**
-    # Per-template zips (not the wheel) — start.sh unzips them into the runtime
-    # templates dir on boot. Keeps the wheel under the Apps 10 MB export cap.
+    # Per-template archives (<slug>.tmpl — zips with a non-.zip extension so the
+    # workspace does NOT auto-expand them into thousands of loose files, which made
+    # the Apps source-copy take ~9 min). start.sh unzips them into the runtime
+    # templates dir on boot. Not in the wheel (over the Apps 10 MB export cap).
     - .build/initial_templates_zips/**
 
 artifacts:

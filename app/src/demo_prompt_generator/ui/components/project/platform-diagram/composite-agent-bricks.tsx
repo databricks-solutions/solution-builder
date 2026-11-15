@@ -1,12 +1,12 @@
 /**
- * platform-diagram/composite-agent-bricks — the "Agent Bricks" block.
+ * platform-diagram/composite-agent-bricks — the "Databricks Agent" block.
  *
  * A Supervisor agent at the centre, orchestrating four capabilities it routes
  * to — Knowledge Assistant (PDF docs), Genie Agent, MCP tools, and Functions.
  * The four are laid out as tiles in the corners with connector lines running
  * back to the supervisor in the middle; an animated pulse walks the links so it
  * reads as the supervisor dispatching to each in turn.
- * A composite node kind ("agent-bricks").
+ * A composite node kind ("databricks-agent").
  */
 import { memo, useContext } from "react";
 import { type NodeProps } from "@xyflow/react";
@@ -33,7 +33,7 @@ const TILES: Capability[] = [
 const TASK_TYPES = ["Classification", "Extraction", "Doc parsing"];
 
 /** One child row in the supervisor tree: an elbow connector (├─ / └─) drawn
- *  with CSS borders, then the capability icon + label. */
+ *  with CSS borders, then the capability icon + label. Theme-invariant sizing. */
 function TreeRow({ t, last, color }: { t: Capability; last: boolean; color: string }) {
   const Icon = DATABRICKS_ICONS[t.icon];
   return (
@@ -51,8 +51,8 @@ function TreeRow({ t, last, color }: { t: Capability; last: boolean; color: stri
           style={{ borderColor: `${color}66` }}
         />
       </span>
-      <span className="flex items-center gap-1 whitespace-nowrap py-0.5 text-[9.5px] font-medium leading-tight text-foreground">
-        <Icon className="h-4 w-4 shrink-0" style={{ color: AB_RED }} />
+      <span className="flex items-center gap-1 whitespace-nowrap py-0.5 font-medium leading-tight text-foreground text-[11px]">
+        <Icon className="shrink-0 h-4 w-4" style={{ color: AB_RED }} />
         {t.label}
       </span>
     </div>
@@ -63,12 +63,14 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
   const d = data as NodeData;
   const isDropTarget = useContext(DropTargetContext) === d.nodeId;
   const editMode = useContext(EditModeContext);
-  const nat = baseSize(d.component);
+  const slide = d.theme === "slide";
+  const nat = baseSize(d.component, d.params, d.theme);
   const Supervisor = DATABRICKS_ICONS.multiAgentSupervisor;
   const card = cardStyle(d, { borderColor: `${d.bandColor}66`, radius: 16 });
   return (
     <RotatableCard
       rot={d.rot}
+      deprecated={!!d.component.deprecated}
       w={d.w ?? nat.w}
       h={d.h ?? nat.h}
       scale={d.scale ?? 1}
@@ -91,7 +93,7 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
           {/* header: logo + title */}
           <div className="flex items-center gap-1.5">
             <FileSvgIcon iconKey="file:vendor/agent-bricks" className="h-5 w-5 shrink-0" />
-            <span className="text-[12px] font-bold text-foreground">{d.component.label || "Agent Bricks"}</span>
+            <span className="font-bold text-foreground text-[12px]">{d.component.label || "Databricks Agent"}</span>
           </div>
 
           {/* the supervisor, with the capabilities it orchestrates listed as a
@@ -99,8 +101,8 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
           <div className="flex min-h-0 flex-1 flex-col justify-center">
             {/* supervisor row */}
             <div className="flex items-center gap-1.5">
-              <Supervisor className="h-4 w-4 shrink-0" style={{ color: AB_RED }} />
-              <span className="text-[10.5px] font-semibold text-foreground">Supervisor</span>
+              <Supervisor className="shrink-0 h-4 w-4" style={{ color: AB_RED }} />
+              <span className="font-semibold text-foreground text-[10.5px]">Supervisor</span>
             </div>
             {/* children */}
             <div className="ml-1.5 flex flex-col">
@@ -108,14 +110,16 @@ export const AgentBricksBlock = memo(function AgentBricksBlock({ data, selected 
                 <TreeRow key={t.label} t={t} last={i === TILES.length - 1} color={d.bandColor} />
               ))}
             </div>
-            {/* task-type chips */}
-            <div className="mt-1.5 flex flex-wrap items-center gap-1">
-              {TASK_TYPES.map((t) => (
-                <span key={t} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">
-                  {t}
-                </span>
-              ))}
-            </div>
+            {/* task-type chips — suppressed in slide (too small to read) */}
+            {!slide && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {TASK_TYPES.map((t) => (
+                  <span key={t} className="rounded bg-muted px-1 py-px text-[7.5px] font-medium text-muted-foreground">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -27,9 +27,12 @@
 -- @param catalog STRING = retail_consumer_goods
 -- @param schema STRING = luxebeauty_demo
 SELECT
-  return_date,
+  CAST(return_date AS DATE) AS return_date,
   CAST(ROUND(SUM(refund_amount_usd), 2) AS DOUBLE) AS total_refund_usd
 FROM IDENTIFIER(:catalog || '.' || :schema || '.silver_returns')
-WHERE return_date >= date_sub(current_date(), 30)
-GROUP BY return_date
-ORDER BY return_date
+-- Last 30 days up to the data's as-of date (the snapshot's latest return),
+-- not current_date() — a demo dataset must not go blank as the calendar moves.
+WHERE return_date >= date_sub((SELECT CAST(MAX(return_date) AS DATE)
+                               FROM IDENTIFIER(:catalog || '.' || :schema || '.silver_returns')), 30)
+GROUP BY 1
+ORDER BY 1

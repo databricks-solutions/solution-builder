@@ -1,5 +1,5 @@
 {
-  "name": "mas-chat-demo",
+  "name": "genie-agent-demo",
   "version": "1.0.0",
   "main": "dist/server.js",
   "type": "module",
@@ -27,7 +27,7 @@
     "sync": "appkit plugin sync --write --silent",
     "typegen": "appkit generate-types",
     "setup": "appkit setup --write",
-    "db:generate": "drizzle-kit generate --config drizzle.config.ts && node -e 'const fs=require(\"fs\");for(const f of fs.readdirSync(\"drizzle\").filter(n=>n.endsWith(\".sql\"))){const p=\"drizzle/\"+f,b=fs.readFileSync(p,\"utf8\"),a=b.split(\"CREATE SCHEMA \\\"\").join(\"CREATE SCHEMA IF NOT EXISTS \\\"\");if(a!==b)fs.writeFileSync(p,a)}'"
+    "db:generate": "node scripts/db-generate.js"
   },
   "keywords": [],
   "author": "",

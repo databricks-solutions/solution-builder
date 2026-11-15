@@ -1,0 +1,11 @@
+[{
+  "name": "Title crossed",
+  "aspect": "16:9", "theme": "technical", "direction": "matrix",
+  "layout": "column", "gap": 60,
+  "nodes": [
+    { "id": "ws", "type": "genie", "label": "Prod workspace" },
+    { "id": "metastore", "type": "box", "title": "Databricks Metastore", "titlePos": "top", "children": [
+      { "id": "uc", "type": "unity-catalog" } ] }
+  ],
+  "edges": [ { "id": "e1", "from": "ws@b", "to": "uc@t" } ]
+}]

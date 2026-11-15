@@ -1,0 +1,14 @@
+<h2>2/ Fill out the Operations page</h2>
+<p>Now add the charts that tell the story at a glance. The trend and the map are the ones that make the spike jump out.</p>
+<blockquote class="note"><p>💡 On <strong>unfamiliar data</strong>, you can just ask Genie Code to <em>explore the tables and propose a whole dashboard layout itself</em> — a great starting point. Here, because we know exactly the story we want to land, we'll ask for each visualization <strong>one by one</strong> — it's more deterministic and gives us the precise dashboard the demo needs.</p></blockquote>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Add these four charts to the Operations page:<br><br>
+  • <strong>Weekly refunds trend (line + forecast)</strong> — from <code>gold_returns</code>, aggregate <code>SUM(refund_amount_usd)</code> by week (truncate <code>return_date</code> to week), ordered by week. Then extend it with <code>AI_FORECAST</code> to project the next ~8 weeks forward, shown as a separate band/line. X = week, Y = refund $.<br>
+  • <strong>Returns map (symbol map)</strong> — from <code>gold_returns</code>, aggregated <strong>by city</strong> (group by <code>city</code>, <code>customer_lat</code>, <code>customer_lng</code>). Plot the lat/lng point; <strong>bubble size</strong> = <code>COUNT(DISTINCT customer_id)</code>, <strong>color</strong> = <code>SUM(refund_amount_usd)</code>. (Aggregating by city keeps it to ~dozens of points, not 25K.)<br>
+  • <strong>Refunds by category (donut)</strong> — from <code>gold_daily_summary</code>, <code>SUM(returns_usd)</code> grouped by <code>category</code>. Slice = category, value = refund $.<br>
+  • <strong>Orders by region over time (area)</strong> — from <code>gold_daily_summary</code>, <code>SUM(order_count)</code> by <code>date</code>, one stacked series per <code>region</code>. X = date, Y = orders.<br><br>
+  Publish, then let me open it.</p>
+</blockquote>
+<p><strong>Open it and confirm</strong> the story lands: refunds peak ≈ <strong>$140K a few weeks back</strong> and decaying (not pinned at today), <strong>Paris</strong> is the biggest map bubble, <strong>Skincare</strong> leads the donut. If a tile is off, ask Genie Code to check its query against the gold tables.</p>

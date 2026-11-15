@@ -1,0 +1,24 @@
+{
+    "short_description": "A state benefits agency is missing the 30-day SNAP standard in a rural county hit by a mill closure. A caseworker workbench (Databricks App on Lakebase) reads every verification document with AI Functions, checks each SNAP/Medicaid rule with CFR citations, asks the policy manual (searched by the Genie agent), drafts a plain-language notice in the resident's language and records the caseworker's decision; the director sees timeliness, backlog and equity by county in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "metric-views",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "ai-parse-document",
+            "unstructured-documents",
+            "databricks-one",
+            "mlflow-tracing"
+        ]
+    },
+    "created_resources": {}
+}

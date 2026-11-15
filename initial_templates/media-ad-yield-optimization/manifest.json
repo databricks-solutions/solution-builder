@@ -1,0 +1,10 @@
+{
+  "id": "media-ad-yield-optimization",
+  "name": "Ad Yield Copilot — Ad Yield & Pricing Optimization",
+  "customer": "Aurora Crest Media",
+  "industry": "Media & Entertainment",
+  "narrative": "Maya Chen runs the yield & pricing desk at Aurora Crest Media: the ACN broadcast network, the Crest+ ad-supported streaming service and a set of FAST channels. In the middle of upfront season, four fall upfronts are pacing toward make-goods — ACN Prime Drama lost 60% of its audience when Harbor Lights moved to Friday — and nobody has noticed that Crest+ Live Sports, rate-carded at $48, now earns $14 programmatically. An ad-server migration dropped it into the run-of-network floor group, where a $10.50 fixed-price PMP takes three quarters of it while open-auction bids still clear at $33.\n\nThe aha is that the two problems solve each other. The copilot forecasts avails with ai_forecast, shows that Summit Motors' Terra EV launch will end 8.7M Auto-Intender impressions short ($337K of make-goods, with no post-flight ADUs allowed), and finds that the mis-priced Live Sports stream has the best Auto-Intender reach in the portfolio and 10M spare in-target impressions before the flight ends. It checks the IO terms (the Genie agent searches the ad-sales documents), moves the shortfall onto Live Sports for about $100K of displaced $10.50 inventory, restores the $30 premium floor on the rest (+$470K before flight end), drafts the agency notice and ad-ops instructions, and Maya approves the plan, which is written back to Lakebase.",
+  "dbdemos_tracker": {
+    "app_id": "media-ad-yield-optimization"
+  }
+}

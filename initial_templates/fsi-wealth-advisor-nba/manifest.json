@@ -1,0 +1,10 @@
+{
+  "id": "fsi-wealth-advisor-nba",
+  "name": "Wealth Management — Advisor Morning Book (Next Best Action with Suitability Guardrails)",
+  "customer": "Calder Pine Private Wealth",
+  "industry": "Financial Services",
+  "narrative": "Elena Marsh is a senior wealth advisor at Calder Pine Private Wealth, a fictional US firm with 36 advisors and $7.6B under management. Three rate cuts this summer turned her book into money in motion: CDs bought at 5% renew at 3.55%, sweep cash earns 0.25% while online banks pay 4%, 2023 mortgages sit a point above today's rate, and life events keep landing. Her Morning Book ranks the day's calls: $28M in motion, $7.4M that could walk. Firm-wide, signal-triggered offers convert at 30% against 7% for the generic annual review, and after a death or an inheritance households keep 99% of their assets when the advisor calls within 30 days, against 76% when nobody does.\n\nThe aha is Margaret Castellano, 67, widowed in May, with $812K idle in sweep, a $260K CD maturing October 9 and a CRM note (read by AI Functions) saying she is thinking about moving money to Brightline Direct. The Unity Catalog propensity model's top pick for her is a buffered structured note, and the suitability engine blocks it on four Reg BI rules. The copilot preps a suitable meeting instead: an estate and beneficiary review, a CD/Treasury ladder and a government money market fund. It cites the policy library (searched by the Genie agent), drafts a compliant, empathetic email, and Elena's 'meeting booked' is written to Lakebase and Delta, where the wealth-desk dashboard and Genie pick it up.",
+  "dbdemos_tracker": {
+    "app_id": "fsi-wealth-advisor-nba"
+  }
+}

@@ -1,0 +1,37 @@
+<h2>1/ Govern PII with ABAC — tag once, one policy covers everything</h2>
+<p><strong>ABAC</strong> (Attribute-Based Access Control) is the modern, tag-driven model: you <strong>tag</strong> sensitive columns, write <strong>one <code>CREATE POLICY</code> on the schema</strong> that matches those tags, and it auto-applies to every column carrying the tag — today and every future table. That's the story per-table <code>SET MASK</code> can't tell.</p>
+<p><strong>1a — Tag the sensitive columns.</strong></p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Tag the PII columns on the returns gold table — the customer id and the geo columns — with a governance tag.</p>
+</blockquote>
+<p><strong>1b — Write the masking function + the ABAC policy</strong> (the load-bearing part — one schema-level policy driven by the tag, not per-table masks):</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Create a redaction function, then a tag-driven ABAC column-mask policy on the schema that masks every column tagged as PII for everyone except the ops group. Add a row-filter policy too, so regional analysts only see their own region.</p>
+</blockquote>
+<p><strong>1c — Verify by persona</strong> (the payoff):</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Show me the returns table as the ops group vs a regular analyst — ops sees raw geo, the analyst sees it masked, aggregates unchanged.</p>
+</blockquote>
+<p><strong>1d — Prove the ABAC win: one tag, instant coverage.</strong> Tag a column on a <em>different</em> table and watch the existing policy pick it up with <strong>zero new DDL</strong>:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Tag <code>city</code> on <code>silver_returns</code> as PII with the same tag, then show me that column as the analyst — it should already be masked by the policy I wrote in 1b, without creating any new policy.</p>
+</blockquote>
+<blockquote class="note"><p>🛑 <strong>Use <code>silver_returns.city</code> — do NOT tag <code>facility</code> on <code>silver_production_lots</code>.</strong> A factory site isn't personal data, so the tag would be wrong on its face — and that column holds <strong><code>Lyon-France</code></strong>, the single value the entire demo builds toward. Mask it and Genie's punchline comes back <code>REDACTED</code> for every non-admin persona, including the analyst persona you just created. The demo breaks and it looks like the platform's fault.</p></blockquote>
+<p><strong>1e — Untag it. This step is not optional.</strong></p>
+<p>The 1d tag exists only to demonstrate propagation. Leave it in place and you've permanently masked a column for every analyst who opens this workspace later.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask the Assistant</span>
+  <button class="copy">Copy</button>
+  <p>Remove the PII tag I just added to <code>silver_returns.city</code>, then confirm the analyst can read the column again.</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> the analyst sees real city names on <code>silver_returns</code> again, and <code>silver_production_lots.facility</code> still returns <strong><code>Lyon-France</code></strong> — not <code>REDACTED</code> — for every persona. Run this before you move on:</p>
+<pre class="plain">SELECT DISTINCT facility FROM silver_production_lots WHERE facility LIKE 'Lyon%'</pre>
+<blockquote class="note"><p>💡 Gotchas to hand Genie Code if it stumbles: the mask function's return type must match the column type; one row filter per table, one mask per column. You can't both mask and row-filter on the same column — that's why <code>region</code> stays visible. The exact policy grammar lives in <code>specifications/02-uc-governance.md</code>.</p></blockquote>

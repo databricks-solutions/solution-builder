@@ -1,0 +1,10 @@
+{
+  "id": "gaming-player-retention-copilot",
+  "name": "Gaming — Player Retention & Live-Ops Copilot",
+  "customer": "Emberline Studios",
+  "industry": "Media & Entertainment",
+  "narrative": "Emberline Studios (fictional) runs Hollowspire, a free-to-play co-op action RPG. Three weeks after Season 7 \"The Drowned Crown\" launched, new-player D7 retention has fallen from 28.9% to 20.1% and ARPDAU slipped from $0.43 to $0.39. The live-ops team's reflex is the blanket 50% gem sale. The Live-Ops Console opens on the season story: an XGBoost churn model and an LTV model, both registered in Unity Catalog, score every active player, SHAP explains why each one is leaving, and AI Functions read the chat moderation queue to separate real harassment from harmless trash talk.\n\nThe aha: churn is three problems, not one — a boss wall at stage 7-4 (14% clear rate), five-minute ranked queues in APAC and OCE after the queue split, and harassment of new players in the cross-play Raid Finder (harassed newcomers retain at half the rate). The live-ops copilot sizes the $91K of LTV at risk by segment, prices every intervention with a deterministic plan engine against holdout-measured lift and the $12K October budget, rejects the gem sale (0.46x ROI), stages the queue merge or the difficulty hotfix with the player message, and the lead's Schedule click writes it back to Lakebase and Delta, where the live-ops dashboard and Genie see it.",
+  "dbdemos_tracker": {
+    "app_id": "gaming-player-retention-copilot"
+  }
+}

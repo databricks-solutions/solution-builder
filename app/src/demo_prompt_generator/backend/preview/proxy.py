@@ -23,12 +23,17 @@ from reusing stale pre-rewrite bodies via 304s.
 
 from __future__ import annotations
 
+import asyncio
+import os
 import re
-from typing import TYPE_CHECKING
+from collections import OrderedDict
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 from fastapi import Request
 from fastapi.responses import Response, StreamingResponse
+
+from ..services.shutdown import track_live_connection
 
 if TYPE_CHECKING:
     from .registry import PreviewState
@@ -53,11 +58,25 @@ _HOP_BY_HOP = {
 _STRIP_REQUEST_HEADERS = {"if-none-match", "if-modified-since"}
 
 
-def _clean_request_headers(headers) -> dict[str, str]:
+# The Databricks Apps proxy attaches the viewing user's OBO token to every
+# request it forwards to the generator — and our reverse proxy would forward it
+# on to the child app. For a SAME-workspace preview that's correct (the child
+# should act as the viewing user). For a REMOTE-TARGET (cross-workspace SP)
+# preview it is WRONG: a host-workspace user token is not valid for the target
+# workspace, so if the child's authHeaders sees it, it sends a host-ws token to
+# a target-ws endpoint → 401/400. Stripping it here (at the boundary, where we
+# know the deploy mode) lets the child fall through to the deployer-SP oauth-m2m
+# creds already in its env — keeping the app's auth.ts dumb (no SP special-case).
+_USER_TOKEN_HEADER = "x-forwarded-access-token"
+
+
+def _clean_request_headers(headers, *, strip_user_token: bool = False) -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in headers.items():
         kl = k.lower()
         if kl in _HOP_BY_HOP or kl == "host" or kl in _STRIP_REQUEST_HEADERS:
+            continue
+        if strip_user_token and kl == _USER_TOKEN_HEADER:
             continue
         out[k] = v
     return out
@@ -87,12 +106,140 @@ def _strip_cache(headers: dict[str, str]) -> dict[str, str]:
     return headers
 
 
+# ---------------------------------------------------------------------------
+# Rewritten-body cache for immutable URLs
+# ---------------------------------------------------------------------------
+
+# Vite pre-bundled deps: /node_modules/.vite/deps/<pkg>.js?v=<hash>. The hash is
+# derived from the dependency graph, so that URL names exactly one body. Source
+# modules (/src/...) and HTML documents change when the agent edits them, so they
+# are never cached. Neither is `?t=` (an HMR timestamp, not a content identity).
+_IMMUTABLE_DEP_PREFIX = "node_modules/.vite/deps/"
+_REWRITE_CACHE_MAX_ENTRIES = 512
+
+
+def _rewrite_cache_budget_bytes() -> int:
+    try:
+        mb = float(os.environ.get("PREVIEW_REWRITE_CACHE_MB", "64"))
+    except ValueError:
+        mb = 64.0
+    return max(0, int(mb * 1024 * 1024))
+
+
+def _immutable_cache_key(project_id: str, path: str, query: str) -> tuple[str, str, str] | None:
+    """Cache key for a URL whose rewritten body is fixed by the URL, else None.
+
+    The rewrite reads only the project id (the `/preview/<id>` prefix, and the
+    shim built from it) and the upstream body, and the body is fixed by the
+    `?v=` hash, so (project_id, path, query) is the complete key. Paths with a
+    `..` segment are refused so the key can never name a source module.
+    """
+    if not path.startswith(_IMMUTABLE_DEP_PREFIX) or ".." in path.split("/"):
+        return None
+    if not any(part.startswith("v=") for part in query.split("&")):
+        return None
+    return (project_id, path, query)
+
+
+class _RewrittenBody(NamedTuple):
+    status_code: int
+    headers: dict[str, str]
+    body: bytes
+
+
+class _RewriteCache:
+    """LRU of rewritten bodies, bounded by total bytes and entry count.
+
+    Only called from the event loop (proxy_request and the stop routes), so no lock.
+    """
+
+    def __init__(self, max_bytes: int, max_entries: int) -> None:
+        self._max_bytes = max_bytes
+        self._max_entries = max_entries
+        self._entries: "OrderedDict[tuple[str, str, str], _RewrittenBody]" = OrderedDict()
+        self._bytes = 0
+
+    def get(self, key: tuple[str, str, str]) -> _RewrittenBody | None:
+        entry = self._entries.get(key)
+        if entry is not None:
+            self._entries.move_to_end(key)
+        return entry
+
+    def put(self, key: tuple[str, str, str], entry: _RewrittenBody) -> None:
+        size = len(entry.body)
+        if size > self._max_bytes:
+            return
+        self._drop(key)
+        self._entries[key] = entry
+        self._bytes += size
+        while self._bytes > self._max_bytes or len(self._entries) > self._max_entries:
+            oldest = next(iter(self._entries))
+            self._drop(oldest)
+
+    def forget_project(self, project_id: str) -> None:
+        for key in [k for k in self._entries if k[0] == project_id]:
+            self._drop(key)
+
+    def _drop(self, key: tuple[str, str, str]) -> None:
+        entry = self._entries.pop(key, None)
+        if entry is not None:
+            self._bytes -= len(entry.body)
+
+
+_rewrite_cache = _RewriteCache(
+    max_bytes=_rewrite_cache_budget_bytes(), max_entries=_REWRITE_CACHE_MAX_ENTRIES
+)
+
+
+def forget_project_rewrites(project_id: str) -> None:
+    """Drop a project's cached rewrites. Called when its preview stops or restarts."""
+    _rewrite_cache.forget_project(project_id)
+
+
+# ONE upstream client for the whole proxy. A client per request rebuilt the TLS
+# context (~16 ms of loop CPU each) and never reused a connection. Created lazily
+# on the serving loop; closed by close_shared_client() at app shutdown.
+_shared_client: httpx.AsyncClient | None = None
+
+# Buffered (HTML/JS) bodies are read whole before we rewrite them, so bound that
+# read: a child that stalls mid-body must not pin the request. Streams have none.
+_BUFFERED_READ_TIMEOUT_SECONDS = 60.0
+
+
+def _upstream_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        # No read timeout: a proxied SSE or a slow agent call legitimately waits
+        # for minutes. Connecting to the local child must be quick, though.
+        _shared_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(None, connect=10.0),
+            limits=httpx.Limits(max_connections=256, max_keepalive_connections=64),
+        )
+    return _shared_client
+
+
+async def close_shared_client() -> None:
+    """Close the shared upstream client. Called from the app lifespan teardown."""
+    global _shared_client
+    client, _shared_client = _shared_client, None
+    if client is not None:
+        await client.aclose()
+
+
 async def proxy_request(
     request: Request,
     state: "PreviewState",
     path: str,
+    *,
+    strip_user_token: bool = False,
 ) -> Response:
-    """Forward one HTTP request to the child app. Bumps the idle timer."""
+    """Forward one HTTP request to the child app. Bumps the idle timer.
+
+    `strip_user_token=True` (remote-target preview) drops the viewing user's
+    forwarded OBO token so the child authenticates as the deployer SP against
+    the target workspace instead of sending a host-workspace token there. See
+    _clean_request_headers.
+    """
     state.bump_activity()
     if state.port is None:
         return Response("preview not ready", status_code=503)
@@ -101,83 +248,101 @@ async def proxy_request(
     if request.url.query:
         target = f"{target}?{request.url.query}"
 
-    headers = _clean_request_headers(request.headers)
-    client = httpx.AsyncClient(timeout=None)
-
-    async def _close_client() -> None:
-        try:
-            await client.aclose()
-        except Exception:
-            pass
-
-    try:
-        upstream_req = client.build_request(
-            method=request.method,
-            url=target,
-            headers=headers,
-            content=request.stream(),
-        )
-        upstream = await client.send(upstream_req, stream=True)
-    except (httpx.ConnectError, httpx.ReadError) as e:
-        await _close_client()
-        return Response(f"upstream error: {e}", status_code=502)
-
-    content_type = upstream.headers.get("content-type", "")
-    out_headers = _clean_response_headers(upstream.headers)
-    if "text/event-stream" in content_type:
-        out_headers["X-Accel-Buffering"] = "no"
-        out_headers["Cache-Control"] = "no-cache"
-
-    # HTML: rewrite absolute-path href/src attributes + inject the shim so
-    # runtime network calls (fetch, WebSocket) reach the child via the proxy.
-    if "text/html" in content_type:
-        body = await upstream.aread()
-        await upstream.aclose()
-        await _close_client()
-        rewritten = _rewrite_html(body, state.project_id)
-        out_headers.pop("content-length", None)
-        return Response(
-            content=rewritten,
-            status_code=upstream.status_code,
-            headers=_strip_cache(out_headers),
-            media_type=content_type,
-        )
-
-    # JS/TS (Vite serves source modules as JS): rewrite `import "/..."`,
-    # `from "/..."`, `import("/...")`. Needed because the browser's native
-    # ESM loader bypasses our fetch/WS shims — we have to fix the URLs
-    # inside the JS before the browser parses it.
-    if (
-        "javascript" in content_type
-        or "typescript" in content_type
-        or "/x-typescript" in content_type
-    ):
-        body = await upstream.aread()
-        await upstream.aclose()
-        await _close_client()
-        rewritten = _rewrite_js_imports(body, state.project_id)
-        out_headers.pop("content-length", None)
-        return Response(
-            content=rewritten,
-            status_code=upstream.status_code,
-            headers=_strip_cache(out_headers),
-            media_type=content_type,
-        )
-
-    async def body_iter():
-        try:
-            async for chunk in upstream.aiter_raw():
-                yield chunk
-        finally:
-            await upstream.aclose()
-            await _close_client()
-
-    return StreamingResponse(
-        body_iter(),
-        status_code=upstream.status_code,
-        headers=out_headers,
-        media_type=content_type or None,
+    # A content-addressed dependency is rewritten once and then served from memory:
+    # the rewrite scan is the CPU cost, and a hit also skips the upstream fetch.
+    cache_key = (
+        _immutable_cache_key(state.project_id, path, request.url.query)
+        if request.method == "GET"
+        else None
     )
+    if cache_key is not None:
+        hit = _rewrite_cache.get(cache_key)
+        if hit is not None:
+            return Response(content=hit.body, status_code=hit.status_code, headers=dict(hit.headers))
+
+    headers = _clean_request_headers(request.headers, strip_user_token=strip_user_token)
+    client = _upstream_client()
+    upstream_req = client.build_request(
+        method=request.method,
+        url=target,
+        headers=headers,
+        content=request.stream(),
+    )
+    # Tracked so SIGTERM can cancel a child that hangs before its headers, and a
+    # buffered body still being read (the drain would otherwise wait out the whole
+    # graceful window). Streaming bodies track themselves in body_iter below.
+    async with track_live_connection():
+        try:
+            upstream = await client.send(upstream_req, stream=True)
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException) as e:
+            return Response(f"upstream error: {e}", status_code=502)
+
+        content_type = upstream.headers.get("content-type", "")
+        out_headers = _clean_response_headers(upstream.headers)
+        if "text/event-stream" in content_type:
+            out_headers["X-Accel-Buffering"] = "no"
+            out_headers["Cache-Control"] = "no-cache"
+
+        # HTML and JS/TS are buffered: the whole body must be read to rewrite it.
+        is_html = "text/html" in content_type
+        is_js = (
+            "javascript" in content_type
+            or "typescript" in content_type
+            or "/x-typescript" in content_type
+        )
+        if is_html or is_js:
+            try:
+                body = await asyncio.wait_for(
+                    upstream.aread(), timeout=_BUFFERED_READ_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                return Response("upstream timed out", status_code=504)
+            except httpx.RequestError as e:
+                return Response(f"upstream error: {e}", status_code=502)
+            finally:
+                await upstream.aclose()
+            out_headers.pop("content-length", None)
+            if is_html:
+                # HTML: rewrite absolute-path href/src attributes + inject the shim so
+                # runtime network calls (fetch, WebSocket) reach the child via the proxy.
+                rewritten = _rewrite_html(body, state.project_id)
+            else:
+                # JS/TS (Vite serves source modules as JS): rewrite `import "/..."`,
+                # `from "/..."`, `import("/...")`. Needed because the browser's native
+                # ESM loader bypasses our fetch/WS shims — we have to fix the URLs
+                # inside the JS before the browser parses it.
+                rewritten = _rewrite_js_imports(body, state.project_id)
+            final_headers = _strip_cache(out_headers)
+            if cache_key is not None and upstream.status_code == 200:
+                _rewrite_cache.put(
+                    cache_key, _RewrittenBody(200, dict(final_headers), rewritten)
+                )
+            return Response(
+                content=rewritten,
+                status_code=upstream.status_code,
+                headers=final_headers,
+                media_type=content_type,
+            )
+
+        async def body_iter():
+            # Track this streaming task so the SIGTERM handler can cancel it: it parks
+            # on aiter_raw() waiting for the child (an idle proxied SSE sends nothing
+            # for minutes), so only a task-cancel — not a between-chunks flag poll —
+            # unblocks it before uvicorn's shutdown drain times out. CancelledError
+            # then unwinds through the finally. See services/shutdown.py.
+            async with track_live_connection():
+                try:
+                    async for chunk in upstream.aiter_raw():
+                        yield chunk
+                finally:
+                    await upstream.aclose()
+
+        return StreamingResponse(
+            body_iter(),
+            status_code=upstream.status_code,
+            headers=out_headers,
+            media_type=content_type or None,
+        )
 
 
 # ---------------------------------------------------------------------------

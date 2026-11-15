@@ -1,0 +1,12 @@
+<h2>2/ Extend it — ratios + business language</h2>
+<p>Now make it production-grade. Add the <strong>ratio measures</strong> (the ones people compute wrong) and the <strong>agent metadata</strong> — synonyms, display names, formatting — that teaches Genie the business language, so someone asking for "refund rate" or "% returned" lands on the right measure.</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Extend <code>mv_returns</code>:<br><br>
+  • add <code>return_rate</code> = <code>SUM(return_count) / NULLIF(SUM(order_count), 0)</code> and <code>refund_rate</code> = <code>SUM(returns_usd) / NULLIF(SUM(revenue_usd), 0)</code>. Write ratios this way — <strong>not</strong> <code>MEASURE(a)/MEASURE(b)</code> — so they stay correct under any filter and never divide by zero.<br>
+  • give each measure a friendly <strong>display name</strong> and <strong>synonyms</strong> (e.g. return_rate → "return %", "returns rate"; total_refunds → "refunds", "refund dollars"), and set <strong>formatting</strong> (currency for dollars, percent for rates).<br><br>
+  Then query <code>MEASURE(return_rate)</code> by week to confirm.</p>
+</blockquote>
+<p><span class="check">✅ Confirm:</span> the spike week's <code>return_rate</code> should be well above the baseline — and asking Genie for "return %" now resolves to this measure.</p>
+<blockquote class="note"><p>💡 <strong>Beyond metric views:</strong> in a real rollout you'd add <strong>Pages</strong> (authoritative definitions for terms like "anomaly" or "active customer" — Genie One cites them), organize assets into <strong>Domains</strong>, and <strong>certify</strong> the trusted ones. Genie Ontology then blends all of it with what it infers from your dashboards and queries — so Genie One answers from authoritative context, not guesswork.</p></blockquote>

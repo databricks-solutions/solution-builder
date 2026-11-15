@@ -8,6 +8,7 @@
  */
 
 import { useMemo } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -26,6 +27,7 @@ import {
   Network,
   Hammer,
   Rocket,
+  Database,
   Download,
   Upload,
   LayoutTemplate,
@@ -56,6 +58,12 @@ interface StageCheck {
 
 const MIN_README_CHARS = 200;
 
+/** The Genie Code workshop's deliverable (workshop projects only). */
+export const WORKSHOP_HTML_PATH = "notebooks_html/workshop.html";
+/** Workshop projects: the data test's result, written after the phase-3 checks
+ *  (stages/genie-workshop.md). Not part of the kit. */
+export const WORKSHOP_DATA_CHECK_PATH = "data-check.md";
+
 export interface StageInfo {
   stage: ProjectStage;
   checks: Record<ProjectStage, StageCheck[]>;
@@ -65,11 +73,18 @@ export interface StageInfo {
   hasCode: boolean;
   hasDeployedResources: boolean;
   hasDab: boolean;
+  /** Workshop projects: the page source was copied in. The agent may do this
+   *  early, so it says nothing about the data step. */
+  hasWorkshopSource: boolean;
+  /** Workshop projects: the data test wrote `data-check.md`. */
+  hasDataCheck: boolean;
 }
 
 export function detectStageFromFiles(
   files: ProjectFile[],
   deployedResourceCount = 0,
+  /** Workshop projects: spec = CONTEXT.md, build = notebooks_html/workshop.html. */
+  workshop = false,
 ): StageInfo {
   const paths = files.map((f) => f.path);
   const fileMap = new Map(files.map((f) => [f.path, f]));
@@ -78,14 +93,20 @@ export function detectStageFromFiles(
   const readme = fileMap.get("README.md");
   const hasReadme = !!readme && readme.size >= MIN_README_CHARS;
   const hasArch = fileMap.has("architecture.md");
-  const hasSpecifications = paths.some((p) => p.startsWith("specifications/"));
-  const hasCode = paths.some(
-    (p) => (p.endsWith(".py") || p.endsWith(".sql")) && !p.startsWith("src/deploy/")
-  );
+  const hasSpecifications = workshop
+    ? fileMap.has("CONTEXT.md")
+    : paths.some((p) => p.startsWith("specifications/"));
+  const hasCode = workshop
+    ? fileMap.has(WORKSHOP_HTML_PATH)
+    : paths.some(
+        (p) => (p.endsWith(".py") || p.endsWith(".sql")) && !p.startsWith("src/deploy/")
+      );
   // BUILT now means resources are actually live in the workspace (visible
   // in the deployed-resources bar), not merely that code files exist on disk.
   const hasDeployedResources = deployedResourceCount > 0;
   const hasDab = fileMap.has("databricks.yml");
+  const hasWorkshopSource = workshop && paths.some((p) => p.startsWith("workshop/"));
+  const hasDataCheck = workshop && fileMap.has(WORKSHOP_DATA_CHECK_PATH);
 
   const checks: Record<ProjectStage, StageCheck[]> = {
     DRAFTING: [],
@@ -128,7 +149,7 @@ export function detectStageFromFiles(
     stage = "SUMMARIZED";
   }
 
-  return { stage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDeployedResources, hasDab };
+  return { stage, checks, hasReadme, hasArch, hasSpecifications, hasCode, hasDeployedResources, hasDab, hasWorkshopSource, hasDataCheck };
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +160,7 @@ export function detectStageFromFiles(
 //
 //   STORY_AND_ARCH  ← DRAFTING + SUMMARIZED + ARCHITECTED
 //   SPECIFICATION   ← SPECIFICATION
+//   DATA            ← workshop only: generator written, run and checked
 //   RESOURCES       ← BUILT (strict: all expected resources deployed)
 //   DAB             ← BUNDLED
 // ---------------------------------------------------------------------------
@@ -146,6 +168,7 @@ export function detectStageFromFiles(
 export type LifecycleStageKey =
   | "STORY_AND_ARCH"
   | "SPECIFICATION"
+  | "DATA"
   | "RESOURCES"
   | "DAB";
 
@@ -178,20 +201,19 @@ export function getLifecycleStages(
   liveResourceCount: number,
   expectedResourceCount: number,
   isStreaming = false,
-  // Workshop mode: the "build" stage produces notebooks, not resources. When
-  // >= 0, the RESOURCES step keys off notebook count instead of resource IDs.
-  workshopNotebookCount: number | null = null,
+  /** Workshop mode: the build step is the workshop HTML (info.hasCode, see
+   *  detectStageFromFiles), not provisioned resources, and there's no DAB step. */
+  workshop = false,
 ): LifecycleStageInfo[] {
   // Story is done once the README exists. Architecture is no longer written
   // by default (built on demand), so it must NOT gate this stage.
   const storyArchDone = info.hasReadme;
   const specDone = info.hasSpecifications;
-  const resourcesReady =
-    workshopNotebookCount !== null
-      ? workshopNotebookCount > 0 // workshop: at least one notebook generated
-      : expectedResourceCount > 0
-        ? liveResourceCount >= expectedResourceCount
-        : info.hasDeployedResources;
+  const resourcesReady = workshop
+    ? info.hasCode
+    : expectedResourceCount > 0
+      ? liveResourceCount >= expectedResourceCount
+      : info.hasDeployedResources;
   // KEY FIX: while the agent is still streaming it keeps working in the
   // background (app bug-fixes, follow-up files) even after the first resources
   // land — so "Build resources" must NOT read done mid-stream. It's done only
@@ -199,6 +221,11 @@ export function getLifecycleStages(
   // journey (and the top stepper) from showing complete while the chat works.
   const resourcesDone = resourcesReady && !isStreaming;
   const dabDone = info.hasDab;
+  // Workshop: data is done once the data test wrote its result (or the page
+  // landed, for projects made before data-check.md existed). Not workshop/: the
+  // agent may copy it early while the generator is still running. Independent of
+  // the specs: the agent usually generates and measures the data first.
+  const dataDone = info.hasDataCheck || info.hasCode;
 
   // First not-done stage is active. Cascade so we never show two active.
   // Distribute (DAB) is OPTIONAL — on-demand only — so it never becomes the
@@ -206,6 +233,7 @@ export function getLifecycleStages(
   let activeKey: LifecycleStageKey | null = null;
   if (!storyArchDone) activeKey = "STORY_AND_ARCH";
   else if (!specDone) activeKey = "SPECIFICATION";
+  else if (workshop && !dataDone) activeKey = "DATA";
   else if (!resourcesDone) activeKey = "RESOURCES";
 
   const status = (
@@ -214,7 +242,7 @@ export function getLifecycleStages(
   ): LifecycleStageStatus =>
     done ? "done" : activeKey === key ? "active" : "pending";
 
-  return [
+  const stages: LifecycleStageInfo[] = [
     {
       key: "STORY_AND_ARCH",
       label: "Story",
@@ -229,14 +257,33 @@ export function getLifecycleStages(
       blurb: "Detailed plans for each resource.",
       status: status("SPECIFICATION", specDone),
     },
-    {
-      key: "RESOURCES",
-      label: "Resources",
-      shortLabel: "Build",
-      blurb: "Databricks resources live in your workspace.",
-      status: status("RESOURCES", resourcesDone),
-    },
-    {
+    ...(workshop
+      ? [{
+          key: "DATA" as const,
+          label: "Data",
+          shortLabel: "Data",
+          blurb: "Synthetic data, generated and checked.",
+          status: status("DATA", dataDone),
+        }]
+      : []),
+    workshop
+      ? {
+          key: "RESOURCES",
+          label: "Workshop",
+          shortLabel: "Workshop",
+          blurb: "Genie Code workshop your team builds live.",
+          status: status("RESOURCES", resourcesDone),
+        }
+      : {
+          key: "RESOURCES",
+          label: "Resources",
+          shortLabel: "Build",
+          blurb: "Databricks resources live in your workspace.",
+          status: status("RESOURCES", resourcesDone),
+        },
+  ];
+  if (!workshop) {
+    stages.push({
       key: "DAB",
       label: "Bundle",
       shortLabel: "DAB",
@@ -244,8 +291,9 @@ export function getLifecycleStages(
       // Optional step: done iff a DAB was actually created, else a muted
       // "optional" — never active/pending, so it doesn't hold the journey open.
       status: dabDone ? "done" : "optional",
-    },
-  ];
+    });
+  }
+  return stages;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,10 +333,13 @@ export interface BuildStepperProps {
    *  + a Pending/Approved badge). */
   templateStatus?: string | null;
   /** Home-page entry mode ("story" | "architecture" | "workshop"). In
-   *  "workshop" mode the deliverable is a set of Genie Code notebooks, not
-   *  provisioned resources — so the Build step keys off notebook count and the
-   *  DAB/package actions (which don't apply) are suppressed. */
+   *  "workshop" mode the deliverable is the Genie Code workshop HTML, not
+   *  provisioned resources — the only action is Generate workshop, then
+   *  Download the kit; the spec/DAB/architecture actions are suppressed. */
   mode?: string;
+  /** Workshop mode: download the attendee kit (never the generic project ZIP,
+   *  which carries the agent transcripts). */
+  onDownloadWorkshopKit?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,23 +364,15 @@ export function BuildStepper({
   onPublishTemplate,
   templateStatus,
   mode,
+  onDownloadWorkshopKit,
 }: BuildStepperProps) {
   const isWorkshop = mode === "workshop";
-  // Workshop deliverable is notebooks, not resources — the RESOURCES lifecycle
-  // step keys off notebook count (null in every other mode → resource logic).
-  const workshopNotebookCount = useMemo(
-    () =>
-      isWorkshop
-        ? files.filter((f) => f.path.startsWith("notebooks/") && f.path.endsWith(".py")).length
-        : null,
-    [isWorkshop, files],
-  );
   // Auto-detect stage from files + live deploy state. The 6-state result
   // drives action-button logic (which "next step" button to surface);
   // the rendered pills below collapse to 4 lifecycle stages.
   const stageInfo = useMemo(
-    () => detectStageFromFiles(files, deployedResourceCount),
-    [files, deployedResourceCount],
+    () => detectStageFromFiles(files, deployedResourceCount, isWorkshop),
+    [files, deployedResourceCount, isWorkshop],
   );
   const { hasReadme, hasArch, hasSpecifications, hasCode, hasDab } = stageInfo;
   const lifecycle = useMemo(
@@ -339,9 +382,9 @@ export function BuildStepper({
         deployedResourceCount,
         expectedResourceCount,
         isStreaming,
-        workshopNotebookCount,
+        isWorkshop,
       ),
-    [stageInfo, deployedResourceCount, expectedResourceCount, isStreaming, workshopNotebookCount],
+    [stageInfo, deployedResourceCount, expectedResourceCount, isStreaming, isWorkshop],
   );
 
   // Build the list of available actions based on current state
@@ -371,15 +414,16 @@ export function BuildStepper({
     }
   }
 
-  // Architecture actions
-  if (!onBuildSolution && !hasArch && onCreateArchitecture) {
+  // Architecture actions (not for workshops: the diagram is built only when
+  // the user opens the Architecture tab)
+  if (!isWorkshop && !onBuildSolution && !hasArch && onCreateArchitecture) {
     actions.push({
       label: "Create Architecture Diagram",
       icon: Network,
       onClick: onCreateArchitecture,
       variant: "primary",
     });
-  } else if (!onBuildSolution && hasArch && onUpdateArchitecture) {
+  } else if (!isWorkshop && !onBuildSolution && hasArch && onUpdateArchitecture) {
     actions.push({
       label: "Update Architecture Diagram",
       icon: Network,
@@ -387,15 +431,15 @@ export function BuildStepper({
     });
   }
 
-  // Specification actions
-  if (!onBuildSolution && !hasSpecifications && onCreateSpec) {
+  // Specification actions (workshop: the workshop flow writes CONTEXT.md itself)
+  if (!isWorkshop && !onBuildSolution && !hasSpecifications && onCreateSpec) {
     actions.push({
       label: "Create Specifications",
       icon: FileText,
       onClick: onCreateSpec,
       variant: !hasArch ? undefined : "primary",
     });
-  } else if (!onBuildSolution && hasSpecifications && onUpdateSpec) {
+  } else if (!isWorkshop && !onBuildSolution && hasSpecifications && onUpdateSpec) {
     actions.push({
       label: "Update Specifications",
       icon: FileText,
@@ -403,26 +447,40 @@ export function BuildStepper({
     });
   }
 
-  // Build actions. Workshop mode produces notebooks, so the action reads
-  // "…workshop notebooks" and there's no downstream DAB step.
-  if (!hasCode && onBuildResources) {
-    actions.push({
-      label: isWorkshop ? "Generate workshop notebooks" : "Build Databricks Resources",
-      icon: Hammer,
-      onClick: onBuildResources,
-      variant: !hasSpecifications ? undefined : "primary",
-    });
-  } else if (hasCode && onUpdateResources) {
-    actions.push({
-      label: isWorkshop ? "Update workshop notebooks" : "Update Resources",
-      icon: Hammer,
-      onClick: onUpdateResources,
-    });
-  }
+  if (isWorkshop) {
+    // Workshop: one action. Once the page exists it's the kit hand-off (the
+    // workshop itself is on its tab, changes go through the chat).
+    if (hasCode && onDownloadWorkshopKit) {
+      actions.push({
+        label: "Download the kit",
+        icon: Download,
+        onClick: onDownloadWorkshopKit,
+        variant: "primary",
+      });
+    } else if (!hasCode && onBuildResources) {
+      actions.push({
+        label: "Generate workshop",
+        icon: Hammer,
+        onClick: onBuildResources,
+        variant: "primary",
+      });
+    }
+  } else {
+    if (!hasCode && onBuildResources) {
+      actions.push({
+        label: "Build Databricks Resources",
+        icon: Hammer,
+        onClick: onBuildResources,
+        variant: !hasSpecifications ? undefined : "primary",
+      });
+    } else if (hasCode && onUpdateResources) {
+      actions.push({
+        label: "Update Resources",
+        icon: Hammer,
+        onClick: onUpdateResources,
+      });
+    }
 
-  // DAB actions — packaging as a Databricks Asset Bundle doesn't apply to the
-  // workshop (its deliverable is notebooks uploaded to a workspace), so skip.
-  if (!isWorkshop) {
     if (!hasDab && onPackageDAB) {
       actions.push({
         label: "Package as DAB",
@@ -440,11 +498,12 @@ export function BuildStepper({
   }
 
   // If all stages are done, make Download ZIP the primary action. Workshop
-  // mode has no architecture step, so it completes on story + specs + notebooks.
+  // projects never get the generic ZIP (it bundles .claude/ transcripts) —
+  // "Download kit" above is their hand-off.
   const allDone = isWorkshop
     ? hasReadme && hasSpecifications && hasCode
     : hasReadme && hasArch && hasSpecifications && hasCode;
-  if (allDone && onDownloadDAB) {
+  if (allDone && onDownloadDAB && !isWorkshop) {
     actions.push({
       label: "Download ZIP",
       icon: Download,
@@ -461,12 +520,14 @@ export function BuildStepper({
   const LIFECYCLE_ICONS: Record<LifecycleStageKey, React.ElementType> = {
     STORY_AND_ARCH: FileText,
     SPECIFICATION: FileText,
+    DATA: Database,
     RESOURCES: Hammer,
     DAB: Rocket,
   };
 
   return (
-    <div className="flex items-center gap-3">
+    <TooltipProvider delayDuration={200}>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       {/* Stepper pills — 4 collapsed lifecycle stages. HIDDEN while the
           project is architecture-first (onBuildSolution set): the pipeline
           hasn't started yet, so the pills read as noise next to the single
@@ -542,10 +603,15 @@ export function BuildStepper({
           {primaryAction && (
             <Button
               variant={primaryAction.variant === "primary" ? "default" : "outline"}
-              className="h-9 gap-2 px-4 text-sm rounded-r-none border-r-0 cursor-pointer whitespace-nowrap"
+              className={cn(
+                "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap",
+                !isWorkshop && "rounded-r-none border-r-0",
+              )}
               onClick={primaryAction.onClick}
             >
-              {primaryAction.variant === "primary" ? (
+              {isWorkshop ? (
+                <primaryAction.icon className="h-4 w-4" />
+              ) : primaryAction.variant === "primary" ? (
                 <Play className="h-4 w-4" />
               ) : (
                 <RefreshCw className="h-4 w-4" />
@@ -553,7 +619,8 @@ export function BuildStepper({
               {primaryAction.label}
             </Button>
           )}
-          {/* Dropdown trigger for additional actions */}
+          {/* Dropdown trigger for additional actions (workshops have one action) */}
+          {!isWorkshop && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -584,7 +651,7 @@ export function BuildStepper({
               {/* Download ZIP when it isn't already the primary action.
                   (Sharing as a template is surfaced as its own prominent
                   end-of-pipeline button, not buried here.) */}
-              {!allDone && onDownloadDAB && (
+              {!isWorkshop && !allDone && onDownloadDAB && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={onDownloadDAB} className="cursor-pointer">
@@ -595,56 +662,77 @@ export function BuildStepper({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
         </div>
       ) : null}
 
-      {/* Share as template — a prominent finishing step. Appears once the demo
+      {/* Share as template — a prominent finishing step. ALWAYS shown (never
+          hidden) so users can discover it; it's greyed out with a tooltip
+          explaining why when the project isn't ready yet. Enabled once the demo
           has a story (README exists — the real precondition for a template,
           which carries the narrative .md files; note valid templates can be
           spec-stage, not just fully built), or whenever the project is already
-          linked to a template (so it can always be updated). This is the ONE
-          entry point for sharing; the old buried dropdown/overflow items are
-          removed. */}
-      {onPublishTemplate && !isStreaming && (hasReadme || templateStatus) && (
-        <>
-          <div className="h-5 w-px bg-border" />
-          <Button
-            variant={templateStatus ? "outline" : "default"}
-            className={
-              templateStatus
-                ? "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap border-violet-300 text-violet-700 hover:bg-violet-50 hover:text-violet-800 dark:border-violet-800/70 dark:text-violet-300 dark:hover:bg-violet-950/50"
-                : "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600"
-            }
-            onClick={onPublishTemplate}
-            title={
-              templateStatus
-                ? "Update the published gallery template from this project"
-                : "Publish this demo to the Gallery as a reusable template others can fork"
-            }
-          >
-            {templateStatus ? (
-              <Upload className="h-4 w-4" />
-            ) : (
-              <LayoutTemplate className="h-4 w-4" />
-            )}
-            {templateStatus ? "Update template" : "Publish to Gallery"}
-            {templateStatus && (
-              <Badge
-                variant="secondary"
-                className="ml-0.5 h-4 px-1.5 text-[10px] font-medium"
-              >
-                {templateStatus === "REVIEW_REQUESTED"
-                  ? "Pending"
-                  : templateStatus === "APPROVED"
-                    ? "Approved"
-                    : templateStatus === "REJECTED"
-                      ? "Rejected"
-                      : templateStatus.toLowerCase()}
-              </Badge>
-            )}
-          </Button>
-        </>
-      )}
+          linked to a template (so it can always be updated). Disabled while the
+          agent is streaming, or before a README exists. This is the ONE entry
+          point for sharing; the old buried dropdown/overflow items are removed. */}
+      {onPublishTemplate &&
+        (() => {
+          const canPublish = (hasReadme || !!templateStatus) && !isStreaming;
+          const disabledReason = isStreaming
+            ? "Available once the agent finishes the current step"
+            : "Available once your demo has a story — describe it in the chat and the agent will draft a README to publish from";
+          return (
+            <>
+              <div className="hidden h-5 w-px bg-border sm:block" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {/* span wrapper so the tooltip still fires while the button is disabled */}
+                  <span className={canPublish ? undefined : "cursor-not-allowed"}>
+                    <Button
+                      variant={templateStatus ? "outline" : "default"}
+                      disabled={!canPublish}
+                      className={
+                        templateStatus
+                          ? "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap border-violet-300 text-violet-700 hover:bg-violet-50 hover:text-violet-800 dark:border-violet-800/70 dark:text-violet-300 dark:hover:bg-violet-950/50"
+                          : "h-9 gap-2 px-4 text-sm cursor-pointer whitespace-nowrap bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600"
+                      }
+                      onClick={onPublishTemplate}
+                    >
+                      {templateStatus ? (
+                        <Upload className="h-4 w-4" />
+                      ) : (
+                        <LayoutTemplate className="h-4 w-4" />
+                      )}
+                      {templateStatus ? "Update template" : "Publish to Gallery"}
+                      {templateStatus && (
+                        <Badge
+                          variant="secondary"
+                          className="ml-0.5 h-4 px-1.5 text-[10px] font-medium"
+                        >
+                          {templateStatus === "REVIEW_REQUESTED"
+                            ? "Pending"
+                            : templateStatus === "APPROVED"
+                              ? "Approved"
+                              : templateStatus === "REJECTED"
+                                ? "Rejected"
+                                : templateStatus.toLowerCase()}
+                        </Badge>
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {canPublish
+                    ? templateStatus
+                      ? "Update the published gallery template from this project"
+                      : "Publish this demo to the Gallery as a reusable template others can fork"
+                    : disabledReason}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          );
+        })()}
     </div>
+    </TooltipProvider>
   );
 }

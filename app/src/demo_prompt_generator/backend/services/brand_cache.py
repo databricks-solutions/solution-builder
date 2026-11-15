@@ -17,6 +17,7 @@ so "force refresh" in the UI genuinely re-resolves and replaces the row.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -112,7 +113,8 @@ async def cached_resolve(session: Session, query: str, resolver, *, no_cache: bo
     bypass = _no_cache(no_cache)
 
     if qn and not bypass:
-        hit = _lookup(session, qn)
+        # Lakebase reads are blocking: keep them off the event loop.
+        hit = await asyncio.to_thread(_lookup, session, qn)
         if hit:
             logger.info("[brand_cache] HIT %r → %s", qn, hit.domain)
             return _entry_to_brandout(hit)
@@ -125,52 +127,56 @@ async def cached_resolve(session: Session, query: str, resolver, *, no_cache: bo
     if not domain:
         return out
 
-    if bypass:
-        # Force-refresh: drop any prior row + aliases for this domain so we don't
-        # serve the old artifacts again.
-        stale_aliases = session.exec(
-            select(BrandQueryAlias).where(BrandQueryAlias.domain == domain)
-        ).all()
-        for a in stale_aliases:
-            session.delete(a)
-        old = session.get(BrandCacheEntry, domain)
-        if old:
-            session.delete(old)
-        session.commit()
-
     logo_bytes, logo_ct = _data_url_bytes(out.logo_data_url)
     shot_bytes, _ = _data_url_bytes(out.site_screenshot)
 
-    entry = session.get(BrandCacheEntry, domain)
-    if entry:
-        entry.company = out.name
-        entry.palette = list(out.palette or [])
-        entry.website = f"https://{domain}"
-        entry.logo_bytes = logo_bytes
-        entry.logo_content_type = logo_ct
-        entry.screenshot_bytes = shot_bytes
-        entry.resolved_at = utc_now()
-    else:
-        entry = BrandCacheEntry(
-            domain=domain,
-            company=out.name,
-            palette=list(out.palette or []),
-            website=f"https://{domain}",
-            logo_bytes=logo_bytes,
-            logo_content_type=logo_ct,
-            screenshot_bytes=shot_bytes,
-        )
-        session.add(entry)
+    def _store() -> None:
+        if bypass:
+            # Force-refresh: drop any prior row + aliases for this domain so we don't
+            # serve the old artifacts again.
+            stale_aliases = session.exec(
+                select(BrandQueryAlias).where(BrandQueryAlias.domain == domain)
+            ).all()
+            for a in stale_aliases:
+                session.delete(a)
+            old = session.get(BrandCacheEntry, domain)
+            if old:
+                session.delete(old)
+            session.commit()
 
-    # Upsert the alias (this exact phrasing → this domain).
-    if qn:
-        alias = session.get(BrandQueryAlias, qn)
-        if alias:
-            alias.domain = domain
+        entry = session.get(BrandCacheEntry, domain)
+        if entry:
+            entry.company = out.name
+            entry.palette = list(out.palette or [])
+            entry.website = f"https://{domain}"
+            entry.logo_bytes = logo_bytes
+            entry.logo_content_type = logo_ct
+            entry.screenshot_bytes = shot_bytes
+            entry.resolved_at = utc_now()
         else:
-            session.add(BrandQueryAlias(query_norm=qn, domain=domain))
+            entry = BrandCacheEntry(
+                domain=domain,
+                company=out.name,
+                palette=list(out.palette or []),
+                website=f"https://{domain}",
+                logo_bytes=logo_bytes,
+                logo_content_type=logo_ct,
+                screenshot_bytes=shot_bytes,
+            )
+            session.add(entry)
 
-    session.commit()
+        # Upsert the alias (this exact phrasing → this domain).
+        if qn:
+            alias = session.get(BrandQueryAlias, qn)
+            if alias:
+                alias.domain = domain
+            else:
+                session.add(BrandQueryAlias(query_norm=qn, domain=domain))
+
+        session.commit()
+
+    # Blocking Lakebase writes run off the loop.
+    await asyncio.to_thread(_store)
     logger.info("[brand_cache] WROTE %s (query %r, palette=%d, logo=%s, shot=%s)",
                 domain, qn, len(out.palette or []), bool(logo_bytes), bool(shot_bytes))
     return out

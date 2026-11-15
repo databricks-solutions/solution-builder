@@ -58,6 +58,8 @@ Every solution comes with an editable, **live architecture diagram** — the "Da
   <img src="docs/architecture-example.svg" alt="Example generated Databricks solution architecture — sources flow through a governed Lakeflow and Genie pipeline into a lakehouse, then out to dashboards, Genie, and a live app" width="100%">
 </p>
 
+Your solution's story can become a deck, too. Click **Generate POV deck** on the Overview for a client-facing Point of View (POV) deck and a runbook for whoever presents it, reviewed before you see them. To change a slide, click **edit** in the Deck tab, click the part, say what should change, and click **Add**. Then click **Send to agent**, and confirm in the dialog. The agent changes those words in the deck and the runbook, and the Deck tab reloads. **Regenerate** rebuilds from the story and drops these edits. The runbook links the app, each dashboard and Genie Agent, the setup job, any Genie Code skill, and the other resources the demo built. Until a fork of a template with a live demo is built, the runbook links that live demo instead, labeled as the template's.
+
 ### `04` &nbsp; A gallery of solutions to start from
 
 <p align="center">
@@ -266,7 +268,15 @@ Same library as the app, same outputs — pick whichever surface fits the moment
 
 ---
 
-## Architecture reference
+## Hand a finished demo to a client
+
+Turn a finished demo into a package you can hand to a customer. When your demo is built and packaged as a Databricks Asset Bundle (DAB), tell the agent to make it **"client-ready"** (or **"handoff-ready"**). The agent produces a self-contained ZIP with its intellectual-property (IP) fingerprints removed, such as workspace URLs, emails, and internal IDs.
+
+The client runs it on synthetic data first, so nothing needs configuring to see the demo work. A Genie Code adaptation skill rides along inside the ZIP and walks the client through pointing the demo at their own tables when they are ready. The ZIP is the single deliverable: publish it to a public repository or hand it over directly. The handoff works on a copy, so your original demo project is never modified.
+
+---
+
+## 🏗Architecture reference
 
 <details>
 <summary><b>Lakebase tables</b></summary>
@@ -394,7 +404,7 @@ Tables are auto-created on startup via SQLModel + DDL migrations in `lakebase.py
 
 ```
 solution-builder/
-├── app/                          # Full-stack application (see app/CLAUDE.md)
+├── app/                          # Full-stack application (see AGENTS.md at the repo root)
 │   ├── src/demo_prompt_generator/
 │   │   ├── backend/
 │   │   │   ├── app.py            # FastAPI entry point
@@ -417,9 +427,7 @@ solution-builder/
 │   └── .env.example              # Local-dev environment variable template
 ├── .claude/skills/databricks-solution-builder/
 │   └── references/blocks/        # Context blocks (Solution Builder Skill)
-│       ├── capabilities/         #   26+ Databricks feature blocks
-│       ├── domains/              #   Industry verticals
-│       └── patterns/             #   Analytical patterns
+│       └── capabilities/         #   26+ Databricks feature blocks
 ├── docs/                         # Diagrams + screenshots used in this README
 ├── tests/                        # Playwright E2E tests
 ├── install_demo_generator_skill.sh  # Standalone skill installer
@@ -433,7 +441,7 @@ solution-builder/
 
 <br>
 
-Create a Markdown file in the appropriate `.claude/skills/databricks-solution-builder/references/blocks/` subdirectory (`domains/`, `capabilities/`, or `patterns/`) with YAML frontmatter:
+Create a Markdown file in `.claude/skills/databricks-solution-builder/references/blocks/capabilities/` with YAML frontmatter:
 
 ```markdown
 ---

@@ -1,0 +1,10 @@
+{
+  "id": "fsi-commercial-underwriting-copilot",
+  "name": "Commercial Underwriting Copilot — Submission Triage, Pricing & Decisions",
+  "customer": "Tidewell Specialty Insurance",
+  "industry": "Financial Services",
+  "narrative": "Tidewell Specialty Insurance, a fictional middle-market commercial P&C carrier, runs a steady ~58% loss ratio — except hail-belt apartments, which went from 60% to 110% in two years, and 164% on roofs older than 15 years. The CUO has taken those roofs out of appetite, but 24 broker submissions are waiting and the applications are broker summaries. The Underwriting Copilot reads every ACORD application, statement of values and loss run with ai_parse_document, scores each account with a Unity Catalog model on the application and again on the documents, and triages the queue.\n\nThe aha is Lone Star Residential Partners: four Dallas apartment communities that look perfect on paper (roofs 2019, sprinklered, one small loss) and score Low. The SOV hides Cedar Hollow Apartments — frame, 1984, unsprinklered, a 22-year-old roof — and the loss run shows two hail claims there; verified, the model says High. The copilot excludes the location citing the appetite bulletin (the Genie agent searches the guideline documents), prices the rest on the rating plan ($108,615), drafts the broker letter, refers it to the CUO above authority, and writes the decision to Lakebase and back to Delta for the portfolio dashboard and Genie.",
+  "dbdemos_tracker": {
+    "app_id": "fsi-commercial-underwriting-copilot"
+  }
+}

@@ -38,6 +38,9 @@ export type Message = {
 // every render. Mutating it would throw (frozen).
 const EMPTY_MESSAGES: Message[] = Object.freeze([]) as unknown as Message[];
 
+/** Error text recorded for a conversation id the server doesn't know. */
+export const CONVERSATION_NOT_FOUND = 'Conversation not found';
+
 type State = {
   list: ConversationRow[];
   listLoaded: boolean;
@@ -115,10 +118,27 @@ class Store {
       errors: restErrors,
     });
     try {
-      const res = await okOrThrow(
-        await fetch(`/api/conversations/${id}`),
-        `GET /api/conversations/${id}`,
-      );
+      // Answer unknown ids from the sidebar list (complete per user) so no
+      // 404 request is made — the browser logs every failed request.
+      if (!this.state.listLoaded) await this.reloadList().catch(() => {});
+      const known =
+        !this.state.listLoaded ||
+        !!this.state.listError ||
+        this.state.list.some((c) => c.id === id);
+      const raw = known
+        ? await fetch(`/api/conversations/${id}`)
+        : new Response(null, { status: 404 });
+      if (raw.status === 404) {
+        // Unknown / deleted id (e.g. a stale bookmark): a settled "not found"
+        // state, not a thrown error — the page renders it, nothing is logged.
+        this.set({
+          ...this.state,
+          loading: { ...this.state.loading, [id]: false },
+          errors: { ...this.state.errors, [id]: CONVERSATION_NOT_FOUND },
+        });
+        return null;
+      }
+      const res = await okOrThrow(raw, `GET /api/conversations/${id}`);
       const convo = (await res.json()) as ConversationRow & { messages: Message[] };
       this.set({
         ...this.state,

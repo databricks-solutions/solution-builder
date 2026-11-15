@@ -1,0 +1,158 @@
+// =============================================================================
+// DATABRICKS PLATFORM VIEW — the layered "Databricks Data + AI Platform" map:
+// Ingest | the stacked layers | Serve. Use it when the ask is the platform itself
+// (a pitch, an overview slide, "what is Databricks"), or tailor it to an industry
+// by retitling it and rewriting the item subtitles and medallion lines.
+//
+// This is JSONC for YOU to read. When you write `architecture.md`, emit PLAIN
+// JSON (no comments) inside a ```json fence.
+//
+// What it demonstrates:
+//   • A MATRIX slide, not a flow (`direction:"matrix"`): full-height Ingest and
+//     Serve columns framing stacked horizontal layer bands. This file is the hand-composed
+//     exception in reference/layout.md: every node carries an `at` offset, so each band,
+//     chip and label sits where the slide needs it. Use nesting for any other diagram.
+//   • Bands are framed `html` blocks (`<div></div>` + `style.fill/border/radius`,
+//     `z:-2`) so they sit behind their content; a panel or chip INSIDE a band is
+//     `z:-1`, never the band's own z (equal z paints in file order, and the
+//     editor re-sorts the file). Each band has a heading `html`
+//     (red square + bold title + one muted line).
+//   • Product items = a `logo` with its OWN white icon tile (`size:[38,38]` +
+//     `style: {fill:#FFFFFF, border:1, borderColor:#E2E8F0, radius:8}`) plus an
+//     `html` title/subtitle beside it. One node per logo — never a second shape
+//     behind it for the tile.
+//   • Feature pills in a CSS grid inside one `html` block (Genie / Agent Bricks).
+//     Each description is 2-4 words on ONE line (`white-space:nowrap`): short
+//     phrases, not sentences. A grid column holds ~17 characters at 11px.
+//   • Open-source chips = caption-right logos over a tinted `html` chip.
+//   • The only edges are the Bronze → Silver → Gold medallion flow.
+//   • Layer → layer flow arrows (`` → ``) in the gaps between the bands.
+// Drop items the ask does not need; keep every band the same width.
+// =============================================================================
+[
+  {
+    "name": "Databricks platform",
+    "story": "A view of the Databricks Data + AI Platform: Ingest on the left, Serve on the right, and the stacked layers in between, each feeding the one above it: Open Infrastructure (open formats and the Bronze → Silver → Gold medallion), Agentic Data, Unified Governance, Agentic Work / Agentic Dev (Genie and Agent Bricks) and Agentic Apps. Every item carries its product logo.",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "matrix",
+    "options": {"trademarkLogos":true},
+    "layout": "column",
+    "gap": 11,
+    "align": "center",
+    "nodes": [
+      {"id": "title-bar", "type": "html", "size": [1540,50], "html": "<div style=\"text-align:center;color:#FFFFFF;font-size:22px;font-weight:800;letter-spacing:1px\">DATABRICKS DATA + AI PLATFORM</div>", "style": {"border": 0, "radius": 10, "fill": "#E8542E", "padding": 12}},
+      {"id": "row-ingest", "type": "group", "layout": "row", "gap": 16, "align": "center", "children": [
+        {"id": "col-ingest", "type": "group", "layout": "column", "gap": 32, "children": [
+          {"id": "ingest", "type": "html", "size": [236,712], "html": "<div></div>", "style": {"fill": "#EEF8FA", "border": 1, "borderColor": "#B9DFE8", "radius": 10}, "z": -2, "at": [118,356], "track": "line-ingest"},
+          {"id": "ingest-head", "type": "html", "size": [210,56], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Ingest</div><div style='color:#64748B;font-size:12px'>Databricks-native landing paths</div>", "at": [112,47], "track": "line-ingest-head"},
+          {"id": "ing-lfc", "type": "logo", "icon": "lakeflowConnectBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [39,122], "track": "line-ing-lfc"},
+          {"id": "ing-al", "type": "logo", "icon": "file:db/ingestion", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [39,242], "track": "line-ing-al"},
+          {"id": "ing-zb", "type": "logo", "icon": "zerobus", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [39,362], "track": "line-ing-zb"},
+          {"id": "ing-st", "type": "logo", "icon": "file:databricks-line/streaming", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [39,482]},
+          {"id": "ing-lfc-txt", "type": "html", "size": [160,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakeflow Connect</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Managed connectors</div></div>", "at": [148,122], "track": "line-ing-lfc"},
+          {"id": "ing-al-txt", "type": "html", "size": [160,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Auto Loader</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Files as they land</div></div>", "at": [148,242], "track": "line-ing-al"},
+          {"id": "ing-zb-txt", "type": "html", "size": [160,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Zerobus</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Direct push</div></div>", "at": [148,362], "track": "line-ing-zb"},
+          {"id": "ing-st-txt", "type": "html", "size": [160,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Streaming</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Micro Batches & Realtime</div></div>", "at": [148,482]}
+        ] },
+        {"id": "col-agentic-apps", "type": "group", "layout": "column", "gap": 34, "align": "center", "children": [
+          {"id": "row-agentic-apps", "type": "group", "layout": "row", "gap": 32, "children": [
+            {"id": "agentic-apps", "type": "html", "size": [1046,64], "html": "<div></div>", "style": {"fill": "#FBEDEB", "border": 1, "borderColor": "#F0C9C2", "radius": 10}, "z": -2, "at": [523,32]},
+            {"id": "apps-head", "type": "html", "size": [236,46], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Agentic Apps</div><div style='color:#64748B;font-size:12px'>Deploy agents at scale to transform work</div>", "at": [128,32]},
+            {"id": "app-aibi-txt", "type": "html", "size": [132,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>AI/BI</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Business Intelligence</div></div>", "at": [393,32]},
+            {"id": "app-apps-txt", "type": "html", "size": [132,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Apps</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Custom Apps</div></div>", "at": [575,32]},
+            {"id": "app-lw-txt", "type": "html", "size": [132,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakewatch</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Agentic Security</div></div>", "at": [757,32]},
+            {"id": "app-cl-txt", "type": "html", "size": [132,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>CustomerLake</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Agentic Marketing</div></div>", "at": [939,32]},
+            {"id": "app-aibi", "type": "logo", "icon": "aibiBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [298,32]},
+            {"id": "app-apps", "type": "logo", "icon": "databricksAppsBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [480,32]},
+            {"id": "app-lw", "type": "logo", "icon": "lakeWatchBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [662,32]},
+            {"id": "app-cl", "type": "logo", "icon": "customerLakeBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [844,32]}
+          ] },
+          {"id": "row-agentic-work", "type": "group", "layout": "row", "gap": 32, "children": [
+            {"id": "agentic-work", "type": "html", "size": [1046,196], "html": "<div></div>", "style": {"fill": "#FDF5EA", "border": 1, "borderColor": "#EEDCC0", "radius": 10}, "z": -2, "at": [523,98]},
+            {"id": "genie-panel", "type": "html", "size": [330,148], "z": -1, "html": "<div></div>", "style": {"border": 1, "borderColor": "#EAD9B8", "radius": 10, "fill": "#FFFDF8"}, "at": [351,80]},
+            {"id": "bricks-panel", "type": "html", "size": [330,148], "html": "<div></div>", "style": {"fill": "#FFFDF8", "border": 1, "borderColor": "#EAD9B8", "radius": 10}, "z": -1, "at": [695,80]},
+            {"id": "w-genie", "type": "logo", "icon": "genieBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [217,34]},
+            {"id": "w-bricks", "type": "logo", "icon": "file:brand/agent-bricks", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [561,34]},
+            {"id": "work-head", "type": "html", "size": [130,100], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Agentic Work</div><div style='color:#64748B;font-size:12px'>Data-smart coworkers for every employee</div>", "at": [83,71]},
+            {"id": "dev-head", "type": "html", "size": [130,100], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Agentic Dev</div><div style='color:#64748B;font-size:12px'>Develop and deploy agents, apps, and models</div>", "at": [937,71]},
+            {"id": "w-genie-txt", "type": "html", "size": [152,22], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Genie</div></div>", "at": [322,34]},
+            {"id": "w-bricks-txt", "type": "html", "size": [112,22], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Agent Bricks</div></div>", "at": [646,34]},
+            {"id": "bricks-sub", "type": "html", "size": [150,18], "html": "<div style='color:#64748B;font-size:11px'>Agent Developer Platform</div>", "at": [782,34]},
+            {"id": "genie-pills", "type": "html", "size": [318,84], "html": "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px'><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>ONE</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Your AI coworker</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>AGENTS</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Agents for anyone</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>CODE</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>AI data engineer</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>ZEROOPS</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Self-healing ETL</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>BUILDER</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Governed AI apps</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>DESIGNER</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>No-code data prep</div></div></div>", "at": [351,104]},
+            {"id": "bricks-pills", "type": "html", "size": [318,84], "html": "<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px'><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>DOCUMENTS</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Parse, extract, classify</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>MODELS</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Frontier + open, one API</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>RUNTIME</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Durable agent hosting</div></div><div><span style='background:#F6E7C8;color:#7A5B1E;border-radius:10px;padding:1px 8px;font-size:10px;font-weight:700'>SANDBOX</span><div style='font-size:11px;color:#334155;margin-top:3px;white-space:nowrap'>Run agent code safely</div></div></div>", "at": [695,104]},
+            {"id": "onto-pill", "type": "html", "size": [300,30], "html": "<div></div>", "style": {"fill": "#FBF1DD", "border": 1, "borderColor": "#EAD9B8", "radius": 10}, "z": -1, "at": [502,172]},
+            {"id": "w-onto", "type": "logo", "icon": "file:brand/genie-ontology", "size": [28,28], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [376,171]},
+            {"id": "w-onto-txt", "type": "html", "size": [132,22], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Genie Ontology</div></div>", "at": [466,171]},
+            {"id": "onto-badge", "type": "html", "size": [110,24], "html": "<span style='background:#F6E7C8;color:#7A5B1E;border-radius:8px;padding:2px 6px;font-size:10px;font-weight:700'>PUBLIC PREVIEW</span>", "at": [589,174]}
+          ] },
+          {"id": "row-unified-governance", "type": "group", "layout": "row", "gap": 32, "children": [
+            {"id": "unified-governance", "type": "html", "size": [1046,80], "html": "<div></div>", "style": {"fill": "#EEF8EE", "border": 1, "borderColor": "#C6E3C6", "radius": 10}, "z": -2, "at": [523,40]},
+            {"id": "gov-head", "type": "html", "size": [200,60], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Unified Governance</div><div style='color:#64748B;font-size:12px'>Data + AI control and cost management</div>", "at": [118,40]},
+            {"id": "gov-uc-txt", "type": "html", "size": [302,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Unity Catalog</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Access | Semantics | Lineage | Observability</div></div>", "at": [483,40]},
+            {"id": "gov-ug-txt", "type": "html", "size": [302,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Unity Gateway</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Models | Security | Cost Optimization</div></div>", "at": [843,40]},
+            {"id": "gov-uc", "type": "logo", "icon": "unityCatalogBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [303,40]},
+            {"id": "gov-ug", "type": "logo", "icon": "file:db/ai-gateway", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [663,40]}
+          ] },
+          {"id": "row-agentic-data", "type": "group", "layout": "row", "gap": 32, "children": [
+            {"id": "agentic-data", "type": "html", "size": [1046,76], "html": "<div></div>", "style": {"fill": "#EEF0FA", "border": 1, "borderColor": "#C9CFEC", "radius": 10}, "z": -2, "at": [523,38]},
+            {"id": "data-head", "type": "html", "size": [200,52], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Agentic Data</div><div style='color:#64748B;font-size:12px'>Unified, real-time data foundation</div>", "at": [118,38]},
+            {"id": "dat-lf-txt", "type": "html", "size": [190,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakeflow</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Ingest • Transform • Orchestrate</div></div>", "at": [902,38]},
+            {"id": "dat-lh-txt", "type": "html", "size": [190,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakehouse</div><div style='color:#64748B;font-size:12px;line-height:1.25'>SQL Data Warehousing</div></div>", "at": [422,38]},
+            {"id": "dat-lb-txt", "type": "html", "size": [190,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakebase</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Serverless Postgres</div></div>", "at": [662,38]},
+            {"id": "dat-lh", "type": "logo", "icon": "lakehouseBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [298,38]},
+            {"id": "dat-lb", "type": "logo", "icon": "lakebaseBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [538,38]},
+            {"id": "dat-lf", "type": "logo", "icon": "lakeflowJobsBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [778,38]}
+          ] },
+          {"id": "row-open-infrastructure", "type": "group", "layout": "row", "gap": 32, "children": [
+            {"id": "open-infrastructure", "type": "html", "size": [1046,160], "html": "<div></div>", "style": {"fill": "#F3EEFA", "border": 1, "borderColor": "#D3C4EC", "radius": 10}, "z": -2, "at": [523,80]},
+            {"id": "infra-head", "type": "html", "size": [200,80], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Open Infrastructure</div><div style='color:#64748B;font-size:12px'>Open source at the core, one open copy of your data</div>", "at": [118,49]},
+            {"id": "oi-share-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [314,33]},
+            {"id": "oi-spark-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [418,33]},
+            {"id": "oi-mlflow-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [522,33]},
+            {"id": "oi-uc-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [626,33]},
+            {"id": "oi-delta-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [730,33]},
+            {"id": "oi-ice-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [834,33]},
+            {"id": "oi-ltap-chip", "type": "html", "size": [96,44], "html": "<div></div>", "style": {"fill": "#E9DDFB", "border": 1, "borderColor": "#B9A3E6", "radius": 10}, "z": -1, "at": [938,33]},
+            {"id": "oi-share", "type": "logo", "icon": "file:databricks-line/data-sharing", "text": "OpenSharing", "caption": "right", "fontSize": 9, "size": [92,30], "at": [314,33]},
+            {"id": "oi-spark", "type": "logo", "icon": "file:vendor/apache-spark", "text": "Spark", "caption": "right", "fontSize": 11, "size": [92,30], "at": [418,33]},
+            {"id": "oi-mlflow", "type": "logo", "icon": "mlflowBrand", "text": "MLflow", "caption": "right", "fontSize": 11, "size": [92,30], "at": [522,33]},
+            {"id": "oi-uc", "type": "logo", "icon": "unityCatalogBrand", "text": "UC OSS", "caption": "right", "fontSize": 11, "size": [92,30], "at": [626,33]},
+            {"id": "oi-delta", "type": "logo", "icon": "deltaLakeLogo", "text": "Delta Lake", "caption": "right", "fontSize": 11, "size": [92,30], "at": [730,33]},
+            {"id": "oi-ice", "type": "logo", "icon": "icebergLogo", "text": "Iceberg", "caption": "right", "fontSize": 11, "size": [92,30], "at": [834,33]},
+            {"id": "oi-ltap", "type": "logo", "icon": "lucide:zap", "text": "LTAP", "caption": "right", "fontSize": 11, "size": [92,30], "at": [938,33]},
+            {"id": "med-head", "type": "html", "size": [120,44], "html": "<div style='font-size:14px;font-weight:700;color:#0F172A'>Medallion Architecture</div>", "at": [326,107]},
+            {"id": "med-b", "type": "logo", "icon": "bronzeLayer", "text": "BRONZE", "caption": "right", "fontSize": 12, "size": [170,32], "at": [489,109]},
+            {"id": "med-s", "type": "logo", "icon": "silverLayer", "text": "SILVER", "caption": "right", "fontSize": 12, "size": [170,32], "at": [694,109]},
+            {"id": "med-g", "type": "logo", "icon": "goldLayer", "text": "GOLD", "caption": "right", "fontSize": 12, "size": [170,32], "at": [899,109]},
+            {"id": "med-b-sub", "type": "html", "size": [170,18], "html": "<div style='text-align:center;color:#64748B;font-size:11px'>Raw, as landed</div>", "at": [489,145]},
+            {"id": "med-s-sub", "type": "html", "size": [170,18], "html": "<div style='text-align:center;color:#64748B;font-size:11px'>Cleaned, conformed</div>", "at": [694,145]},
+            {"id": "med-g-sub", "type": "html", "size": [170,18], "html": "<div style='text-align:center;color:#64748B;font-size:11px'>Business-ready</div>", "at": [899,145]}
+          ] }
+        ] },
+        {"id": "col-serve", "type": "group", "layout": "column", "gap": 32, "children": [
+          {"id": "serve", "type": "html", "size": [226,712], "html": "<div></div>", "style": {"fill": "#FCEDEC", "border": 1, "borderColor": "#F0C9C2", "radius": 10}, "z": -2, "at": [113,356], "track": "line-ingest"},
+          {"id": "serve-head", "type": "html", "size": [200,56], "html": "<div style='font-size:17px;font-weight:700;color:#0F172A'><span style='color:#E8542E'>■</span> Serve</div><div style='color:#64748B;font-size:12px'>Governed paths out</div>", "at": [108,47], "track": "line-ingest-head"},
+          {"id": "srv-sql", "type": "logo", "icon": "file:databricks-line/data-warehouse", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [34,122], "track": "line-ing-lfc"},
+          {"id": "srv-rt", "type": "logo", "icon": "lakehouseBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [34,242], "track": "line-ing-al"},
+          {"id": "srv-lb", "type": "logo", "icon": "lakebaseBrand", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [34,362], "track": "line-ing-zb"},
+          {"id": "srv-ms", "type": "logo", "icon": "file:db/serving", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [34,482]},
+          {"id": "srv-ais", "type": "logo", "icon": "file:db/search-data", "size": [38,38], "style": {"fill": "#FFFFFF", "border": 1, "borderColor": "#E2E8F0", "radius": 8}, "at": [34,602]},
+          {"id": "srv-sql-txt", "type": "html", "size": [152,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>SQL Warehouses</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Data Warehousing</div></div>", "at": [139,122], "track": "line-ing-lfc"},
+          {"id": "srv-rt-txt", "type": "html", "size": [152,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakehouse//RT</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Millisecond reads</div></div>", "at": [139,242], "track": "line-ing-al"},
+          {"id": "srv-lb-txt", "type": "html", "size": [152,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Lakebase</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Operational reads</div></div>", "at": [139,362], "track": "line-ing-zb"},
+          {"id": "srv-ms-txt", "type": "html", "size": [152,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>Model Serving</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Real-time endpoints</div></div>", "at": [139,482]},
+          {"id": "srv-ais-txt", "type": "html", "size": [152,40], "html": "<div style='display:flex;flex-direction:column;justify-content:center;height:100%'><div style='font-size:14px;font-weight:700;color:#0F172A;line-height:1.3'>AI Search</div><div style='color:#64748B;font-size:12px;line-height:1.25'>Retrieval</div></div>", "at": [139,602]}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e-agentic-data-t-unified-governance-b", "from": "agentic-data@t", "to": "unified-governance@b", "flow": true},
+      {"id": "e-agentic-work-t-agentic-apps-b", "from": "agentic-work@t", "to": "agentic-apps@b", "flow": true},
+      {"id": "e-open-infrastructure-t-agentic-data-b", "from": "open-infrastructure@t", "to": "agentic-data@b", "flow": true},
+      {"id": "e-unified-governance-t-agentic-work-b", "from": "unified-governance@t", "to": "agentic-work@b", "flow": true},
+      {"id": "m1", "from": "med-b@r", "to": "med-s@l", "arrow": "end", "color": "#7C6BA8", "flow": true},
+      {"id": "m2", "from": "med-s@r", "to": "med-g@l", "arrow": "end", "color": "#7C6BA8", "flow": true}
+    ]
+  }
+]

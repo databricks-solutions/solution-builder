@@ -5,7 +5,7 @@ description: "Pre-submit validation AND auto-fix for an industry-demo-prompts St
 
 # Stage 5 Handoff Pre-Submit — validate AND auto-fix
 
-After Stage 5 produces a handoff package (typically `<project>/` with `databricks.yml` at root), this skill runs 10 checks. Checks 1 and 3 are **auto-fix** — known upstream Stage-4 codegen defects patched in place. The rest are detect-and-report.
+After Stage 5 produces a handoff package (the Step 0 copy, with `databricks.yml` at the copy's root), this skill runs 10 checks against that copy. Checks 1 and 3 are **auto-fix** — known upstream Stage-4 codegen defects patched directly in the copy's files. The rest are detect-and-report. The original demo project is never touched.
 
 Each defect caught here saves ~5 minutes of bundle deploy + job run + failure diagnosis on the client workspace.
 
@@ -62,7 +62,7 @@ FORBIDDEN_PATTERNS=(
   "$REAL_CATALOG"                                 # this demo's SA catalog literal
   "$REAL_SCHEMA"                                  # this demo's SA schema literal
   '@databricks\.com'                              # SA email (constant)
-  '(e2-demo-field-eng|fevm-[a-z0-9-]+)\.cloud\.databricks\.com'  # SA/FEVM workspace URL (constant)
+  '[a-z0-9-]+\.cloud\.databricks\.com'          # workspace URL (constant)
   '/Workspace/Users/[^/ ]+@databricks\.com'      # SA workspace path (constant shape)
 )
 # Ignore expected non-fingerprints: a resource KEY derived from the schema name
@@ -89,7 +89,7 @@ The bundled `.assistant/skills/<demo-slug>-adaptation/SKILL.md` must have no `{{
 
 ### Check 6 — Excluded files not packed
 
-Per Step 11: `.databricks/`, `.anthropic_token`, `get_anthropic_token.sh`, the ZIP itself, and `install.sh` (v0 artifact — superseded by the v1.1 CLI snippet) must not exist at the package root or one level down. No auto-fix — `rm -rf` the offending paths and re-run.
+Per Step 0 and Step 11: `.databricks/`, `.git/`, `node_modules/`, `.anthropic_token`, `get_anthropic_token.sh`, the ZIP itself, and `install.sh` (v0 artifact, superseded by the v1.1 CLI snippet) must not exist at the package root or one level down. `.databricks/` and `.git/` are the ones that break or leak on the client side: an inherited `.databricks/` carries the SA's Terraform state and fails the client's first cross-workspace deploy with `workspace_id mismatch`, and `.git/` ships the SA's full commit history. Step 0 strips all of these from the copy, so this check should pass by construction; if any remain, `rm -rf` the offending paths and re-run.
 
 ### Check 7 — databricks.yml has the right shape
 
@@ -119,7 +119,7 @@ v1.1 packages must not contain v1 setup-target artifacts. Fail if any of:
 - `README.md` references `bundle deploy --target setup` or `bundle run skill_setup`.
 - `README.md` is missing the v1.1 CLI snippet (`workspace import-dir .assistant/skills`).
 
-Background: DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 `setup` target inherited all bundle resources and failed at terraform apply on placeholder catalog/warehouse values (observed 2026-06-02). v1.1 installs via a 3-line CLI snippet pasted into the web terminal. The skill carrier at `.assistant/skills/<slug>-adaptation/` still ships in v1.1 — only the setup-target machinery is gone. No auto-fix — re-run `client-handoff.md` Step 6 and Step 8.
+Background: DAB v1.1.0 doesn't support `${resources.jobs.<key>}` self-reference, so the v1 `setup` target inherited all bundle resources and failed at terraform apply on placeholder catalog/warehouse values. v1.1 installs via a 3-line CLI snippet pasted into the web terminal. The skill carrier at `.assistant/skills/<slug>-adaptation/` still ships in v1.1 — only the setup-target machinery is gone. No auto-fix — re-run `client-handoff.md` Step 6 and Step 8.
 
 ### Check 10 — ADAPTATION_FACTS present, schema-valid, version-consistent (DETECT)
 

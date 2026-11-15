@@ -1,0 +1,50 @@
+{
+  // Brightwater Cycle Works — Warranty Copilot. JSONC, loaded by server/server.ts loadAppConfig.
+  // ${VAR} / ${VAR:default} placeholders are substituted from process.env (.env locally,
+  // bundle app config env when deployed) BEFORE parsing.
+
+  // Chat dock data backend (server/agent/warranty.ts): the Genie agent — VP-Quality analytics
+  // + the supplier-quality library documents (Agent mode). Leave empty to read it at
+  // boot from <catalog>.<schema>.demo_resources (written by the setup job) — see server/services/resources.ts.
+
+  // dbdemos usage tracker app id (server/lib/tracker.ts). Must be UNIQUE per demo: the template id
+  // for a seed template, `<demo-slug>-<resource_suffix>` for a generated demo. Empty = no tracking.
+  "dbdemosAppId": "${DBDEMOS_APP_ID:mfg-warranty-cost-optimization}",
+  "genieSpaceId":    "${GENIE_SPACE_ID:}",
+
+  // Chat agent LLM — needs the Responses API (OpenAI Agents SDK).
+  "agentModel": "databricks-gpt-5-4",
+  // Root-cause statement + supplier 8D / chargeback notice writer (chat completions), used by the signal workbench.
+  "noticeModel": "${NOTICE_MODEL:databricks-claude-sonnet-4-5}",
+
+  "mlflowExperimentId": "",
+  "agentMlflowExperimentPath": "${AGENT_MLFLOW_EXPERIMENT_PATH:}",
+
+  // Embedded AI/BI dashboard (VP Quality view).
+  "dashboardId": "${DASHBOARD_ID:}",
+
+  "pipelineId":        "",
+  "warehouseId":       "${WAREHOUSE_ID:}",
+  "lakebaseProjectId": "${LAKEBASE_PROJECT_ID:}",
+  "appUrl":            "${APP_URL:}",
+  "pdfVolumePath":     "/Volumes/${DEMO_CATALOG}/${DEMO_SCHEMA}/supplier_quality_docs",
+
+  // Delta location of the gold tables mirrored into Lakebase at boot (server/db/sync.ts)
+  // and queried live by the root-cause analysis (server/services/analyze.ts).
+  "data": {
+    "catalog": "${DEMO_CATALOG}",
+    "schema":  "${DEMO_SCHEMA}"
+  },
+
+  "branding": {
+    "appName": "Warranty Copilot"
+  },
+
+  // Chat dock "Suggested next" chips.
+  "assistantScript": [
+    { "label": "What's driving warranty cost?", "prompt": "Our claims per 1,000 bikes jumped this summer. What is driving it?" },
+    { "label": "Why is it happening?", "prompt": "Assemble the root-cause case for the Hanlin controller signal: what is the root cause, what did you rule out, and how big is the exposure?", "triggerAfter": ["Hanlin", "controller"] },
+    { "label": "What does the contract say?", "prompt": "Was Hanlin's coating change approved, and what can we recover under the supplier quality agreement?", "triggerAfter": ["exposure", "$"] },
+    { "label": "Supplier recovery", "prompt": "What is our supplier recovery rate by supplier over the last 4 quarters?", "triggerAfter": ["SQA", "recover"] }
+  ]
+}

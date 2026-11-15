@@ -1,0 +1,69 @@
+// =============================================================================
+// CUSTOMER ESTATE — how one customer's Databricks is laid out: identity, the
+// account, the workspaces per environment, the metastore and its catalogs, and
+// the customer storage behind them. Read reference/platform-model.md first.
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md.
+//
+// WHAT IT SHOWS (the facts that decide the shape):
+//   • The IdP is outside the account; users, groups and service principals are
+//     synced into the ACCOUNT (SCIM), then assigned to workspaces.
+//   • One metastore for the region. Workspaces and catalogs are SIBLINGS inside
+//     the account: each workspace is bound to its own catalog (edge), a catalog is
+//     never drawn inside a workspace.
+//   • The data sits in the customer's storage account, outside the Databricks
+//     boxes: managed storage per catalog, and an external location (path +
+//     storage credential) for files that land from elsewhere.
+//   • The NCC is account-level and attached to the workspaces; the network behind
+//     it is a separate tab (see the private connectivity references).
+//
+// ADAPT IT: rename the cloud, region and environments to the customer's. Two
+// regions = two metastores (one per region), joined by Delta Sharing. Catalogs per
+// business unit go in the same column (`sales_prod`, `finance_prod`). Draw only
+// the environments, IdP and storage the request names.
+// =============================================================================
+[
+  {
+    "name": "Customer estate",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Databricks estate · Azure West Europe","subtitle":"One account · one metastore · a workspace and a catalog per environment"},
+    "layout": "row",
+    "gap": 110,
+    "nodes": [
+      {"id": "idp", "type": "logo", "icon": "file:databricks-line/identity", "text": "Microsoft Entra ID", "desc": "users · groups · apps", "showDesc": true, "caption": "bottom", "track": "id"},
+      {"id": "account", "type": "box", "title": "Databricks account", "subtitle": "account console", "layout": "row", "gap": 90, "children": [
+        {"id": "acct-objects", "type": "group", "layout": "column", "gap": 70, "children": [
+          {"id": "identity", "type": "logo", "icon": "file:databricks-line/users", "text": "Users, groups, service principals", "caption": "bottom", "track": "id"},
+          {"id": "ncc", "type": "logo", "icon": "lucide:network", "text": "NCC", "desc": "attached to the workspaces", "showDesc": true, "caption": "bottom"}
+        ] },
+        {"id": "ws-box", "type": "box", "title": "Workspaces", "layout": "column", "gap": 40, "children": [
+          {"id": "ws-dev", "type": "logo", "icon": "file:databricks-line/databricks-workspace", "text": "Dev workspace", "caption": "right", "track": "dev"},
+          {"id": "ws-stg", "type": "logo", "icon": "file:databricks-line/databricks-workspace", "text": "Staging workspace", "caption": "right", "track": "stg"},
+          {"id": "ws-prod", "type": "logo", "icon": "file:databricks-line/databricks-workspace", "text": "Prod workspace", "caption": "right", "track": "prod"}
+        ] },
+        {"id": "metastore", "type": "box", "title": "Unity Catalog metastore", "subtitle": "West Europe", "titleIcon": "file:databricks-line/catalog-store", "layout": "column", "gap": 40, "align": "start", "children": [
+          {"id": "cat-dev", "type": "logo", "icon": "file:db/catalog", "text": "dev catalog", "caption": "right", "track": "dev"},
+          {"id": "cat-stg", "type": "logo", "icon": "file:db/catalog", "text": "staging catalog", "caption": "right", "track": "stg"},
+          {"id": "cat-prod", "type": "logo", "icon": "file:db/catalog", "text": "prod catalog", "caption": "right", "track": "prod"},
+          {"id": "ext-loc", "type": "logo", "icon": "file:db/cloud-key", "text": "External location", "desc": "path + storage credential", "showDesc": true, "caption": "right", "track": "land"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Customer Azure subscription", "subtitle": "managed storage per catalog · landing files", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "children": [
+        {"id": "storage", "type": "logo", "icon": "file:cloud/azure/storage/storage-account", "text": "ADLS storage account", "caption": "right", "track": "stg"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e-scim", "from": "idp", "to": "identity", "label": "SCIM sync"},
+      {"id": "e-assign", "from": "identity", "to": "ws-box", "label": "assigned"},
+      {"id": "e-ncc", "from": "ncc", "to": "ws-box", "dashed": true},
+      {"id": "e-b-dev", "from": "ws-dev", "to": "cat-dev", "label": "bound"},
+      {"id": "e-b-stg", "from": "ws-stg", "to": "cat-stg", "label": "bound"},
+      {"id": "e-b-prod", "from": "ws-prod", "to": "cat-prod", "label": "bound"},
+      {"id": "e-managed", "from": "metastore", "to": "storage@l", "flow": true},
+      {"id": "e-ext", "from": "ext-loc", "to": "storage@l", "label": "landing path", "flow": true}
+    ]
+  }
+]

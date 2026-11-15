@@ -1,0 +1,32 @@
+<h2>5/ Create the Genie agent + give business users access</h2>
+<p>Claire asks <em>"why so many returns?"</em> in plain English and gets the answer. We build a <strong>Genie agent</strong> over the gold tables, certify it, and open it to business users through <strong>Genie One</strong>.</p>
+<div class="g1">
+  <div class="g1-box">
+    <div class="g1-step"><div class="g1-user">👤 Business users<div class="g1-sub" style="font-weight:400;">ask in plain English</div></div></div>
+    <span class="g1-sep">→</span>
+    <div class="g1-hero"><div class="g1-logo"><i data-icon="genie"></i></div><div class="g1-name">Genie One<div class="g1-sub" style="font-weight:400; margin:0;">routes to the right agent</div></div></div>
+    <span class="g1-sep">→</span>
+    <div class="g1-step"><div><div class="g1-agent">LuxeBeauty Operations <span class="badge">✓ certified</span></div><div class="g1-sub">your governed data</div></div></div>
+  </div>
+</div>
+<p>Give the agent the right <strong>tables</strong>, some <strong>context</strong> and <strong>sample questions</strong>:</p>
+<blockquote class="prompt">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Create a Genie space called <strong>"LuxeBeauty Operations Analytics"</strong>.<br><br>
+  <strong>Attach these tables:</strong><br>
+  • <code>gold_daily_summary</code> — daily KPIs + the weekly trend<br>
+  • <code>gold_returns</code> — the per-return fact (product, lot, country, comment, anger)<br>
+  • <code>silver_production_lots</code> — holds <code>incident_summary</code>; this is where the QC note lives, so Genie can hop here for the punchline<br><br>
+  <strong>Give it instruction text based on what we found in the data</strong> (from our exploration in step 1 + the pipeline) — for example:<br>
+  <em>"You help Claire, a non-technical VP of Operations, analyze returns. Normal weekly returns run ~$30K at a ~8% return rate; flag anything well above that as an anomaly. When returns spike, the usual cause is a specific product batch — trace it: which products drive the returns, which production lot they share, what customers say about them, and whether that lot has an incident note in silver_production_lots explaining the root cause."</em><br><br>
+  <strong>Add these sample questions</strong> (in this order):<br>
+  1. What's our return rate this month, and how does it compare to baseline?<br>
+  2. Why do I have so many returns? Trace it to the products and the lot.<br>
+  3. Which production lot is driving the spike, and what does the QC note say?<br>
+  4. What are customers saying? Show recent affected-lot comments.<br>
+  5. Where are the affected customers? Group by country.<br>
+  6. Are refunds recovering? Show the trend.<br><br>
+  Finally, add a <strong>curated example query</strong> for question 3 so the drill-to-lot join is reliable: find the top <code>lot_id</code> in <code>gold_returns</code> for products SKU-1001/1002/1003, then join to <code>silver_production_lots</code> to return that lot's <code>facility</code>, <code>production_date</code>, <code>status</code>, and <code>incident_summary</code>.</p>
+</blockquote>
+<blockquote class="note"><p>🚦 <strong>Don't certify yet.</strong> Certification is the <em>last</em> thing you do, in step 7, after you've actually asked the questions and seen the answers. Certifying an agent you haven't tested is how a wrong answer ends up badged as trusted in Genie One.</p></blockquote>

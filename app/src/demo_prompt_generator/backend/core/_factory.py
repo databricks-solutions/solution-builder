@@ -1,16 +1,68 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
+import anyio.to_thread
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from ..._metadata import api_prefix, app_name, dist_dir
 from ._base import LifespanDependency
 from ._config import logger
+
+THREAD_TOKENS = 100
+
+
+class SlowRequestMiddleware:
+    """Pure-ASGI request timing: counts in-flight HTTP requests and reports the ones whose
+    time-to-first-byte (until `http.response.start`) exceeds the threshold. TTFB, not
+    total time, so an SSE stream is judged on its headers and never flagged for living
+    long. NOT BaseHTTPMiddleware: that wraps the body and breaks streaming."""
+
+    def __init__(self, app: ASGIApp, threshold_s: float | None = None) -> None:
+        # Imported here, not at module load: services/stall_detector imports core._config,
+        # which imports this package, so a top-level import would be circular.
+        from ..services.stall_detector import request_stats
+
+        self.app = app
+        self.stats = request_stats
+        self.threshold_s = request_stats.threshold_s if threshold_s is None else threshold_s
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        stats = self.stats
+        stats.inflight += 1
+        t0 = time.monotonic()
+        ttfb: list[float] = []
+        status: list[int] = []
+
+        async def send_wrapper(message: Message) -> None:
+            if not ttfb and message["type"] == "http.response.start":
+                ttfb.append(time.monotonic() - t0)
+                status.append(message["status"])
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        finally:
+            stats.inflight -= 1
+            if ttfb and ttfb[0] > self.threshold_s:
+                try:
+                    # endpoint is set in-place by the router; unrouted 404s have none.
+                    endpoint = scope.get("endpoint")
+                    route = getattr(endpoint, "__qualname__", None) or "unrouted"
+                    stats.record_slow(route, scope.get("method", ""), scope.get("path", ""),
+                                      status[0], ttfb[0])
+                except Exception:  # noqa: BLE001 — accounting must never break a response
+                    pass
+
 
 # --- Lifespan ---
 
@@ -61,10 +113,15 @@ def create_app(
 
     @asynccontextmanager
     async def _composed_lifespan(app: FastAPI):
+        # anyio's default limiter is 40 threads shared by every sync handler, sync
+        # dependency and static chunk. Raise it so a few slow sync calls can't queue
+        # everything else behind them. Matches the app-SP connection pool size.
+        anyio.to_thread.current_default_thread_limiter().total_tokens = THREAD_TOKENS
         async with _chain_dep_lifespans(all_deps, app):
             yield
 
     app = FastAPI(title=app_name, lifespan=_composed_lifespan)
+    app.add_middleware(SlowRequestMiddleware)
 
     # Add CORS middleware for Electron mode (or local development)
     # In Electron, the frontend runs on a different origin than the backend

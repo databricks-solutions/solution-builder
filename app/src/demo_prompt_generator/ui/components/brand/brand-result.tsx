@@ -245,6 +245,16 @@ export function BrandResult({ brand, className }: { brand: BrandOut; className?:
         )}
       </section>
 
+      {/* Symbol — the square mark without the name */}
+      {brand.symbol_data_url && (
+        <section className="flex flex-col items-center">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Symbol <span className="font-normal normal-case">({brand.symbol_source})</span>
+          </h3>
+          <img src={brand.symbol_data_url} alt={`${brand.name} symbol`} className="h-20 w-20 object-contain" />
+        </section>
+      )}
+
       {/* Warnings */}
       {brand.warnings.length > 0 && (
         <section className="mx-auto max-w-md rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
@@ -261,7 +271,7 @@ export function BrandResult({ brand, className }: { brand: BrandOut; className?:
       )}
 
       {/* See reasoning / all the steps — collapsed by default (results-first) */}
-      {(brand.logo_contact_sheet || brand.trace?.length) && (
+      {(brand.logo_contact_sheet || !!brand.trace?.length || !!brand.logs?.length) && (
         <section className="mx-auto max-w-2xl space-y-3">
           <h3 className="text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             See reasoning
@@ -311,6 +321,14 @@ export function BrandResult({ brand, className }: { brand: BrandOut; className?:
           {brand.trace && brand.trace.length > 0 && (
             <Fold summary={`Full trace (${brand.trace.length} steps)`}>
               <TraceView trace={brand.trace} />
+            </Fold>
+          )}
+
+          {brand.logs && brand.logs.length > 0 && (
+            <Fold summary={`Server logs (${brand.logs.length} lines)`}>
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                {brand.logs.join("\n")}
+              </pre>
             </Fold>
           )}
         </section>

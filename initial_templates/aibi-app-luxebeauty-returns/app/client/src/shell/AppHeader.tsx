@@ -8,8 +8,6 @@
  *     (name + state) — reminds the viewer this is a live warehouse
  *   - "Agent traces ↗"  → deep-link to the MLflow experiment that holds
  *                         OpenAI Agents SDK spans (root + per-tool + LLM)
- *   - "MAS traces ↗"    → deep-link to the MLflow experiment of the MAS
- *                         endpoint (server-side traces, one per turn)
  *   - "Reset demo"      → wipes + re-syncs the Lakebase mirror
  *
  * Keep these pills visible; they're the "show, don't tell" for traces +
@@ -79,10 +77,6 @@ export function AppHeader() {
     .join('');
 
   const experimentBase = me?.workspaceUrl?.replace(/\/$/, '') ?? null;
-  const masExperimentUrl =
-    experimentBase && config?.mlflowExperimentId
-      ? `${experimentBase}/ml/experiments/${config.mlflowExperimentId}`
-      : null;
   const agentExperimentUrl =
     experimentBase && config?.agentMlflowExperimentId
       ? `${experimentBase}/ml/experiments/${config.agentMlflowExperimentId}`
@@ -114,19 +108,6 @@ export function AppHeader() {
         >
           <FlaskConical className="size-3.5" />
           Agent traces
-          <ArrowUpRight className="size-3" />
-        </a>
-      )}
-      {masExperimentUrl && (
-        <a
-          href={masExperimentUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-          title="Open the MLflow experiment that stores MAS traces"
-        >
-          <FlaskConical className="size-3.5" />
-          MAS traces
           <ArrowUpRight className="size-3" />
         </a>
       )}
@@ -251,13 +232,6 @@ export function AppHeader() {
             <DropdownMenuItem asChild>
               <a href={agentExperimentUrl} target="_blank" rel="noopener noreferrer">
                 Open Agent traces ↗
-              </a>
-            </DropdownMenuItem>
-          )}
-          {masExperimentUrl && (
-            <DropdownMenuItem asChild>
-              <a href={masExperimentUrl} target="_blank" rel="noopener noreferrer">
-                Open MAS traces ↗
               </a>
             </DropdownMenuItem>
           )}

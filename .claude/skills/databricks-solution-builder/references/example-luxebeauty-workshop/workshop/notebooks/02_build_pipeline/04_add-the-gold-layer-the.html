@@ -1,0 +1,25 @@
+<h2>3/ Add the gold layer the dashboard reads</h2>
+<div class="med" style="width:410px;">
+  <div class="med-col med-silver">
+    <h4>Silver</h4>
+    <div class="med-tbl"><i data-icon="table"></i>silver_returns<span class="dq-ok" title="Data quality checks passing" style="margin-left:auto; display:inline-flex; width:15px; height:15px; border-radius:50%; background:#1f8a4c; align-items:center; justify-content:center; flex:none;"><i data-icon="check-mini"></i></span></div>
+    <div class="med-tbl"><i data-icon="table"></i>silver_order_items<span class="dq-ok" title="Data quality checks passing" style="margin-left:auto; display:inline-flex; width:15px; height:15px; border-radius:50%; background:#1f8a4c; align-items:center; justify-content:center; flex:none;"><i data-icon="check-mini"></i></span></div>
+  </div>
+  <div class="med-arrow">→</div>
+  <div class="med-col med-gold">
+    <h4>Gold</h4>
+    <div class="med-tbl"><i data-icon="table"></i>gold_returns</div>
+    <div class="med-tbl"><i data-icon="table"></i>gold_daily_summary</div>
+  </div>
+</div>
+<p>Now roll the silver tables up into the <strong>2 gold tables</strong> the dashboard and Genie read — the presentation layer, shaped for fast reads.</p>
+<p>Add these to the same pipeline in <code>./data_pipeline</code>, then re-run it to test:</p>
+<blockquote class="prompt" style="clear:both;">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Add two gold tables to the pipeline, each as its own source file in <code>./data_pipeline</code>:<br><br>
+  1. <strong>gold_returns</strong> — the per-return fact the dashboard and Genie read, projected from <code>silver_returns</code> (all the joins are already done). <strong>Leave <code>incident_summary</code> OUT</strong> — Genie has to dig that out of <code>silver_production_lots</code> later, so it must not live here.<br>
+  2. <strong>gold_daily_summary</strong> — one row per <code>(summary_date, region, category, is_bad_lot)</code>: roll up orders from <code>silver_order_items</code> LEFT JOIN a returns roll-up from <code>silver_returns</code> on the same keys (returns bucketed by return_date), so returns are <code>0</code> on days with none. <code>is_bad_lot</code> is the affected-lot flag. This powers the KPI counters and the weekly trend line.<br><br>
+  Comment every table and column. Then re-run the whole pipeline and confirm every table is green.</p>
+</blockquote>
+<p>Confirm the spike is real: <em>"Plot weekly refund $ for the last few months — the peak should sit a few weeks back and be decaying, not pinned to this week."</em></p>

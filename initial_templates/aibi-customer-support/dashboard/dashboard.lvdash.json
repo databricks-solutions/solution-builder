@@ -3,7 +3,21 @@
     {
       "name": "ds_metrics",
       "displayName": "Support metrics",
-      "asset_name": "support_metrics"
+      "queryLines": [
+        "-- Case-grain read of the governed support_metrics metric view. Widgets aggregate the per-case\n",
+        "-- measure values (SUM of Total Cases, AVG of the rest), which equals the metric-view measures.\n",
+        "-- Schema-less so dataset_catalog / dataset_schema rebind it to any catalog.schema.\n",
+        "SELECT `Case ID`, `Opened Date`, `Opened Month`, `AI Era`, `Category`, `Channel`, `Priority Level`,\n",
+        "       `Region`, `Destination Latitude`, `Destination Longitude`, `Customer Segment`,\n",
+        "       MEASURE(`Total Cases`) AS `Total Cases`,\n",
+        "       MEASURE(`Avg Resolution Hours`) AS `Avg Resolution Hours`,\n",
+        "       MEASURE(`Avg Satisfaction`) AS `Avg Satisfaction`,\n",
+        "       MEASURE(`Avg Cost per Case`) AS `Avg Cost per Case`,\n",
+        "       MEASURE(`Reopen Rate`) AS `Reopen Rate`,\n",
+        "       MEASURE(`AI Resolved Rate`) AS `AI Resolved Rate`\n",
+        "FROM support_metrics\n",
+        "GROUP BY ALL\n"
+      ]
     },
     {
       "name": "ds_forecast",
@@ -42,8 +56,7 @@
           "complexType": "MULTI",
           "defaultSelection": {
             "values": {
-              "dataType": "STRING",
-              "values": []
+              "dataType": "STRING"
             }
           }
         }
@@ -53,8 +66,7 @@
       "name": "ds_usage",
       "displayName": "AI assistant usage",
       "queryLines": [
-        "SELECT DATE_TRUNC('MONTH', usage_date) AS month, SUM(ai_queries) AS ai_queries, SUM(ai_deflections) AS ai_deflections, SUM(ai_compute_cost) AS ai_compute_cost ",
-        "FROM ai_assistant_usage GROUP BY 1 ORDER BY 1"
+        "SELECT DATE_TRUNC('MONTH', usage_date) AS month, SUM(ai_queries) AS ai_queries, SUM(ai_deflections) AS ai_deflections, SUM(ai_compute_cost) AS ai_compute_cost FROM ai_assistant_usage GROUP BY 1 ORDER BY 1"
       ]
     },
     {
@@ -76,8 +88,6 @@
     {
       "name": "support",
       "displayName": "Customer Support",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
@@ -108,11 +118,7 @@
                   "fields": [
                     {
                       "name": "measure(Total Cases)",
-                      "expression": "MEASURE(`Total Cases`)"
-                    },
-                    {
-                      "name": "monthly(Opened Date)",
-                      "expression": "DATE_TRUNC(\"MONTH\", `Opened Date`)"
+                      "expression": "SUM(`Total Cases`)"
                     }
                   ],
                   "disaggregated": false
@@ -134,9 +140,6 @@
                       "places": 0
                     }
                   }
-                },
-                "period": {
-                  "fieldName": "monthly(Opened Date)"
                 }
               },
               "frame": {
@@ -163,7 +166,7 @@
                   "fields": [
                     {
                       "name": "measure(Avg Resolution Hours)",
-                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                      "expression": "AVG(`Avg Resolution Hours`)"
                     },
                     {
                       "name": "monthly(Opened Date)",
@@ -218,7 +221,7 @@
                   "fields": [
                     {
                       "name": "measure(Avg Satisfaction)",
-                      "expression": "MEASURE(`Avg Satisfaction`)"
+                      "expression": "AVG(`Avg Satisfaction`)"
                     },
                     {
                       "name": "monthly(Opened Date)",
@@ -272,7 +275,7 @@
                   "fields": [
                     {
                       "name": "measure(Reopen Rate)",
-                      "expression": "MEASURE(`Reopen Rate`)"
+                      "expression": "AVG(`Reopen Rate`)"
                     },
                     {
                       "name": "monthly(Opened Date)",
@@ -446,7 +449,7 @@
                     },
                     {
                       "name": "measure(Total Cases)",
-                      "expression": "MEASURE(`Total Cases`)"
+                      "expression": "SUM(`Total Cases`)"
                     }
                   ],
                   "disaggregated": false
@@ -567,7 +570,7 @@
                     },
                     {
                       "name": "measure(Total Cases)",
-                      "expression": "MEASURE(`Total Cases`)"
+                      "expression": "SUM(`Total Cases`)"
                     }
                   ],
                   "disaggregated": false
@@ -635,11 +638,11 @@
                     },
                     {
                       "name": "measure(Total Cases)",
-                      "expression": "MEASURE(`Total Cases`)"
+                      "expression": "SUM(`Total Cases`)"
                     },
                     {
                       "name": "measure(Avg Satisfaction)",
-                      "expression": "MEASURE(`Avg Satisfaction`)"
+                      "expression": "AVG(`Avg Satisfaction`)"
                     }
                   ],
                   "disaggregated": false
@@ -696,20 +699,22 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "ai_impact",
       "displayName": "AI Copilot Impact",
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
             "name": "a_title",
             "multilineTextboxSpec": {
               "lines": [
-                "# Making Support More Efficient with AI, powered by Databricks\n\nThe **AI Support Copilot (Agent Bricks)** reached GA on **2025-06-02** and auto-resolves How-To, Access & Billing cases. This is *why* resolution time, cost and reopen rate dropped. Ask Genie: *\"why did resolution time drop in 2025?\"*"
+                "# Making Support More Efficient with AI, powered by Databricks\n",
+                "\n",
+                "The **AI Support Copilot (Agent Bricks)** reached GA on **2025-06-02** and auto-resolves How-To, Access & Billing cases. This is *why* resolution time, cost and reopen rate dropped. Ask Genie: *\"why did resolution time drop in 2025?\"*"
               ]
             }
           },
@@ -731,7 +736,7 @@
                   "fields": [
                     {
                       "name": "measure(AI Resolved Rate)",
-                      "expression": "MEASURE(`AI Resolved Rate`)"
+                      "expression": "AVG(`AI Resolved Rate`)"
                     },
                     {
                       "name": "monthly(Opened Date)",
@@ -748,7 +753,7 @@
               "encodings": {
                 "value": {
                   "fieldName": "measure(AI Resolved Rate)",
-                  "displayName": "AI Resolved",
+                  "displayName": "AI Auto-Resolution Rate",
                   "format": {
                     "type": "number-percent",
                     "decimalPlaces": {
@@ -762,7 +767,7 @@
                 }
               },
               "frame": {
-                "title": "Cases Auto-Resolved by AI",
+                "title": "AI Auto-Resolution Rate",
                 "showTitle": true,
                 "description": "All-time; 0% before the 2025-06 launch",
                 "showDescription": true
@@ -787,7 +792,7 @@
                   "fields": [
                     {
                       "name": "measure(Avg Cost per Case)",
-                      "expression": "MEASURE(`Avg Cost per Case`)"
+                      "expression": "AVG(`Avg Cost per Case`)"
                     },
                     {
                       "name": "monthly(Opened Date)",
@@ -1036,7 +1041,7 @@
                     },
                     {
                       "name": "measure(Avg Resolution Hours)",
-                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                      "expression": "AVG(`Avg Resolution Hours`)"
                     }
                   ],
                   "disaggregated": false
@@ -1131,7 +1136,7 @@
                     },
                     {
                       "name": "measure(Avg Resolution Hours)",
-                      "expression": "MEASURE(`Avg Resolution Hours`)"
+                      "expression": "AVG(`Avg Resolution Hours`)"
                     }
                   ],
                   "disaggregated": false
@@ -1256,13 +1261,13 @@
             "height": 6
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
     },
     {
       "name": "global_filters",
       "displayName": "Filters",
-      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
-      "layoutVersion": "GRID_V1",
       "layout": [
         {
           "widget": {
@@ -1299,10 +1304,10 @@
                   "range": {
                     "dataType": "DATE",
                     "min": {
-                      "value": "2025-01-05"
+                      "value": "2023-01-01"
                     },
                     "max": {
-                      "value": "2026-01-05"
+                      "value": "2026-01-01"
                     }
                   }
                 }
@@ -1466,15 +1471,12 @@
             "height": 1
           }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS",
+      "layoutVersion": "GRID_V1"
     }
   ],
   "uiSettings": {
-    "genieSpace": {
-      "isEnabled": true,
-      "overrideId": "",
-      "enablementMode": "ENABLED"
-    },
     "theme": {
       "canvasBackgroundColor": {
         "light": "#FCFCFC",
@@ -1502,6 +1504,11 @@
         "#99DDB4"
       ],
       "widgetHeaderAlignment": "LEFT"
+    },
+    "genieSpace": {
+      "isEnabled": true,
+      "overrideId": "",
+      "enablementMode": "ENABLED"
     }
   }
 }

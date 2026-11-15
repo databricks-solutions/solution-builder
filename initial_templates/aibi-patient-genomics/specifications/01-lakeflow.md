@@ -107,7 +107,7 @@ contract the dashboard filters and Genie consume. Full definition in `04-ai-bi.m
 After the script runs, confirm:
 1. **Row counts** — ~10,346 rows in each of the 4 raw tables and in `patient_cohort`.
 2. **The load-bearing spike survives** — Breast `c1>2` fraction ≈ 0.406 (`SPIKE CHECK`
-   line), and `breast_deepdive` shows the responder subtype at ~99% treated vs ~89%
+   line), and `breast_deepdive` shows the responder subtype at ~99% treated vs ~84%
    standard of care.
 3. **The lift is uneven** — `lift_by_site` shows strong positive lift for Cerebrum /
    Bladder / Breast / Skin / Thyroid / Lung / Kidney and clearly negative lift for

@@ -6,8 +6,12 @@
  *     Databricks App + Lakebase pair via one toggle. Everything else is
  *     hidden so first-time users get a fast path.
  *
- *   • "Custom solution" — the full `ProductSelector` so power users can
- *     pick exactly what they want.
+ *   • "Custom solution" — the full `ProductSelector`, inline under the
+ *     tabs, so power users can pick exactly what they want.
+ *
+ * The Genie Code workshop uses the same two tabs: Simple = WORKSHOP_SIMPLE
+ * hard-locked (the reference workshop minus ML), Custom = WORKSHOP_BASELINE
+ * (everything but Feature Store), editable.
  *
  * Both tabs write to the same `selectedProducts` set in the parent, so
  * the downstream build CTA + confirm dialog behave identically regardless
@@ -15,18 +19,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Zap, SlidersHorizontal, X } from "lucide-react";
+import { Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { DATABRICKS_ICONS } from "@/components/databricks-icons";
-import { TIER_CONFIG, type TierType } from "@/lib/architecture-schema";
 import { CAPABILITY_META } from "@/lib/capabilities";
 import { Capability } from "@/lib/custom-api";
 import { ProductSelector } from "@/components/product-selector";
@@ -56,36 +51,45 @@ export const SIMPLE_BASELINE = [
   ...SIMPLE_TALK_TRACK,
 ] as const;
 
-// Genie Code workshop simple baseline: the workshop builds a REAL SDP pipeline
-// (not the fast SQL load), so `sdp` is in the core arc here — synthetic data →
-// SDP → AI/BI dashboard → Genie. No app/lakebase (hidden in the workshop).
+// Genie Code workshop baseline = exactly what the reference workshop HTML
+// covers (synthetic data → notebooks EDA → SDP → quality → jobs → dashboards →
+// Genie → metric views → governance → ML → Genie Code/One → AI functions).
+// No app/lakebase/documents (hidden in the workshop). Every id must exist in
+// references/blocks/capabilities/*.md.
 export const WORKSHOP_BASELINE = [
   "synthetic-data-gen",
+  "notebooks-eda",
   "sdp",
-  "unity-catalog",
+  "lakeflow-jobs",
   "aibi-dashboards",
   "genie",
-  // talk-track context for the suggest LLM
-  "lakeflow-connect",
+  "metric-views",
+  "abac",
+  "data-classification",
+  "ml-training-serving",
+  "unity-catalog",
   "genie-code",
+  "genie-one",
+  "ai-functions",
 ] as const;
+
+// Simple workshop = the baseline without the ML page. Hard-locked like the
+// story Simple tab.
+export const WORKSHOP_SIMPLE = WORKSHOP_BASELINE.filter((id) => id !== "ml-training-serving");
+// What the Simple workshop summary names (the rest rides along).
+const WORKSHOP_SIMPLE_VISIBLE = ["sdp", "aibi-dashboards", "genie", "metric-views", "abac"] as const;
 
 // Optional toggle in the simple view: flip on the App + Lakebase pair
 // together (matches the merged bundle in the custom view).
 export const APP_BUNDLE = ["databricks-apps", "lakebase"] as const;
 
-// Tier override per capability id — must mirror the same map in
-// product-selector.tsx so a capability tile reads the same color across
-// both surfaces. Kept local + minimal (only the ids the simple view
-// actually renders).
-const CAPABILITY_TIER: Partial<Record<string, TierType>> = {
-  "synthetic-data-gen": "ingest",
-  "unity-catalog": "governance",
-  "aibi-dashboards": "analytics",
-  "genie": "ai",
-  "databricks-apps": "interface",
-  "lakebase": "ingest",
-};
+// Optional documents toggle in the simple view. Unlike the app bundle it is NOT
+// hard-locked off: until the user flips it, the suggest LLM may add it when the
+// brief centers on PDFs / policy lookups (otherwise a PDF brief silently loses
+// its documents in Simple mode). Shown only when the capability is offered
+// (the Genie Code workshop filters it out).
+export const DOCS_CAPABILITY = "unstructured-documents";
+type DocsChoice = "selected" | "unselected" | null;
 
 interface Props {
   capabilities: Capability[];
@@ -108,6 +112,9 @@ interface Props {
   /** Hide the "add a custom app + Lakebase backend" toggle — set in the Genie
    *  Code workshop, where apps + Lakebase aren't available. */
   hideAppBundle?: boolean;
+  /** Genie Code workshop: Simple locks to WORKSHOP_SIMPLE (no app bundle),
+   *  Custom starts from WORKSHOP_BASELINE, every id explicitly selected. */
+  workshop?: boolean;
   /** Notified whenever the active tab changes (and once on mount with the
    *  initial tab). Lets the home page drive its own UX off Simple vs Custom
    *  — e.g. a bigger free-type input + no story suggestions in Custom. */
@@ -120,23 +127,32 @@ interface Props {
 
 // Build the explicit-status map for Simple mode: every baseline id (+ app
 // bundle if on) marked "selected", every other known capability marked
-// "unselected" (hard lock — prevents the LLM from suggesting extras).
-function buildSimpleExplicit(
+// "unselected" (hard lock — prevents the LLM from suggesting extras). The
+// documents capability follows the user's choice; with no choice yet it is left
+// out of the map (null → the LLM decides from the brief). The workshop can't
+// build documents, so there it is locked off like any other extra.
+export function buildSimpleExplicit(
   knownIds: string[],
   appOn: boolean,
+  workshop = false,
+  docs: DocsChoice = null,
 ): Map<string, "selected" | "unselected"> {
-  const selected = new Set<string>(SIMPLE_BASELINE);
-  if (appOn) for (const id of APP_BUNDLE) selected.add(id);
+  const selected = buildSimpleSelected(appOn, workshop, docs === "selected");
   const m = new Map<string, "selected" | "unselected">();
   for (const id of knownIds) {
+    if (id === DOCS_CAPABILITY && !workshop) {
+      if (docs) m.set(id, docs);
+      continue;
+    }
     m.set(id, selected.has(id) ? "selected" : "unselected");
   }
   return m;
 }
 
-function buildSimpleSelected(appOn: boolean): Set<string> {
-  const s = new Set<string>(SIMPLE_BASELINE);
-  if (appOn) for (const id of APP_BUNDLE) s.add(id);
+export function buildSimpleSelected(appOn: boolean, workshop = false, docsOn = false): Set<string> {
+  const s = new Set<string>(workshop ? WORKSHOP_SIMPLE : SIMPLE_BASELINE);
+  if (appOn && !workshop) for (const id of APP_BUNDLE) s.add(id);
+  if (docsOn && !workshop) s.add(DOCS_CAPABILITY);
   return s;
 }
 
@@ -150,89 +166,11 @@ export function CapabilitiesPanel({
   explicitSelections = new Map(),
   initialTab = "simple",
   hideAppBundle = false,
+  workshop = false,
   onTabChange,
   align = "center",
 }: Props) {
   const [tab, setTab] = useState<"simple" | "custom">(initialTab);
-  // Custom picker is a lightweight hover-popover that spans out from the Custom
-  // button. Opens on hover (or on selecting the Custom tab), and shrinks away
-  // shortly after the pointer leaves. A small close delay lets the pointer
-  // travel from the button down into the popover without it collapsing.
-  const [customOpen, setCustomOpen] = useState(initialTab === "custom");
-  // The popover renders in a PORTAL (so the card's overflow-hidden can't clip
-  // it) and is positioned from the anchor's bounding rect.
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
-  const positionPopover = useCallback(() => {
-    const el = anchorRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const margin = 16;
-    // Wide enough to show all four product columns; capped to the viewport.
-    const width = Math.min(window.innerWidth - margin * 2, 60 * 16);
-    const half = width / 2;
-    // Horizontally: center on the anchor, clamped so neither edge clips.
-    const left = Math.max(
-      margin + half,
-      Math.min(r.left + r.width / 2, window.innerWidth - margin - half),
-    );
-    // Vertically: prefer just below the anchor, but if the popover would run
-    // off the bottom, shift it UP so the whole thing stays on-screen (no
-    // scrolling to reach it). Measure the live height when we have it.
-    const h = popoverRef.current?.offsetHeight ?? 0;
-    let top = r.bottom + 8;
-    if (h > 0 && top + h > window.innerHeight - margin) {
-      top = Math.max(margin, window.innerHeight - margin - h);
-    }
-    setPopoverPos({ left, top });
-  }, []);
-  // handleTabChange is defined below; a ref lets openCustomPicker call it
-  // without a temporal-dead-zone / ordering problem.
-  const handleTabChangeRef = useRef<(t: "simple" | "custom") => void>(() => {});
-  // Open the picker (used by the Custom-summary "Edit" button): switch to the
-  // custom tab if needed and show the popover.
-  const openCustomPicker = useCallback(() => {
-    positionPopover();
-    if (tab !== "custom") handleTabChangeRef.current("custom");
-    setCustomOpen(true);
-  }, [positionPopover, tab]);
-  // Keep the popover glued to the anchor while it's open (scroll / resize).
-  // Also re-run once right after it mounts so the vertical clamp can use the
-  // popover's real height (first pass runs before it has one).
-  useEffect(() => {
-    if (!customOpen) return;
-    positionPopover();
-    const raf = requestAnimationFrame(() => positionPopover());
-    const onMove = () => positionPopover();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [customOpen, positionPopover]);
-  // Close the popover on outside-click / Escape (it's not a modal, so there's
-  // no backdrop to catch these).
-  useEffect(() => {
-    if (!customOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (popoverRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
-      setCustomOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setCustomOpen(false);
-    };
-    document.addEventListener("mousedown", onDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [customOpen]);
-
   // Tell the parent the initial tab once on mount (so its input size / suggest
   // gating starts in the right mode).
   useEffect(() => {
@@ -264,11 +202,12 @@ export function CapabilitiesPanel({
     if (capabilities.length === 0) return;
     const allKnown = capabilities.map((c) => c.id);
     const appOn = APP_BUNDLE.some((id) => selectedProducts.has(id));
-    const nextSelected = buildSimpleSelected(appOn);
-    const nextExplicit = buildSimpleExplicit(allKnown, appOn);
+    const docs = explicitSelections.get(DOCS_CAPABILITY) ?? null;
+    const nextSelected = buildSimpleSelected(appOn, workshop, docs === "selected");
+    const nextExplicit = buildSimpleExplicit(allKnown, appOn, workshop, docs);
     onReplaceSelection(nextSelected, nextExplicit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, capabilities.length]);
+  }, [tab, capabilities.length, workshop]);
 
   // Tab switch handler — saves the LEAVING tab's state, restores the
   // ENTERING tab's state. First-time Custom entry seeds from the current
@@ -289,6 +228,14 @@ export function CapabilitiesPanel({
         const remembered = tabMemoryRef.current.custom;
         if (remembered) {
           onReplaceSelection(remembered.selected, remembered.explicit);
+        } else if (workshop) {
+          // Workshop Custom starts from the full workshop baseline (everything
+          // but Feature Store), marked selected so the suggest LLM keeps it;
+          // the user deselects what they don't want.
+          onReplaceSelection(
+            new Set<string>(WORKSHOP_BASELINE),
+            new Map(WORKSHOP_BASELINE.map((id) => [id, "selected" as const])),
+          );
         } else {
           const seedSelected = new Set(selectedProducts);
           const seedExplicit = new Map<string, "selected" | "unselected">();
@@ -297,8 +244,6 @@ export function CapabilitiesPanel({
           for (const id of seedSelected) seedExplicit.set(id, "selected");
           onReplaceSelection(seedSelected, seedExplicit);
         }
-        // Open the picker modal when entering Custom.
-        setCustomOpen(true);
       }
       // For "simple" entry the lock effect above (deps: [tab]) takes
       // over once we flip the state, so we don't need a manual restore
@@ -306,31 +251,42 @@ export function CapabilitiesPanel({
       setTab(nextTab);
       onTabChange?.(nextTab);
     },
-    [tab, selectedProducts, explicitSelections, onReplaceSelection, onTabChange],
+    [tab, selectedProducts, explicitSelections, onReplaceSelection, onTabChange, workshop],
   );
-  // Keep the ref current so openCustomPicker (defined above) can call it.
-  handleTabChangeRef.current = handleTabChange;
 
   // App-bundle toggle in Simple — just re-runs the lock with the new
   // app state and lets onReplaceSelection take care of the rest.
   const appBundleOn = APP_BUNDLE.some((id) => selectedProducts.has(id));
+  // On when the user turned it on OR the LLM picked it (no explicit choice yet).
+  const docsOn = selectedProducts.has(DOCS_CAPABILITY);
+  const docsChoice: DocsChoice = explicitSelections.get(DOCS_CAPABILITY) ?? null;
+  const docsOffered = capabilities.some((c) => c.id === DOCS_CAPABILITY);
+  const allKnown = capabilities.map((c) => c.id);
   const toggleAppBundle = () => {
     const nextAppOn = !appBundleOn;
-    const allKnown = capabilities.map((c) => c.id);
     onReplaceSelection(
-      buildSimpleSelected(nextAppOn),
-      buildSimpleExplicit(allKnown, nextAppOn),
+      buildSimpleSelected(nextAppOn, workshop, docsOn),
+      buildSimpleExplicit(allKnown, nextAppOn, workshop, docsChoice),
+    );
+  };
+  // Flipping the chip is an explicit choice either way (on = selected, off =
+  // unselected), so the LLM can no longer re-add documents the user removed.
+  const toggleDocs = () => {
+    const next: DocsChoice = docsOn ? "unselected" : "selected";
+    onReplaceSelection(
+      buildSimpleSelected(appBundleOn, workshop, next === "selected"),
+      buildSimpleExplicit(allKnown, appBundleOn, workshop, next),
     );
   };
 
+  const pickerClass = cn(
+    "grid transition-all duration-300 ease-in-out",
+    expanded ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0 mt-0 overflow-hidden",
+  );
+
   return (
-    <div
-      className={cn(
-        "grid transition-all duration-300 ease-in-out overflow-hidden",
-        expanded ? "grid-rows-[1fr] opacity-100 mt-2" : "grid-rows-[0fr] opacity-0 mt-0",
-      )}
-    >
-      <div className="overflow-hidden">
+    <div className={pickerClass}>
+      <div className={cn(!expanded && "overflow-hidden")}>
         <div>
           <Tabs value={tab} onValueChange={(v) => handleTabChange(v as "simple" | "custom")}>
             <div
@@ -339,66 +295,11 @@ export function CapabilitiesPanel({
                 align === "left" ? "items-start text-left" : "items-center text-center",
               )}
             >
-              {/* Anchor for the Custom picker popover — clicking the Custom
-                  tab opens it (see handleTabChange); it's positioned from this
-                  element's rect. */}
-              <div ref={anchorRef}>
-                <TabsList>
-                  <TabsTrigger value="simple">Simple solution</TabsTrigger>
-                  {/* onClick (in addition to the tab's onValueChange) so that
-                      re-clicking an already-active Custom tab REOPENS the
-                      popover after it was dismissed. */}
-                  <TabsTrigger value="custom" onClick={openCustomPicker}>
-                    Custom solution
-                  </TabsTrigger>
-                </TabsList>
-              </div>
+              <TabsList>
+                <TabsTrigger value="simple">{workshop ? "Simple workshop" : "Simple solution"}</TabsTrigger>
+                <TabsTrigger value="custom">{workshop ? "Custom workshop" : "Custom solution"}</TabsTrigger>
+              </TabsList>
             </div>
-
-            {/* Picker popover that spans out from the Custom button. Portaled
-                to <body> so the card's overflow-hidden can't clip it. Opens on
-                CLICKING the Custom tab; STAYS open while the user toggles
-                products — only the ✕ button, an outside-click, or Esc close it.
-                Not a modal — no backdrop, no page lock. */}
-            {popoverPos &&
-              createPortal(
-                <div
-                  ref={popoverRef}
-                  style={{
-                    position: "fixed",
-                    left: popoverPos.left,
-                    top: popoverPos.top,
-                    transform: "translateX(-50%)",
-                    maxHeight: "calc(100vh - 2rem)",
-                  }}
-                  className={cn(
-                    "z-50 w-[min(calc(100vw-2rem),60rem)] origin-top overflow-y-auto rounded-xl border border-border bg-popover p-4 shadow-xl transition-all duration-200 ease-out text-left",
-                    customOpen
-                      ? "scale-100 opacity-100"
-                      : "pointer-events-none scale-95 opacity-0",
-                  )}
-                >
-                  {/* Close (✕) — the popover stays open through product toggles,
-                      so an explicit close affordance matters. */}
-                  <button
-                    type="button"
-                    onClick={() => setCustomOpen(false)}
-                    aria-label="Close"
-                    className="absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <ProductSelector
-                    capabilities={capabilities}
-                    selectedProducts={selectedProducts}
-                    onToggleProduct={onToggleProduct}
-                    expanded={true}
-                    isLoading={isLoading}
-                    explicitSelections={explicitSelections}
-                  />
-                </div>,
-                document.body,
-              )}
 
             {/* SIMPLE — curated baseline. Collapsed to a one-line summary by
                 default (the baseline is predictable); the optional app/lakebase
@@ -407,24 +308,33 @@ export function CapabilitiesPanel({
               <SimpleSummary
                 isLoading={isLoading}
                 align={align}
+                workshop={workshop}
                 appBundle={
-                  hideAppBundle
+                  hideAppBundle || workshop
                     ? undefined
                     : { on: appBundleOn, onToggle: toggleAppBundle, disabled: isLoading }
+                }
+                docs={
+                  docsOffered
+                    ? { on: docsOn, onToggle: toggleDocs, disabled: isLoading }
+                    : undefined
                 }
               />
             </TabsContent>
 
-            {/* CUSTOM — a compact summary of the current selection; hover the
-                Custom button (above) to expand the picker popover. */}
+            {/* CUSTOM — the full picker, inline (no popover) so every tile is
+                visible at once and the page just grows. */}
             <TabsContent value="custom" className="mt-0">
-              <CustomSummary
-                isLoading={isLoading}
-                align={align}
-                capabilities={capabilities}
-                selectedProducts={selectedProducts}
-                onEdit={openCustomPicker}
-              />
+              <div className="rounded-xl border border-border/60 bg-muted/10 px-3 pb-3 pt-2.5 text-left">
+                <ProductSelector
+                  capabilities={capabilities}
+                  selectedProducts={selectedProducts}
+                  onToggleProduct={onToggleProduct}
+                  expanded={true}
+                  isLoading={isLoading}
+                  explicitSelections={explicitSelections}
+                />
+              </div>
             </TabsContent>
           </Tabs>
         </div>
@@ -440,19 +350,72 @@ export function CapabilitiesPanel({
 // One-line Simple baseline: "Included: Synthetic Data · AI/BI Dashboard · Genie
 // Agent" on the left, and a compact toggle on the right to add the App +
 // Lakebase pair. When the app is on, a small note flags the longer build.
+type ChipToggle = { on: boolean; onToggle: () => void; disabled?: boolean };
+
+// Compact on/off pill used for the Simple-view add-ons.
+function ToggleChip({
+  toggle,
+  label,
+  onLabel,
+  offLabel,
+}: {
+  toggle: ChipToggle;
+  label: string;
+  onLabel: string;
+  offLabel: string;
+}) {
+  const { on } = toggle;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={toggle.onToggle}
+      disabled={toggle.disabled}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+        on
+          ? "border-primary/50 bg-primary/10 text-primary"
+          : "border-primary/40 bg-primary/5 text-primary/90 hover:bg-primary/10 hover:border-primary/60",
+      )}
+    >
+      {on ? onLabel : offLabel}
+      <span
+        className={cn(
+          "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors",
+          on ? "bg-primary" : "bg-muted-foreground/40",
+        )}
+      >
+        <span
+          className={cn(
+            "inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform",
+            on ? "translate-x-[14px]" : "translate-x-[2px]",
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
 function SimpleSummary({
   isLoading,
   appBundle,
+  docs,
   align = "center",
+  workshop = false,
 }: {
   isLoading: boolean;
-  appBundle?: { on: boolean; onToggle: () => void; disabled?: boolean };
+  appBundle?: ChipToggle;
+  docs?: ChipToggle;
   align?: "center" | "left";
+  workshop?: boolean;
 }) {
-  const names = SIMPLE_VISIBLE_TILES.map(
+  const names = (workshop ? WORKSHOP_SIMPLE_VISIBLE : SIMPLE_VISIBLE_TILES).map(
     (id) => CAPABILITY_META[id]?.display ?? id,
   );
-  const on = !!appBundle?.on;
+  const appOn = !!appBundle?.on;
+  const docsOn = !!docs?.on;
   return (
     <div
       className={cn(
@@ -466,97 +429,35 @@ function SimpleSummary({
           <span className="font-semibold text-foreground">Included:</span>{" "}
           {names.join(" · ")}
         </span>
+        {docs && (
+          <ToggleChip
+            toggle={docs}
+            label="Add PDF documents the Genie agent answers from"
+            onLabel="PDF documents"
+            offLabel="+ PDF documents"
+          />
+        )}
         {appBundle && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={on}
-            aria-label="Add a custom app + Lakebase backend"
-            onClick={appBundle.onToggle}
-            disabled={appBundle.disabled}
-            className={cn(
-              "inline-flex shrink-0 items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
-              on
-                ? "border-primary/50 bg-primary/10 text-primary"
-                : "border-primary/40 bg-primary/5 text-primary/90 hover:bg-primary/10 hover:border-primary/60",
-            )}
-          >
-            {on ? "App + Lakebase" : "+ Add app"}
-            <span
-              className={cn(
-                "relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors",
-                on ? "bg-primary" : "bg-muted-foreground/40",
-              )}
-            >
-              <span
-                className={cn(
-                  "inline-block h-3 w-3 transform rounded-full bg-background shadow transition-transform",
-                  on ? "translate-x-[14px]" : "translate-x-[2px]",
-                )}
-              />
-            </span>
-          </button>
+          <ToggleChip
+            toggle={appBundle}
+            label="Add a custom app + Lakebase backend"
+            onLabel="App + Lakebase"
+            offLabel="+ Add app"
+          />
         )}
       </div>
-      {/* "Takes longer" note — inside the box, under the Included line. */}
-      {appBundle && on && (
+      {/* "Takes longer" notes — inside the box, under the Included line. */}
+      {(appOn || docsOn) && (
         <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
           <Zap className="mt-0.5 h-3 w-3 shrink-0 text-primary/60" />
-          Adding an app + Lakebase backend makes the build take longer.
+          {appOn && docsOn
+            ? "Adding PDF documents and an app + Lakebase backend makes the build take longer."
+            : appOn
+              ? "Adding an app + Lakebase backend makes the build take longer."
+              : "PDF documents are generated and indexed for the Genie agent, which adds a few minutes to the build."}
         </p>
       )}
     </div>
   );
 }
 
-// Compact Custom-tab summary shown when the picker modal is closed: the current
-// selection (names, or a count if long) + an "Edit" button that reopens the
-// modal. Mirrors SimpleSummary's box so the two tabs read consistently.
-function CustomSummary({
-  isLoading,
-  align = "center",
-  capabilities,
-  selectedProducts,
-  onEdit,
-}: {
-  isLoading: boolean;
-  align?: "center" | "left";
-  capabilities: Capability[];
-  selectedProducts: Set<string>;
-  onEdit: () => void;
-}) {
-  // Names of the selected capabilities, in the catalog's order, skipping the
-  // hidden talk-track-only slugs so the summary matches what's on the tiles.
-  const selectedNames = capabilities
-    .filter((c) => selectedProducts.has(c.id))
-    .map((c) => CAPABILITY_META[c.id]?.display ?? c.id);
-  const count = selectedNames.length;
-  const label =
-    count === 0
-      ? "No capabilities selected yet"
-      : count <= 4
-        ? selectedNames.join(" · ")
-        : `${selectedNames.slice(0, 3).join(" · ")} +${count - 3} more`;
-  return (
-    <div
-      className={cn(
-        "flex w-fit max-w-2xl items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-2",
-        align === "center" && "mx-auto",
-        isLoading && "opacity-60",
-      )}
-    >
-      <span className="text-xs text-muted-foreground">
-        <span className="font-semibold text-foreground">Selected:</span> {label}
-      </span>
-      <button
-        type="button"
-        onClick={onEdit}
-        disabled={isLoading}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-primary/40 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary/90 transition-colors hover:bg-primary/10 hover:border-primary/60 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <SlidersHorizontal className="h-3 w-3" />
-        Edit
-      </button>
-    </div>
-  );
-}

@@ -1,0 +1,90 @@
+// =============================================================================
+// PNG NETWORK TOPOLOGY: PEERED SPOKE (PNG IN THE HUB) VS ISOLATED SPOKE (ITS OWN PNG)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • A Private Network Gateway (PNG) injects a Databricks-managed NIC into a dedicated
+//     /28 subnet of ONE customer network. Serverless reaches resources in that network
+//     and in networks transitively connected to it, nothing else.
+//   • Workspace VNets with VNet injection (public and private subnets for classic
+//     compute) are usually spokes. Where the PNG subnet goes depends on whether the spoke
+//     is connected to the rest of the network:
+//       – PEERED SPOKE: it is peered to the hub, so the PNG subnet sits in the HUB and
+//         serverless reaches the hub, its gateway to on-premises, and the peered spokes.
+//         The spoke itself needs no PNG subnet.
+//       – ISOLATED SPOKE: it is not peered to anything, so a PNG in the hub cannot reach
+//         it. It gets its OWN PNG subnet, and serverless then reaches resources inside
+//         that VNet only.
+//   • Plan the count: 10 NCCs per region per account and 2 PNGs per NCC; the usual
+//     split is one NCC per environment and/or business unit.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • Three boxes in one top-level row: the peered spoke, the hub, the isolated spoke.
+//     The only edge is the one peering, so the missing edge to the isolated spoke is the message.
+//   • Each PNG subnet carries the same orange border (`style.borderColor`), so the eye
+//     finds the two places a PNG can live without a legend.
+//   • Subnets are `box`es around one icon; a VNet's subnets sit in one row.
+//
+// ADAPT IT: name the real VNets; drop the bastion or firewall when the hub has none.
+// The hub's connection to on-premises: see png-topology-hub-spoke.jsonc.
+// =============================================================================
+[
+  {
+    "name": "PNG topology — peered vs isolated spoke",
+    "story": "A Private Network Gateway places a Databricks-managed NIC in a dedicated /28 subnet of one network, and serverless reaches resources in that network and in networks transitively connected to it. A workspace VNet peered to the hub needs no PNG subnet of its own: the PNG subnet sits in the hub, which also holds the firewall, the bastion and the gateway to on-premises. An isolated spoke is peered to nothing, so a PNG in the hub cannot reach it; it gets its own PNG subnet, and serverless then reaches resources inside that VNet only.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "matrix",
+    "frame": {"title":"PNG network topologies · peered vs isolated spoke","subtitle":"A peered spoke uses the hub's PNG; an isolated spoke needs its own"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 146,
+    "align": "center",
+    "nodes": [
+      {"id": "peered", "type": "box", "title": "Peered spoke", "subtitle": "Workspace VNet · no PNG subnet", "size": [602,475], "titleIcon": "file:cloud/azure/networking/virtual-network", "ai_reasoning": "VNet injection; reached through the hub's PNG over the peering, so it has no PNG subnet", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "p-pub-sn", "type": "box", "title": "Public subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+          {"id": "p-pub", "type": "logo", "icon": "file:databricks-line/spark-cluster", "text": "Classic compute", "caption": "bottom", "track": "line-p-pub"}
+        ] },
+        {"id": "p-priv-sn", "type": "box", "title": "Private subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+          {"id": "p-priv", "type": "logo", "icon": "file:databricks-line/spark-cluster", "text": "Classic compute", "caption": "bottom", "track": "line-p-pub"}
+        ] }
+      ] },
+      {"id": "hub", "type": "box", "title": "Hub network", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 146, "align": "center", "children": [
+        {"id": "col-fw", "type": "group", "layout": "column", "gap": 72, "align": "center", "children": [
+          {"id": "fw-sn", "type": "box", "title": "Firewall subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "fw", "type": "logo", "icon": "file:cloud/azure/networking/firewall", "text": "Azure Firewall", "caption": "bottom", "track": "line-p-pub"}
+          ] },
+          {"id": "vgw-sn", "type": "box", "title": "Gateway subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "vgw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "Virtual network gateway", "caption": "bottom", "track": "line-vgw"}
+          ] }
+        ] },
+        {"id": "col-bastion", "type": "group", "layout": "column", "gap": 49, "align": "center", "children": [
+          {"id": "bastion-sn", "type": "box", "title": "Bastion subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "bastion", "type": "logo", "icon": "file:cloud/azure/networking/bastion", "text": "Azure Bastion", "caption": "bottom", "track": "line-p-pub"}
+          ] },
+          {"id": "hub-png", "type": "box", "title": "PNG subnet", "subtitle": "/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "style": {"borderColor": "#FF5F46"}, "ai_reasoning": "the PNG for everything connected to the hub, including the peered spoke", "layout": "column", "children": [
+            {"id": "hub-nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (PNG)", "caption": "bottom", "track": "line-vgw"}
+          ] }
+        ] }
+      ] },
+      {"id": "isolated", "type": "box", "title": "Isolated spoke", "subtitle": "Workspace VNet · not peered", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 112, "align": "start", "children": [
+        {"id": "col-i-pub", "type": "group", "layout": "column", "gap": 49, "align": "center", "children": [
+          {"id": "i-pub-sn", "type": "box", "title": "Public subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "i-pub", "type": "logo", "icon": "file:databricks-line/spark-cluster", "text": "Classic compute", "caption": "bottom", "track": "line-p-pub"}
+          ] },
+          {"id": "i-png", "type": "box", "title": "PNG subnet", "subtitle": "/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "style": {"borderColor": "#FF5F46"}, "ai_reasoning": "its own PNG because no peering connects it to the hub; serverless reaches this VNet only", "layout": "column", "children": [
+            {"id": "i-nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (PNG)", "caption": "bottom", "track": "line-vgw"}
+          ] }
+        ] },
+        {"id": "i-priv-sn", "type": "box", "title": "Private subnet", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+          {"id": "i-priv", "type": "logo", "icon": "file:databricks-line/spark-cluster", "text": "Classic compute", "caption": "bottom", "track": "line-p-pub"}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "peered@r", "to": "hub@l", "arrow": "both", "dashed": true, "label": "Peering", "ai_reasoning": "the only connection; there is deliberately no line to the isolated spoke"}
+    ]
+  }
+]

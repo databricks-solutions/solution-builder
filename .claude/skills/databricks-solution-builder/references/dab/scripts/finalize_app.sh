@@ -5,12 +5,12 @@
 #
 # Run order for a full deploy:
 #   1. databricks bundle deploy   --var ...     # app shell + setup job
-#   2. databricks bundle run <setup_job_key>    # creates data/genie/ka/mas,
+#   2. databricks bundle run <setup_job_key>    # creates data + the Genie agent,
 #                                                  ends with export_resources
 #                                                  exiting a resources JSON
 #   3. ./app/scripts/finalize_app.sh            # THIS — wires env + deploys app
 #
-# WHY a separate step (not in-bundle): the Genie/KA/MAS endpoint IDs only exist
+# WHY a separate step (not in-bundle): the Genie agent ID only exists
 # AFTER the setup job's SDK tasks run, so the bundle can't know them at deploy
 # time — and the apps `config.env` block is silently dropped during the bundle's
 # terraform render anyway (names survive, values vanish). So env can't be baked
@@ -137,8 +137,6 @@ env_lines = [
     ("PIPELINE_ID", resources.get("pipeline_id", "")),
     ("AGENT_MLFLOW_EXPERIMENT_PATH", resources.get("agent_mlflow_experiment_path", "")),
     ("GENIE_SPACE_ID", resources.get("genie_space_id", "")),
-    ("KA_ENDPOINT_NAME", resources.get("ka_endpoint_name", "")),
-    ("MAS_ENDPOINT_NAME", resources.get("mas_endpoint_name", "")),
 ]
 
 # The agent-traces experiment path. If the harvest didn't produce it, the app

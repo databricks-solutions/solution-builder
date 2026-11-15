@@ -1,0 +1,24 @@
+{
+    "short_description": "Hail-belt apartments with old roofs have blown up a commercial P&C book, and broker applications hide them. The Underwriting Copilot (Databricks App on Lakebase) reads every ACORD application, SOV and loss run with ai_parse_document, scores each submission with a UC risk model as submitted vs verified, checks appetite with the Genie agent over the guideline documents, prices each location, refers above authority to the CUO and writes decisions back to Delta for the portfolio dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "ai-parse-document",
+            "unity-catalog",
+            "ml-training",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "unstructured-documents",
+            "mlflow-tracing",
+            "databricks-one"
+        ]
+    },
+    "created_resources": {}
+}

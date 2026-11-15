@@ -74,7 +74,7 @@ export function RtPitch({
     <section className="rounded-xl border border-border bg-card px-5 sm:px-6 pt-5 sm:pt-6 pb-6 sm:pb-8">
       <FlowKeyframes />
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-6 lg:gap-8">
+      <div className="grid grid-cols-1 min-[1400px]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] gap-6 min-[1400px]:gap-8">
         {/* LEFT — pitch */}
         <div className="flex flex-col gap-4 min-w-0">
           <div className="flex items-center gap-3">

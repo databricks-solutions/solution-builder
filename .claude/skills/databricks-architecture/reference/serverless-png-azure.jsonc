@@ -1,0 +1,96 @@
+// =============================================================================
+// SERVERLESS → PRIVATE / ON-PREMISES NETWORK ON AZURE: PRIVATE NETWORK GATEWAY (PNG)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's network):
+//   • Serverless compute runs in the Databricks-managed serverless compute plane, NOT
+//     in the customer's VNet. By default it cannot reach a private database, an
+//     on-prem server or an API behind the corporate firewall.
+//   • A Network Connectivity Configuration (NCC) is an account-level, per-region object
+//     that holds serverless private connectivity (private endpoint rules, and the
+//     PNG). It is attached to one or more workspaces. Limits: 10 NCCs per region per
+//     account, 2 PNGs per NCC; the usual split is one NCC per environment and/or BU.
+//   • A Private Network Gateway (PNG) is created INSIDE the NCC. Databricks injects
+//     a managed NIC into a dedicated /28 subnet of the customer's VNet, delegated to
+//     `Microsoft.Databricks/workspaces`. Serverless traffic leaves through that NIC as
+//     if it originated in the customer network, so it follows the customer's own
+//     DNS, routes and firewalls (which the customer must configure for the targets).
+//   • Put the PNG subnet in the HUB VNet when on-prem is reached through the hub: the
+//     traffic then rides the hub's VPN / ExpressRoute gateway to on-premises, and to
+//     anything transitively connected (spokes, a central firewall, a NAT or proxy to
+//     SaaS). One gateway replaces a private endpoint per target resource.
+//   • The workspace VNet (VNet injection: private/public subnets for classic compute,
+//     an endpoint subnet for private endpoints) is peered to the hub. It is not on the
+//     serverless path; draw it only because the customer has it.
+//   • PNG does NOT carry traffic to services reachable through private / service
+//     endpoints (Azure Storage accounts): those stay on NCC private endpoint rules.
+//   • Prerequisites: Premium tier; ExpressRoute or S2S VPN to on-prem; a /28 delegated
+//     subnet; an NCC (new or existing) with the PNG attached to the workspaces.
+//     Provisioned through the API only (no Terraform yet). Workloads on Azure: serverless
+//     DBR (notebooks, jobs), Apps, AI/ML. PNG on Azure is in Public Preview.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in traffic order: Databricks serverless plane → the customer's hub
+//     VNet (PNG subnet, then gateway subnet) → the link → on-premises. The hops carry
+//     `track: "t1"`, so the whole path is one straight line.
+//   • Containment is nesting: subscription ⊃ hub VNet ⊃ subnets ⊃ resource. CIDRs in the
+//     box `subtitle`. Databricks-managed things sit in their own box, outside the subscription.
+//   • The traffic path is one colour (`#FF5F46`) with arrows; the peering is a dashed
+//     two-way grey line, so the reader sees what the serverless traffic does NOT use.
+//   • A network with no traffic on this slide (the workspace VNet) is ONE card listing
+//     its subnets, not nested boxes.
+//
+// ADAPT IT: keep only the networks the user names. AWS PNG (Private Preview, serverless
+// DBR only): the same shape with a VPC, one /28 subnet in exactly one AZ and an IAM role
+// Databricks uses to create and manage the PNG. A storage account or S3 bucket is reached
+// through an NCC private endpoint, not the PNG: draw that instead when it is the ask.
+// =============================================================================
+[
+  {
+    "name": "Private Network Gateway — Azure",
+    "story": "Serverless compute runs in the Databricks-managed serverless plane, outside the customer's network. A Private Network Gateway (PNG), created inside the workspace's Network Connectivity Configuration (NCC), injects a managed NIC into a /28 subnet of the customer's hub VNet, delegated to Microsoft.Databricks/workspaces. Serverless traffic leaves through that NIC as if it originated in the hub, so it follows the hub's routes: through the hub's VPN / ExpressRoute gateway to on-premises databases, servers and APIs, and on to anything transitively connected. The workspace's own VNet (classic compute and private endpoints) is peered to the hub and is not on the serverless path. Requires the Premium tier; PNG on Azure is in Public Preview.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Private Network Gateway on Azure","subtitle":"Serverless reaches on-premises through your hub VNet · Public Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "subtitle": "Serverless compute plane", "titleIcon": "file:vendor/databricks", "ai_reasoning": "Databricks-managed; sits outside the customer subscription", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "serverless", "type": "logo", "icon": "file:databricks-line/serverless", "text": "Serverless compute", "caption": "bottom", "ai_reasoning": "where the traffic starts: serverless notebooks and jobs, Apps and AI/ML on Azure", "track": "line-serverless"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "ai_reasoning": "the PNG is created inside the NCC; the NCC is attached to the workspaces that use it", "layout": "column", "children": [
+          {"id": "png", "type": "logo", "icon": "file:databricks-line/access-connector", "text": "Private Network Gateway", "caption": "bottom", "ai_reasoning": "the PNG is a Databricks object; its data-path presence in the customer network is the managed NIC on the right", "track": "line-serverless"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "gap": 72, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "ai_reasoning": "the PNG subnet sits in the hub because on-prem is reached through the hub; with no hub, it goes in whichever VNet routes to the targets", "layout": "row", "gap": 97, "align": "center", "children": [
+          {"id": "png-subnet", "type": "box", "title": "PNG subnet", "subtitle": "10.0.0.0/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "ai_reasoning": "a dedicated /28 delegated to Microsoft.Databricks/workspaces; the CIDR is the one on the source slide", "layout": "column", "children": [
+            {"id": "nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (from the PNG)", "caption": "bottom", "ai_reasoning": "injected and managed by Databricks; serverless traffic egresses here with a customer-network address", "track": "line-serverless"}
+          ] },
+          {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.1.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "ai_reasoning": "the hub's existing gateway; PNG traffic uses it through the hub's routes, nothing is configured on it for Databricks", "track": "line-serverless"}
+          ] }
+        ] },
+        {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "VNet injection for classic compute plus an endpoint subnet; no serverless traffic crosses it, so one card instead of three subnet boxes"}
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / VPN", "caption": "bottom", "ai_reasoning": "the private link to the data centre; either one works with PNG", "track": "line-serverless"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "gap": 26, "align": "center", "children": [
+        {"id": "op-server", "type": "logo", "icon": "lucide:server", "text": "Server", "caption": "bottom", "ai_reasoning": "the edge lands on the server as on the source slide; the database and API are reached the same way", "track": "line-serverless"},
+        {"id": "op-db", "type": "logo", "icon": "lucide:database", "text": "Database", "caption": "bottom"},
+        {"id": "op-api", "type": "logo", "icon": "lucide:code", "text": "API", "caption": "bottom"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "serverless", "to": "png", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "serverless egress to private targets is routed to the NCC's gateway"},
+      {"id": "e2", "from": "png", "to": "nic", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the one hop that crosses from the Databricks plane into the customer network"},
+      {"id": "e3", "from": "nic", "to": "gw", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "ordinary hub routing: the gateway subnet's routes take on-prem prefixes to the gateway"},
+      {"id": "e4", "from": "gw", "to": "er", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "er", "to": "op-server", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "gw-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering", "ai_reasoning": "hub ↔ workspace VNet peering; drawn from the gateway subnet; grey and dashed because serverless traffic does not use it"}
+    ]
+  }
+]

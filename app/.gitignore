@@ -86,3 +86,10 @@ electron/config.json
 # architecture standalone build outputs
 dist-standalone/
 .arch-standalone-build/
+
+# eval-arch scratch output (rendered pages + generated scorecard); the BASELINE
+# and the corpus are committed, the results are not.
+scripts/eval-arch/results/
+
+# Local clone of the retired ai-dev-kit (replaced by databricks_agent_skill/)
+ai_dev_kit/

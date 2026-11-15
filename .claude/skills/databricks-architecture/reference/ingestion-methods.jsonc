@@ -1,0 +1,81 @@
+// =============================================================================
+// INGESTION METHODS — which Databricks ingestion method fits which source.
+//
+// This is JSONC for YOU to read. When you write `architecture.md`, emit PLAIN
+// JSON (no comments) inside a ```json fence.
+//
+// What it demonstrates:
+//   • Three columns in one top-level row: sources grouped by HOW they can be read
+//     (`multi-source` tiles with a one-line note) → one tile per ingestion method → one landing.
+//   • Lakeflow Connect's four methods sit in a titled box (`pad: 40`). Auto Loader, partner
+//     connectors and Streaming sit outside it (they are not Lakeflow Connect). The methods
+//     column's `gap` (48) is larger than the box `pad` (40), so the box never reaches the
+//     tile stacked under it.
+//   • A dashed tile + dashed edges for something that is NOT an ingest
+//     (Federation / Delta Sharing query in place).
+//   • A highlight colour carries one meaning, and a small text key says which.
+//   • Many methods land in one tile: give it height (`size`) so the arrivals
+//     spread out instead of bunching.
+// Keep only the source groups and methods the ask has. Do not print release
+// status (GA / Beta) on tiles: it goes stale.
+// =============================================================================
+[
+  {
+    "name": "Source systems → ingestion method → land",
+    "story": "Every source is grouped by how it can be read, then mapped to the Databricks ingestion method that fits it: Lakeflow Connect (database CDC, query-based, SaaS, community connectors), Auto Loader for files, a partner connector, or Structured Streaming. All of them land in one UC-managed Bronze layer. Lakehouse Federation / Delta Sharing is shown dashed: it queries data in place and is not an ingest.",
+    "aspect": "16:9",
+    "direction": "horizontal",
+    "options": {"trademarkLogos":true},
+    "theme": "technical",
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "col-hdr-sources", "type": "group", "layout": "column", "gap": 48, "align": "center", "children": [
+        {"id": "hdr-sources", "type": "text", "size": [138,28], "text": "SOURCE SYSTEMS", "fontSize": 15, "bold": true, "hAlign": "center"},
+        {"id": "grp-op-db", "type": "multi-source", "params": {"note": "high-volume · need deletes + source-column lineage"}, "sources": [{"icon": "file:vendor/oracle", "label": "Core ERP", "note": "system of record"},{"icon": "file:vendor/peoplesoft", "label": "PeopleSoft Financials"},{"icon": "file:vendor/microsoft-sql-server", "label": "SQL Server / Oracle / Postgres"}], "label": "Operational databases"},
+        {"id": "grp-saas-managed", "type": "multi-source", "params": {"note": "change feed via vendor API — cursor incremental"}, "sources": [{"icon": "file:vendor/salesforce", "label": "Salesforce", "note": "CRM"},{"icon": "file:vendor/workday", "label": "Workday", "note": "HR"}], "label": "SaaS apps with a managed connector"},
+        {"id": "grp-saas-noconn", "type": "multi-source", "params": {"note": "no native connector → drop files / API pulls to cloud storage"}, "sources": [{"icon": "file:vendor/sailpoint", "label": "SailPoint", "note": "identity"},{"icon": "text", "label": "Payroll · timetabling", "note": "niche SaaS"},{"icon": "text", "label": "Facilities · procurement", "note": "niche SaaS"}], "label": "SaaS without native connector", "style": {"fill": "#e7f5ec", "borderColor": "#4caf7d", "borderStyle": "solid"}},
+        {"id": "grp-partner", "type": "multi-source", "label": "Partner-connector candidates", "params": {"note": "zero-maintenance managed CDC where budget justifies"}, "sources": [{"icon": "file:vendor/canvas", "label": "Canvas", "note": "Fivetran"},{"icon": "file:vendor/concur", "label": "Concur", "note": "Fivetran"}]},
+        {"id": "grp-streams", "type": "multi-source", "label": "Events / message streams", "params": {"note": "push, seconds-latency — a bus, not an API pull"}, "sources": [{"icon": "file:vendor/mulesoft", "label": "MuleSoft"},{"icon": "file:vendor/kafka", "label": "Azure Event Hubs / Kafka"}]},
+        {"id": "grp-snowflake", "type": "multi-source", "label": "Existing warehouse", "params": {"note": "kept for now · queried in place"}, "sources": [{"icon": "file:vendor/snowflake", "label": "Snowflake"}]}
+      ] },
+      {"id": "col-ing-cdc", "type": "group", "layout": "column", "gap": 48, "align": "center", "children": [
+        {"id": "lakeflow-connect-box", "type": "box", "title": "Lakeflow Connect", "titleIcon": "lakeflowConnectBrand", "layout": "column", "gap": 48, "align": "center", "pad": 40, "children": [
+          {"id": "ing-cdc", "type": "source", "size": [300,56], "label": "DB CDC", "icon": "lakeflowConnectBrand", "desc": "log-based · captures deletes · source-column lineage", "showDesc": true, "wrapDesc": true, "track": "line-ing-cdc"},
+          {"id": "ing-query", "type": "source", "size": [300,56], "label": "DB Query-based", "icon": "lakeflowConnectBrand", "desc": "cursor / watermark column · no log access · misses hard deletes", "showDesc": true, "wrapDesc": true, "track": "line-ing-cdc"},
+          {"id": "ing-saas", "type": "source", "size": [300,56], "label": "SaaS", "icon": "lakeflowConnectBrand", "desc": "managed connectors · cursor incremental", "showDesc": true, "wrapDesc": true, "track": "line-ing-cdc"},
+          {"id": "ing-community", "type": "source", "size": [300,56], "label": "Community Connector", "icon": "lakeflowConnectBrand", "desc": "open-source connector in the workspace · niche SaaS, no SLA", "showDesc": true, "wrapDesc": true, "style": {"borderColor": "#4caf7d", "fill": "#eaf6ef"}, "track": "line-ing-cdc"}
+        ] },
+        {"id": "ing-autoloader", "type": "source", "size": [300,56], "label": "Auto Loader", "icon": "sdpBrand", "desc": "incremental files from cloud storage · schema evolution", "showDesc": true, "wrapDesc": true, "style": {"borderColor": "#4caf7d", "fill": "#eaf6ef"}, "track": "line-ing-cdc"},
+        {"id": "ing-partner", "type": "source", "size": [300,56], "label": "Partner connector", "icon": "lakeflowJobsBrand", "desc": "Fivetran / Qlik · managed CDC where no first-party connector exists", "showDesc": true, "wrapDesc": true, "track": "line-ing-cdc"},
+        {"id": "ing-streaming", "type": "source", "size": [300,56], "label": "Structured Streaming", "icon": "sdpBrand", "desc": "Event Hubs / Kafka · exactly-once into Delta", "showDesc": true, "wrapDesc": true, "track": "line-ing-cdc"},
+        {"id": "ing-federation", "type": "source", "size": [300,56], "label": "Lakehouse Federation", "icon": "deltaSharing", "desc": "or Delta Sharing · query in place under UC · not an ingest (no copy)", "showDesc": true, "wrapDesc": true, "style": {"border": 1, "borderStyle": "dashed", "borderColor": "#283a52"}, "track": "line-ing-cdc"},
+        {"id": "key-green", "type": "text", "size": [300,22], "fontSize": 12, "hAlign": "center", "text": "Green: the path for SaaS without a native connector", "style": {"font": "#2f7d55"}, "track": "line-ing-cdc"}
+      ] },
+      {"id": "col-hdr-land", "type": "group", "layout": "column", "gap": 48, "align": "center", "children": [
+        {"id": "hdr-land", "type": "text", "size": [49,28], "text": "LAND", "fontSize": 15, "bold": true, "hAlign": "center"},
+        {"id": "bronze", "type": "bronze-layer", "size": [220,240], "label": "Bronze (Delta)", "desc": "UC-managed · raw", "showDesc": true, "style": {"borderColor": "#a9781f", "fill": "#fff7e5", "font": "#081017"}}
+      ] }
+    ],
+    "edges": [
+      {"id": "e-al-b", "from": "ing-autoloader@r", "to": "bronze@l", "flow": true},
+      {"id": "e-cdc-b", "from": "ing-cdc@r", "to": "bronze@l", "flow": true},
+      {"id": "e-comm-b", "from": "ing-community@r", "to": "bronze@l", "flow": true},
+      {"id": "e-grp-saas-managed-r-ing-community-l", "from": "grp-saas-managed@r", "to": "ing-community@l", "flow": true, "centerX": 192},
+      {"id": "e-grp-saas-noconn-r-ing-community-l", "from": "grp-saas-noconn@r", "to": "ing-community@l", "flow": true, "dashed": true},
+      {"id": "e-ing-federation-r-bronze-l", "from": "ing-federation@r", "to": "bronze@l", "dashed": true},
+      {"id": "e-noconn-al", "from": "grp-saas-noconn@r", "to": "ing-autoloader@l", "flow": true},
+      {"id": "e-opdb-cdc", "from": "grp-op-db@r", "to": "ing-cdc@l", "flow": true},
+      {"id": "e-opdb-query", "from": "grp-op-db@r", "to": "ing-query@l", "dashed": true},
+      {"id": "e-partner-pc", "from": "grp-partner@r", "to": "ing-partner@l", "flow": true},
+      {"id": "e-pc-b", "from": "ing-partner@r", "to": "bronze@l", "flow": true},
+      {"id": "e-query-b", "from": "ing-query@r", "to": "bronze@l", "flow": true},
+      {"id": "e-saas-b", "from": "ing-saas@r", "to": "bronze@l", "flow": true},
+      {"id": "e-saasm-saas", "from": "grp-saas-managed@r", "to": "ing-saas@l", "flow": true},
+      {"id": "e-snow-fed", "from": "grp-snowflake@r", "to": "ing-federation@l", "dashed": true},
+      {"id": "e-ss-b", "from": "ing-streaming@r", "to": "bronze@l", "flow": true},
+      {"id": "e-streams-ss", "from": "grp-streams@r", "to": "ing-streaming@l", "flow": true}
+    ]
+  }
+]

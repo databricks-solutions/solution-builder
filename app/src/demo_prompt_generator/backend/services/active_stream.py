@@ -7,11 +7,67 @@ Follows Databricks Agent Skills (DAS) patterns for reliable streaming.
 from __future__ import annotations
 
 import asyncio
+import bisect
+import itertools
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, ClassVar
 
 from ..core._config import logger
+
+# --- Per-stream memory bounds (an ActiveStream buffers a whole turn's events in
+# memory until it's swept — an unbounded buffer was a real OOM vector). Two guards:
+#   • MAX_EVENTS: a ring buffer cap on the event COUNT. A pathological turn (tens
+#     of thousands of tiny deltas) can't grow without bound; an SSE reader that
+#     fell further behind than this reconnects fresh (rare — the buffer is large).
+#   • MAX_EVENT_CHARS: per-event payload cap. The bulk of stream memory is a few
+#     HUGE events (verbose Bash stdout, a big file Read, a large tool result), not
+#     event count — so we truncate any oversized string field in the event data.
+MAX_EVENTS = 20_000
+MAX_EVENT_CHARS = 256 * 1024  # 256 KB per string field
+_TRUNCATED_SUFFIX = "\n… [truncated — output too large to buffer]"
+
+
+def _cap_str(v: str) -> str:
+    return v[:MAX_EVENT_CHARS] + _TRUNCATED_SUFFIX if len(v) > MAX_EVENT_CHARS else v
+
+
+def _cap_value(v: Any) -> Any:
+    """Recursively truncate any oversized string ANYWHERE in the value, copying
+    only the branches that actually change (so the common all-small event stays
+    the same object). The biggest payload is nested — a `tool_use` event's
+    `tool_input.content` (a Write/Edit file body) is one level down — so a
+    shallow top-level pass would miss the exact OOM vector this cap exists for."""
+    if isinstance(v, str):
+        return _cap_str(v)
+    if isinstance(v, dict):
+        out: dict[Any, Any] | None = None
+        for k, item in v.items():
+            capped = _cap_value(item)
+            if capped is not item:
+                if out is None:
+                    out = dict(v)
+                out[k] = capped
+        return out if out is not None else v
+    if isinstance(v, list):
+        out_l: list[Any] | None = None
+        for i, item in enumerate(v):
+            capped = _cap_value(item)
+            if capped is not item:
+                if out_l is None:
+                    out_l = list(v)
+                out_l[i] = capped
+        return out_l if out_l is not None else v
+    return v
+
+
+def _cap_event_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Copy `data`, truncating any oversized string value at ANY depth so a single
+    event can't pin megabytes in memory. Recurses into nested dicts/lists (e.g.
+    `tool_input.content` for a Write/Edit) — a shallow pass would leave the
+    largest payloads uncapped. Untouched when everything is already small."""
+    return _cap_value(data)
 
 
 @dataclass
@@ -31,7 +87,14 @@ class ActiveStream:
     """
     execution_id: str
     project_id: str
-    events: list[StreamEvent] = field(default_factory=list)
+    # Bounded ring buffer (see MAX_EVENTS) — an unbounded per-turn event list was
+    # an OOM vector. deque[-1] / iteration used by get_events_since still work.
+    events: deque[StreamEvent] = field(default_factory=lambda: deque(maxlen=MAX_EVENTS))
+    # Parallel to `events` (same maxlen, appended together) so get_events_since can
+    # bisect instead of scanning every event on every SSE poll. `_stamps_sorted` goes
+    # False if the wall clock ever steps backwards; then we fall back to the scan.
+    _stamps: deque[float] = field(default_factory=lambda: deque(maxlen=MAX_EVENTS), repr=False)
+    _stamps_sorted: bool = field(default=True, repr=False)
     is_complete: bool = False
     is_cancelled: bool = False
     is_error: bool = False
@@ -49,9 +112,15 @@ class ActiveStream:
         Args:
             event_data: Dict with 'type' key and event-specific data.
         """
+        now = time.time()
+        if self._stamps and now < self._stamps[-1]:
+            # Wall clock stepped backwards: the timestamps are no longer sorted,
+            # so bisect would be wrong. get_events_since falls back to the scan.
+            self._stamps_sorted = False
+        self._stamps.append(now)
         self.events.append(StreamEvent(
-            timestamp=time.time(),
-            data=event_data,
+            timestamp=now,
+            data=_cap_event_data(event_data),
         ))
 
     def get_events_since(self, cursor: float = 0.0) -> tuple[list[dict], float]:
@@ -64,12 +133,26 @@ class ActiveStream:
         Returns:
             Tuple of (list of event dicts with _cursor, new cursor position)
         """
+        if not self.events:
+            return [], cursor
+        new_cursor = self.events[-1].timestamp
+        if self._stamps_sorted:
+            # Each SSE poll calls this ~10x/s, usually with nothing new: O(1) then.
+            # Otherwise bisect to the first event strictly after the cursor
+            # (same `> cursor` rule as the scan below).
+            if new_cursor <= cursor:
+                return [], new_cursor
+            start = bisect.bisect_right(self._stamps, cursor)
+            new_events = [
+                {**e.data, "_cursor": e.timestamp}
+                for e in itertools.islice(self.events, start, None)
+            ]
+            return new_events, new_cursor
         new_events = [
             {**e.data, "_cursor": e.timestamp}
             for e in self.events
             if e.timestamp > cursor
         ]
-        new_cursor = self.events[-1].timestamp if self.events else cursor
         return new_events, new_cursor
 
     def mark_complete(self, session_id: str | None = None) -> None:

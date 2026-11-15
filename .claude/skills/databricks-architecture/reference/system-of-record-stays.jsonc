@@ -1,0 +1,91 @@
+// =============================================================================
+// SYSTEM OF RECORD STAYS — modernise AROUND a legacy core instead of replacing it.
+//
+// This is JSONC for YOU to read. When you write `architecture.md`, emit PLAIN
+// JSON (no comments) inside a ```json fence.
+//
+// What it demonstrates:
+//   • Five columns, in reading order: sources → ingest → medallion → serve → consume.
+//     The ingest and medallion columns sit side by side in one Lakeflow box. The serve
+//     column sits beside it inside one platform box, with the db-platform wordmark as its
+//     first child. External consumers stay outside the platform box.
+//   • Existing extraction is REUSED (a tinted multi-source group) rather than
+//     rebuilt; each source has the one ingestion path that fits it.
+//   • A vertical medallion (Bronze → Silver → Gold, `@b` → `@t`).
+//   • External BI connects through Databricks SQL. The SQL tile is taller and sits in the
+//     middle of the serve column, so its three branches leave at different heights.
+//   • The platform box and the source tiles are placed with `at` (the exception in
+//     reference/layout.md), so they can be set by hand. Use nesting for any new diagram.
+// Rename the core system, the feeds and the consumers for the customer.
+// =============================================================================
+[
+  {
+    "name": "Legacy system of record stays → governed Databricks",
+    "story": "The core legacy system (here a mainframe) is NOT retired: it stays the system of record and becomes a governed source. Existing extraction (CDC to cloud storage, Kafka topics) is reused as-is; a finance system and a case system land alongside. Lakeflow ingests every feed into one Bronze → Silver → Gold medallion under Unity Catalog, served through Databricks SQL, Genie and dashboards. External BI tools (Power BI, a legacy tool kept during the migration) connect through Databricks SQL.",
+    "aspect": "16:9",
+    "direction": "horizontal",
+    "options": {"trademarkLogos":true},
+    "theme": "technical",
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "col-db-platform", "type": "group", "layout": "column", "gap": 32, "children": [
+        {"id": "platform-box", "type": "box", "layout": "row", "gap": 136, "align": "start", "pad": 52, "at": [814,383], "children": [
+          {"id": "db-platform", "type": "db-platform"},
+          {"id": "col-ing-kafka", "type": "group", "layout": "column", "gap": 99, "align": "center", "children": [
+            {"id": "lakeflow-box", "type": "box", "title": "Lakeflow", "titleIcon": "sdpBrand", "layout": "row", "gap": 78, "align": "center", "pad": 44, "children": [
+              {"id": "sources", "type": "group", "layout": "column", "gap": 30, "align": "center", "children": [
+                {"id": "ing-kafka", "type": "source", "size": [230,62], "label": "Kafka ingest", "icon": "streaming", "desc": "Structured Streaming", "showDesc": true, "track": "line-ing-kafka"},
+                {"id": "ing-al", "type": "source", "size": [230,62], "label": "Auto Loader", "icon": "inputData", "desc": "from cloud storage", "showDesc": true},
+                {"id": "ing-lfc", "type": "source", "size": [230,62], "label": "Lakeflow Connect", "icon": "lakeflowConnectBrand", "desc": "Oracle Financials", "showDesc": true, "style": {"fill": "#eaf1fb", "borderColor": "#3b6fb5"}},
+                {"id": "ing-copy", "type": "source", "size": [230,62], "label": "Lakeflow Batch", "icon": "jobsPipelines", "desc": "history backfill · COPY INTO", "showDesc": true, "track": "line-ing-copy"}
+              ] },
+              {"id": "col-med-bronze", "type": "group", "layout": "column", "gap": 30, "align": "center", "children": [
+                {"id": "med-bronze", "type": "bronze-layer", "size": [320,88], "label": "Bronze — raw source entities", "desc": "as landed · append-only · lineage", "showDesc": true, "style": {"fill": "#fdf6ec", "borderColor": "#e0a030"}},
+                {"id": "med-silver", "type": "silver-layer", "size": [320,88], "label": "Silver — conformed + history", "desc": "CDF + SCD Type 2 · full history", "showDesc": true, "style": {"fill": "#eef1f5", "borderColor": "#8a97a8"}},
+                {"id": "med-gold", "type": "gold-layer", "size": [320,88], "label": "Gold — reporting", "desc": "business rules · star schemas", "showDesc": true, "style": {"fill": "#fdf6ec", "borderColor": "#e0a030"}}
+              ] }
+            ] },
+            {"id": "governance", "type": "governance-block", "params": {"access_control": true, "ai_gateway": false, "genie_ontology": true}}
+          ] },
+          {"id": "col-h-serve", "type": "group", "layout": "column", "gap": 30, "align": "center", "children": [
+            {"id": "h-serve", "type": "text", "size": [47,26], "text": "Serve", "fontSize": 14, "bold": true},
+            {"id": "srv-genie", "type": "source", "size": [250,62], "label": "AI/BI Genie", "icon": "genieBrand", "desc": "natural-language Q&A", "showDesc": true},
+            {"id": "srv-sql", "type": "source", "size": [250,100], "label": "Databricks SQL", "icon": "sqlWarehouse", "desc": "governed serving layer", "showDesc": true, "track": "line-srv-sql"},
+            {"id": "srv-dash", "type": "source", "size": [250,62], "label": "AI/BI Dashboards", "icon": "aibiBrand", "desc": "governed self-serve analytics", "showDesc": true, "track": "line-ing-copy"}
+          ] }
+        ] },
+        {"id": "src-case", "type": "multi-source", "sources": [{"icon": "dbTable", "label": "Case data"}], "label": "Case management system", "at": [258,535]},
+        {"id": "src-extract", "type": "multi-source", "sources": [{"icon": "file:vendor/oracle", "label": "GoldenGate CDC → cloud storage", "note": "change data capture", "wrap": true},{"icon": "streaming", "label": "Kafka topics", "note": "whole-database event feed", "wrap": true}], "label": "Existing extraction — reuse", "style": {"borderStyle": "solid", "borderColor": "#e0a030", "fill": "#fdf6ec"}, "at": [258,334]},
+        {"id": "src-core", "type": "multi-source", "sources": [{"icon": "file:vendor/ibm", "label": "Mainframe · core entities and events"}], "label": "Core system of record", "style": {"borderStyle": "solid", "borderColor": "#4caf7d", "fill": "#e7f5ec"}, "at": [258,222]},
+        {"id": "src-oracle", "type": "multi-source", "sources": [{"icon": "file:vendor/oracle", "label": "Financials"}], "label": "Oracle Financials", "style": {"borderStyle": "solid", "borderColor": "#3b6fb5", "fill": "#eaf1fb"}, "at": [258,446]},
+        {"id": "h-sources", "type": "text", "size": [138,28], "text": "SOURCE SYSTEMS", "fontSize": 15, "bold": true, "at": [258,148]}
+      ] },
+      {"id": "col-h-consume", "type": "group", "layout": "column", "gap": 30, "align": "center", "children": [
+        {"id": "h-consume", "type": "text", "size": [83,28], "text": "CONSUME", "fontSize": 15, "bold": true, "track": "line-ing-kafka"},
+        {"id": "con-pbi", "type": "source", "size": [270,62], "label": "Power BI", "icon": "file:vendor/power-bi", "desc": "Databricks connector, governed", "showDesc": true},
+        {"id": "con-report", "type": "source", "size": [270,68], "label": "Enterprise reporting", "icon": "dashboard", "desc": "statistics · trends · KPIs", "showDesc": true, "track": "line-srv-sql"},
+        {"id": "con-sas", "type": "source", "size": [270,62], "label": "SAS EG", "icon": "text", "desc": "transitional, during migration", "showDesc": true}
+      ] }
+    ],
+    "edges": [
+      {"id": "e-al-bronze", "from": "ing-al@r", "to": "med-bronze@l", "flow": true},
+      {"id": "e-bronze-silver", "from": "med-bronze@b", "to": "med-silver@t", "flow": true},
+      {"id": "e-copy-bronze", "from": "ing-copy@r", "to": "med-bronze@l", "flow": true},
+      {"id": "e-case-copy", "from": "src-case@r", "to": "ing-copy@l", "flow": true},
+      {"id": "e-extract-al", "from": "src-extract@r", "to": "ing-al@l", "flow": true, "dashed": true},
+      {"id": "e-gold-dash", "from": "med-gold@r", "to": "srv-dash@l", "flow": true},
+      {"id": "e-gold-genie", "from": "med-gold@r", "to": "srv-genie@l", "flow": true},
+      {"id": "e-gold-sql", "from": "med-gold@r", "to": "srv-sql@l", "flow": true},
+      {"id": "e-kafka-bronze", "from": "ing-kafka@r", "to": "med-bronze@l", "flow": true},
+      {"id": "e-core-kafka", "from": "src-core@r", "to": "ing-kafka@l", "flow": true},
+      {"id": "e-lfc-bronze", "from": "ing-lfc@r", "to": "med-bronze@l", "flow": true},
+      {"id": "e-oracle-lfc", "from": "src-oracle@r", "to": "ing-lfc@l", "flow": true},
+      {"id": "e-silver-gold", "from": "med-silver@b", "to": "med-gold@t", "flow": true},
+      {"id": "e-sql-report", "from": "srv-sql@r", "to": "con-report@l", "flow": true},
+      {"id": "e-sql-pbi", "from": "srv-sql@r", "to": "con-pbi@l", "flow": true},
+      {"id": "e-sql-sas", "from": "srv-sql@r", "to": "con-sas@l", "flow": true}
+    ]
+  }
+]

@@ -1,0 +1,83 @@
+// =============================================================================
+// DECISION VIEW — a comparison across environments, drawn as a shared grid.
+//
+// JSONC (JSON + // comments) for YOU to read. Emit PLAIN JSON (strip //) in the
+// architecture.md ```json fence.
+//
+// WHY THIS EXAMPLE. The other references teach a left→right FLOW. This one is the
+// COMPARISON/OWNERSHIP shape: platforms × environments in one plane, where the
+// point is "who owns what, and what crosses the boundary" — not how data moves
+// from A to B. Both axes carry meaning: the columns are platforms, the rows are
+// environments. Reach for it when the ask is a comparison. Do NOT impose this shape
+// on an ordinary flow: a flow is composed to its own structure.
+//
+// WHAT THIS DEMONSTRATES:
+//   • Four columns in one row, one `group` per platform. Each column stacks its three
+//     environment tiles in the same order: dev, staging, production.
+//   • `track` names the environment: `t1` is dev, `t2` staging, `t3` production. Every
+//     column puts its dev tile on one line and its production tile on another, so the
+//     reader scans across and down.
+//   • The plane's title is the ownership statement: who runs the control loop, who
+//     executes, and which system is the record. A diagram that only places products next
+//     to each other leaves the reader to guess the operating model; say it.
+//   • The gateway and apps tiles sit in the last column: the gateway on the dev track, the
+//     apps tile on the production track.
+//   • ONE tight `desc` per tile. Nothing is a sentence. That is the text budget.
+//   • Every cross-boundary edge is LABELLED, and only those — the vertical promotion
+//     arrows are left bare because sequence is already obvious from position. Restraint is
+//     a device, not an omission.
+//   • The `story` names what the diagram does NOT show. See Step 1.6: a decision
+//     view legitimately compresses, but silent omission is indistinguishable from
+//     oversight.
+//
+// WHERE IT DIVERGES from the other references: this is NOT a left→right data flow. It
+// is a comparison across environments, so the axis carries meaning in both directions:
+// columns are platforms, rows are environments. Reach for it when the ask is "who owns
+// what, and what moves between them", not "how does data get from A to B".
+// =============================================================================
+[
+  {
+    "name": "Decision view — who owns what",
+    "story": "One question: which platform owns which part of the model lifecycle, and what crosses the boundary between them. Read the plane across — each row is one environment (development, staging, production), each lane is one platform. Azure ML owns the control loop, Databricks executes the selected workloads, and Unity Catalog is the system of record. NOT SHOWN, deliberately: networking and private connectivity, per-environment cost, batch-inference alternatives, and the monitoring loop — each is its own diagram, and this one is for the ownership decision only.",
+    "aspect": "16:9",
+    "theme": "slide",
+    "direction": "matrix",
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "nodes": [
+      {"id": "plane", "type": "box", "title": "Model lifecycle — Azure ML owns the control loop · Databricks executes · Unity Catalog is the system of record", "fontSize": 17, "style": {"border": 2, "radius": 14, "shadow": 0}, "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "col-aml-dev", "type": "group", "layout": "column", "gap": 104, "align": "center", "children": [
+          {"id": "aml-dev", "type": "logo", "icon": "file:cloud/azure/ml/machine-learning", "text": "AML Dev", "desc": "Project + candidates", "showDesc": true, "caption": "bottom", "fontSize": 15, "ai_reasoning": "Fixed comparison-matrix exception: one explicit cell size shared by every peer.", "track": "line-aml-dev"},
+          {"id": "aml-stg", "type": "logo", "icon": "file:cloud/azure/ml/machine-learning", "text": "AML Staging", "desc": "QA + release checks", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-stg"},
+          {"id": "aml-prod", "type": "logo", "icon": "file:cloud/azure/ml/machine-learning", "text": "AML Production", "desc": "Trigger, poll + record", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-prod"}
+        ] },
+        {"id": "col-dbx-dev", "type": "group", "layout": "column", "gap": 104, "align": "center", "children": [
+          {"id": "dbx-dev", "type": "logo", "icon": "file:vendor/databricks", "text": "Databricks Dev", "desc": "EDA + feature design", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-dev"},
+          {"id": "dbx-stg", "type": "logo", "icon": "file:vendor/databricks", "text": "Databricks Staging", "desc": "Packaged job + tests", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-stg"},
+          {"id": "dbx-prod", "type": "logo", "icon": "file:vendor/databricks", "text": "Databricks Production", "desc": "Train + batch score", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-prod"}
+        ] },
+        {"id": "col-uc-dev", "type": "group", "layout": "column", "gap": 104, "align": "center", "children": [
+          {"id": "uc-dev", "type": "logo", "icon": "dbCatalog", "text": "Dev catalog", "desc": "Raw + personal", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-dev"},
+          {"id": "uc-stg", "type": "logo", "icon": "dbCatalog", "text": "Staging catalog", "desc": "Validated + evidence", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-stg"},
+          {"id": "uc-prod", "type": "logo", "icon": "dbCatalog", "text": "Production catalog", "desc": "Champion + lineage", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-prod"}
+        ] },
+        {"id": "col-gateway", "type": "group", "layout": "column", "gap": 332, "align": "center", "children": [
+          {"id": "gateway", "type": "logo", "icon": "file:cloud/azure/networking/api-management", "text": "API Management", "desc": "Governed front door", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-dev"},
+          {"id": "apps", "type": "logo", "icon": "file:persona/user", "text": "Business applications", "desc": "Bounded consumers", "showDesc": true, "caption": "bottom", "fontSize": 15, "track": "line-aml-prod"}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "aml-dev@r", "to": "dbx-dev@l", "label": "Invoke"},
+      {"id": "e2", "from": "dbx-dev@r", "to": "uc-dev@l", "label": "Drafts"},
+      {"id": "e3", "from": "aml-stg@r", "to": "dbx-stg@l", "label": "Route"},
+      {"id": "e4", "from": "dbx-stg@r", "to": "uc-stg@l", "label": "Evidence"},
+      {"id": "e5", "from": "aml-prod@r", "to": "dbx-prod@l", "label": "Route"},
+      {"id": "e6", "from": "dbx-prod@r", "to": "uc-prod@l", "arrow": "both", "label": "Features"},
+      {"id": "e7", "from": "uc-prod@r", "to": "apps@l", "label": "Approved only"},
+      {"id": "e8", "from": "gateway@b", "to": "apps@t", "label": "Bounded access"},
+      {"id": "p1", "from": "aml-dev@b", "to": "aml-stg@t", "arrow": "end"},
+      {"id": "p2", "from": "aml-stg@b", "to": "aml-prod@t", "arrow": "end"}
+    ]
+  }
+]

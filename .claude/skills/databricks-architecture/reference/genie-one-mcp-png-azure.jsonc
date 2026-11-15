@@ -1,0 +1,85 @@
+// =============================================================================
+// GENIE ONE → A CUSTOM MCP SERVER ON-PREMISES, THROUGH A PRIVATE NETWORK GATEWAY (AZURE)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first; the network part is the
+// same as reference/serverless-png-azure.jsonc (read its header for how PNG works).
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's setup):
+//   • Genie One and the other Databricks AI services run on serverless, outside the
+//     customer's network. A custom MCP server that lives on-premises (or in a private
+//     VNet) is not reachable from there by default.
+//   • PNG supports serverless Azure Databricks Runtime products and AI services,
+//     including Genie One. So the network path is the ordinary PNG path: a managed NIC
+//     in a /28 subnet of the hub VNet (delegated to Microsoft.Databricks/workspaces),
+//     then the hub's VPN / ExpressRoute gateway to on-premises.
+//   • The MCP server is registered in Unity Gateway, which also holds its
+//     authentication. Genie One is then customized to use that registered server, so
+//     every call goes Genie One → Unity Gateway → (PNG) → MCP server.
+//   • Setup, in order: set up the PNG (Premium tier, /28 delegated subnet, NCC with the
+//     PNG attached to the workspaces); register the custom MCP server in Unity Gateway
+//     and configure its authentication; customize Genie One to connect to it.
+//   • PNG on Azure is in Public Preview; it is provisioned through the API only.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The same skeleton as serverless-png-azure, with the Databricks box split into the AI
+//     hops: Genie One → Unity Gateway → PNG (inside its NCC). The hops carry `track: "t1"`,
+//     so the red path is one straight line from left to right.
+//   • The workspace VNet is one card under the hub, joined by a dashed peering line:
+//     it exists, but the MCP traffic does not use it.
+//   • The on-prem side is ONE logo (the MCP server), not the database/server/API trio:
+//     draw what the story calls, not the generic data centre.
+//
+// ADAPT IT: the MCP server can be any private endpoint the hub routes to (a spoke VNet,
+// a server behind a central firewall) — move it, keep the path. Another AI caller (an
+// agent, an App) replaces Genie One the same way. On AWS, PNG supports serverless DBR
+// only (Private Preview); do not draw Genie One through an AWS PNG unless the user says
+// it is supported for them.
+// =============================================================================
+[
+  {
+    "name": "Genie One → custom MCP via PNG — Azure",
+    "story": "Genie One calls a custom MCP server that runs on-premises. The MCP server is registered in Unity Gateway, which holds its authentication, and Genie One is customized to use it. The call leaves the serverless plane through the workspace's Private Network Gateway (PNG): a Databricks-managed NIC in a /28 subnet of the customer's hub VNet, delegated to Microsoft.Databricks/workspaces. From there it follows the hub's routes through the VPN / ExpressRoute gateway to the MCP server. The workspace VNet is peered to the hub and is not on this path. PNG supports serverless Azure Databricks Runtime products and AI services, including Genie One; PNG on Azure is in Public Preview.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Genie One → custom MCP server on-premises","subtitle":"Registered in Unity Gateway · reached through the Private Network Gateway · Azure"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "subtitle": "Serverless", "titleIcon": "file:vendor/databricks", "ai_reasoning": "Databricks-managed; outside the customer subscription", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "genie-one", "type": "logo", "icon": "genieOneBrand", "text": "Genie One", "caption": "bottom", "ai_reasoning": "the caller: Genie One, customized to use the registered MCP server", "track": "line-genie-one"},
+        {"id": "ugw", "type": "logo", "icon": "file:db/ai-gateway", "text": "Unity Gateway", "caption": "bottom", "ai_reasoning": "the MCP server is registered here with its authentication; Genie One reaches it through this registration", "track": "line-genie-one"},
+        {"id": "ncc", "type": "box", "title": "NCC", "subtitle": "Network Connectivity Configuration", "ai_reasoning": "the PNG lives inside the NCC attached to the workspace", "layout": "column", "children": [
+          {"id": "png", "type": "logo", "icon": "file:databricks-line/access-connector", "text": "Private Network Gateway", "caption": "bottom", "ai_reasoning": "the serverless way out into the customer network; created inside the NCC", "track": "line-genie-one"}
+        ] }
+      ] },
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "column", "gap": 72, "align": "center", "children": [
+        {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 97, "align": "center", "children": [
+          {"id": "png-subnet", "type": "box", "title": "PNG subnet", "subtitle": "10.0.0.0/28 · delegated", "titleIcon": "file:cloud/azure/networking/subnet", "ai_reasoning": "a /28 delegated to Microsoft.Databricks/workspaces", "layout": "column", "children": [
+            {"id": "nic", "type": "logo", "icon": "file:cloud/azure/networking/network-interface", "text": "Managed NIC (from the PNG)", "caption": "bottom", "ai_reasoning": "where the call enters the hub, with a hub address", "track": "line-genie-one"}
+          ] },
+          {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.1.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+            {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "ai_reasoning": "the hub's existing gateway to on-premises", "track": "line-genie-one"}
+          ] }
+        ] },
+        {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b> <span style=\"color:#64748b\">10.1.0.0/24</span><br><b>Public subnet</b> <span style=\"color:#64748b\">10.1.1.0/24</span><br><b>Endpoint subnet</b> <span style=\"color:#64748b\">10.1.2.0/24</span>", "ai_reasoning": "peered to the hub; not on the MCP path, so one card"}
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / VPN", "caption": "bottom", "track": "line-genie-one"},
+      {"id": "onprem", "type": "box", "title": "On-premises", "titleIcon": "lucide:building-2", "layout": "column", "children": [
+        {"id": "mcp", "type": "logo", "icon": "file:vendor/mcp", "text": "Custom MCP server", "caption": "bottom", "ai_reasoning": "the target: the customer's own MCP server, behind the corporate network", "track": "line-genie-one"}
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "genie-one", "to": "ugw", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "Genie One calls the MCP server through its Unity Gateway registration"},
+      {"id": "e2", "from": "ugw", "to": "png", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the private destination is routed through the NCC's gateway"},
+      {"id": "e3", "from": "png", "to": "nic", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e4", "from": "nic", "to": "gw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "gw", "to": "er", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e6", "from": "er", "to": "mcp", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e7", "from": "gw-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering", "ai_reasoning": "hub ↔ workspace VNet; dashed grey: not used by the MCP traffic"}
+    ]
+  }
+]

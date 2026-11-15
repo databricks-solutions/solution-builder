@@ -1,0 +1,10 @@
+{
+  "id": "energy-grid-operations",
+  "name": "Energy & Utilities — Grid Ops Copilot (heat-wave overload)",
+  "customer": "Midwest Regional Electric Cooperative",
+  "industry": "Manufacturing",
+  "narrative": "Evan Chen runs grid operations for a 154,000-customer electric cooperative, and it is 2 PM on day two of a heat wave with 104°F forecast at North Ridge tomorrow. The system as a whole has plenty of headroom — but the temperature-aware load forecast flags one asset: transformer T-104 at North Ridge goes to 107% of nameplate tomorrow at 5 PM, with a winding hot-spot of 123°C. It is 39 years old, its dissolved-gas readings have quadrupled in six months, and it serves 14,200 customers including Mercy Regional Hospital and two cooling centers. It tripped on over-temperature last August.\n\nThe Grid Ops Copilot explains the risk as a chain (heat → load → hot-spot → condition → who loses power), then ranks three costed relief options: switching is cheapest but pushes the neighbouring transformer to 100% and strips redundancy from 4,300 customers; the battery alone doesn't clear the overload; a $23k demand-response event does. Evan approves it with one click and the action lands in the control-room log (a Delta table) — the aha is going from a forecast to a defensible, costed decision in under two minutes.",
+  "dbdemos_tracker": {
+    "app_id": "energy-grid-operations"
+  }
+}

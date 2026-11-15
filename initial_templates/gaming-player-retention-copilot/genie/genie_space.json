@@ -1,0 +1,222 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "10000000000000000000000000000001",
+    "question": [
+     "What was new-player D1, D7 and D30 retention for Season 6 vs Season 7 installs?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000002",
+    "question": [
+     "Which Season 7 stage has the lowest clear rate?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000003",
+    "question": [
+     "How did the average ranked queue wait change by region after Season 7 launched?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000004",
+    "question": [
+     "How much LTV is at risk by churn driver?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000005",
+    "question": [
+     "Which segments put the most revenue at risk?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000006",
+    "question": [
+     "How do past driver-matched interventions compare with the blanket gem sale?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000007",
+    "question": [
+     "What was ARPDAU and average DAU in the four weeks before Season 7 (Jul 14 - Aug 10) vs since Aug 25, after the launch week?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000008",
+    "question": [
+     "How many flagged chat messages did AI Functions classify as harassment vs trash talk?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.chat_insights"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.churn_scores"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_churn_weekly"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_daily_kpis"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_matchmaking_daily"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_retention_cohorts"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_risk_segments"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.gold_stage_funnel"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.intervention_catalog"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.liveops_budget"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.liveops_history"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.liveops_schedule"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.player_daily"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.player_features"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.players"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.purchases"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.stage_attempts"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "30000000000000000000000000000001",
+    "content": [
+     "You are the live-ops analyst for Hollowspire, a fictional free-to-play co-op action RPG by Emberline Studios (PC, PlayStation, Xbox). Data runs 2026-05-01 to 2026-09-27 (as of 2026-09-27).\n",
+     "- Seasons: Season 6 \"Emberfall\" launched 2026-06-09; Season 7 \"The Drowned Crown\" launched 2026-08-18. \"Before / after the launch\" = before / on-or-after 2026-08-18 unless the user says otherwise.\n",
+     "- Retention: gold_retention_cohorts has one row per install_date x region x acquisition_channel with installs and d1/d7/d30_retained (players who logged in exactly N days after install; NULL while the cohort is younger than N days). ALWAYS compute a rate as SUM(dN_retained) / SUM(installs) over rows where dN_retained IS NOT NULL; never average rates across rows. Compare seasons with install_season.\n",
+     "- ARPDAU = SUM(revenue_usd) / SUM(dau). Season launches spike ARPDAU for ~4 days (season pass sales), so compare steady-state windows: Jul 14 - Aug 10 (before) vs Aug 25 onward (after the launch week). Source: gold_daily_kpis (one row per day x region). DAU per day = SUM(dau) over regions. Never average arpdau_usd across rows.\n",
+     "- Churn: a player churned when they did not play for 14+ days. gold_churn_weekly: churn_rate = SUM(churned_14d) / SUM(active_players).\n",
+     "- Stage funnel: gold_stage_funnel. Stage 7-4 \"The Drowned Warden\" is the Season 7 difficulty spike. players_stuck = 4+ attempts and never cleared.\n",
+     "- Matchmaking: gold_matchmaking_daily (day x region). The queue-weighted average wait = SUM(avg_queue_wait_sec * queues) / SUM(queues). Report waits in minutes and seconds.\n",
+     "- Toxicity: chat_insights = the moderation queue (lines flagged by the keyword filter or a player report) classified by AI Functions (ai_classify): harassment, threat, scam, trash_talk, friendly. is_harmful = harassment, threat or scam. recipient_player_id is the player who received the message.\n",
+     "- ML: churn_scores = 14-day churn probability per player active in the last 14 days (player_churn_model @champion), risk_tier (Critical >= 0.55, High >= 0.35, Medium >= 0.20, Low), top_driver (difficulty | matchmaking | toxicity | engagement), SHAP driver shares driver_*_pct, predicted_ltv_12m (player_ltv_model) and at_risk_ltv_usd = probability x predicted LTV. \"Revenue / LTV at risk\" = SUM(at_risk_ltv_usd) over players with risk_tier <> 'Low' = SUM(at_risk_ltv_usd) in gold_risk_segments.\n",
+     "- gold_risk_segments: one row per segment = top churn driver x region (segment_id like MATCH-APAC, DIFF-NA, TOX-EU, ENG-LATAM).\n",
+     "- liveops_history: past interventions measured against holdout control groups (lift_pp = treated minus control 14-day retention, in points). strategy is 'Driver-matched' or 'Blanket sale' (GEM-SALE-50, the 50% gem sale).\n",
+     "- liveops_schedule: interventions scheduled from the Live-Ops Console app (write-back); it may be empty. liveops_budget: October 2026 live-ops budget.\n",
+     "- Money in USD, whole dollars unless the value is below $10. Percentages with one decimal.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "20000000000000000000000000000001",
+    "question": [
+     "What was new-player D1, D7 and D30 retention for Season 6 vs Season 7 installs?"
+    ],
+    "sql": [
+     "SELECT install_season,\n",
+     "  round(100 * sum(d1_retained) / sum(CASE WHEN d1_retained IS NOT NULL THEN installs END), 1) AS d1_pct,\n",
+     "  round(100 * sum(d7_retained) / sum(CASE WHEN d7_retained IS NOT NULL THEN installs END), 1) AS d7_pct,\n",
+     "  round(100 * sum(d30_retained) / sum(CASE WHEN d30_retained IS NOT NULL THEN installs END), 1) AS d30_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_retention_cohorts WHERE install_season IN ('Season 6', 'Season 7') GROUP BY install_season ORDER BY install_season\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000002",
+    "question": [
+     "Which Season 7 stage has the lowest clear rate?"
+    ],
+    "sql": [
+     "SELECT stage_id, stage_name, attempts, clears, round(100 * attempt_clear_rate, 1) AS clear_rate_pct, players_stuck\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_stage_funnel WHERE season LIKE 'S7%' ORDER BY attempt_clear_rate\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000003",
+    "question": [
+     "How did the average ranked queue wait change by region after Season 7 launched?"
+    ],
+    "sql": [
+     "SELECT region,\n",
+     "  round(sum(CASE WHEN activity_date < DATE'2026-08-18' THEN avg_queue_wait_sec * queues END) / sum(CASE WHEN activity_date < DATE'2026-08-18' THEN queues END), 0) AS wait_sec_before,\n",
+     "  round(sum(CASE WHEN activity_date >= DATE'2026-08-18' THEN avg_queue_wait_sec * queues END) / sum(CASE WHEN activity_date >= DATE'2026-08-18' THEN queues END), 0) AS wait_sec_since_s7\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_matchmaking_daily GROUP BY region ORDER BY wait_sec_since_s7 DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000004",
+    "question": [
+     "How much LTV is at risk by churn driver?"
+    ],
+    "sql": [
+     "SELECT churn_driver, sum(players_at_risk) AS players_at_risk, sum(whales_at_risk) AS whales_at_risk, round(sum(at_risk_ltv_usd), 0) AS at_risk_ltv_usd\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_risk_segments GROUP BY churn_driver ORDER BY at_risk_ltv_usd DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000005",
+    "question": [
+     "Which segments put the most revenue at risk?"
+    ],
+    "sql": [
+     "SELECT segment_id, segment_name, players_at_risk, whales_at_risk, round(at_risk_ltv_usd, 0) AS at_risk_ltv_usd\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_risk_segments ORDER BY at_risk_ltv_usd DESC LIMIT 10\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000006",
+    "question": [
+     "How do past driver-matched interventions compare with the blanket gem sale?"
+    ],
+    "sql": [
+     "SELECT strategy, count(*) AS runs, round(avg(lift_pp), 1) AS avg_lift_pp, sum(cost_usd) AS total_cost_usd,\n",
+     "  round(sum(cost_usd) / sum(players_retained_incremental), 2) AS cost_per_retained_player\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.liveops_history GROUP BY strategy ORDER BY avg_lift_pp DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000007",
+    "question": [
+     "What was ARPDAU and average DAU in the four weeks before Season 7 (Jul 14 - Aug 10) vs since Aug 25, after the launch week?"
+    ],
+    "sql": [
+     "SELECT CASE WHEN activity_date >= DATE'2026-08-25' THEN 'Since Aug 25' ELSE 'Jul 14 - Aug 10' END AS period,\n",
+     "  round(sum(revenue_usd) / sum(dau), 3) AS arpdau_usd, round(sum(dau) / count(DISTINCT activity_date), 0) AS avg_dau\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.gold_daily_kpis\n",
+     "WHERE activity_date BETWEEN DATE'2026-07-14' AND DATE'2026-08-10' OR activity_date >= DATE'2026-08-25'\n",
+     "GROUP BY 1 ORDER BY 1 DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000008",
+    "question": [
+     "How many flagged chat messages did AI Functions classify as harassment vs trash talk?"
+    ],
+    "sql": [
+     "SELECT toxicity_label, is_harmful, count(*) AS messages FROM {{CATALOG}}.{{SCHEMA}}.chat_insights GROUP BY ALL ORDER BY messages DESC\n"
+    ]
+   }
+  ]
+ }
+}

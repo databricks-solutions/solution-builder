@@ -1,0 +1,241 @@
+# Aurora Crest Media — ad yield & pricing optimization (Ad Yield Copilot) — complete DAB.
+#
+# Recreates the whole demo on ANY workspace / catalog / schema (everything is a variable):
+#   `bundle deploy` creates: the Lakebase project (demo) or a database in the shared <project> project , the AI/BI dashboard, the Databricks App and the setup job.
+#   `bundle run ad_yield_setup` fills them in:
+#       generate_data (schema + ad_sales_library volume + raw tables) → forecast_avails (ai_forecast on the warehouse)
+#       → build_gold (pacing, spare avails, yield opportunities, metric view)
+#       upload_ad_sales_docs (src/ad_sales_docs → ad_sales_library volume)
+#       → deploy_genie (Genie agent over the gold tables + that volume; waits for the documents index)
+#       → grant_app_access (UC + Genie CAN_RUN for the app SP)
+#       → export_resources (writes <schema>.app_config, which the app reads at boot)
+#   `bundle run ad_yield_app` deploys the app source and starts it.
+#
+# ── Deploy (see dab_instructions.md) ──────────────────────────────────────────
+#   databricks bundle deploy -p <profile> [--var catalog=… --var schema=… --var warehouse_id=…]
+#   databricks bundle run ad_yield_setup -p <profile>
+#   databricks bundle run ad_yield_app -p <profile>
+
+bundle:
+  name: media_ad_yield_copilot
+
+variables:
+  catalog:
+    description: Unity Catalog for the demo data
+    default: media_advertising
+  schema:
+    description: Schema for demo tables, metric view and the ad-sales docs volume
+    default: ad_yield_optimization
+  warehouse_id:
+    description: Serverless SQL warehouse (ai_forecast, dashboard, Genie, app analytics) — pass --var warehouse_id=<id>
+  workspace_folder:
+    description: Workspace folder holding the bundle, dashboard and Genie space
+    default: /Workspace/Users/${workspace.current_user.userName}/media-ad-yield-optimization
+  app_name:
+    description: Databricks App name (unique per workspace, <= 30 chars)
+    default: ad-yield-copilot
+  lakebase_project_id:
+    description: >-
+      Lakebase project holding the app's database: the bundle creates a database in the project you name.
+  lakebase_branch_id:
+    default: production
+  lakebase_database:
+    description: "Postgres database name the bundle creates in the project"
+  lakebase_owner_role:
+    description: >-
+      Postgres role id (on the branch) that owns the database. Non-personal: a GROUP role
+      for the workspace `admins` group, created once per Lakebase project.
+
+workspace:
+  root_path: ${var.workspace_folder}/.bundle/${bundle.target}
+
+artifacts:
+  app:
+    build: ./app/scripts/build-app.sh
+
+sync:
+  include:
+    - "src/**"
+    - "app/dist/**"
+    - "app/client/dist/**"
+    - "app/drizzle/**"
+    - "app/package.json"        # the repo-root .gitignore ignores package*.json — the Apps
+    - "app/package-lock.json"   # container needs both to npm install
+  exclude:
+    - "app/node_modules/**"
+    - "app/.env"
+    - "app/.env.*"
+    - "app/.preview.pgid"
+    - "app/playwright-report/**"
+    - "app/test-results/**"
+    - "app/tests/**"
+    - "template_screenshot*.png"
+
+targets:
+  # Portable default (forks, Solution Builder "Download DAB"): NO pinned host — deploys to whatever workspace your
+  # profile points at. See dab_instructions.md ("Deploy to your own workspace").
+  # The bundle creates a dedicated Lakebase project (`lakebase_project_id`, default ad-yield-copilot) — no prerequisite.
+  #   databricks bundle deploy -p <profile> --var warehouse_id=<id> [--var catalog=… --var schema=… --var lakebase_project_id=…]
+  default:
+    default: true
+    resources:
+      postgres_projects:
+        ad_yield_lakebase:
+          project_id: ${var.lakebase_project_id}
+          display_name: "Ad Yield Copilot"
+          pg_version: 17
+      apps:
+        ad_yield_app:
+          resources:
+            - name: postgres
+              postgres:
+                branch: ${resources.postgres_projects.ad_yield_lakebase.name}/branches/${var.lakebase_branch_id}
+                database: ${resources.postgres_projects.ad_yield_lakebase.name}/branches/${var.lakebase_branch_id}/databases/databricks-postgres
+                permission: CAN_CONNECT_AND_CREATE
+
+resources:
+  experiments:
+    agent_traces:
+      # The app's agent traces (MLflow tracing). Bundle-owned so it lives in the demo folder and the app SP gets
+      # CAN_EDIT through the app resource below (the SP can't create experiments in a folder it doesn't own).
+      name: ${var.workspace_folder}/${var.app_name}-agent-traces
+
+  dashboards:
+    ad_yield_dashboard:
+      display_name: "Aurora Crest - Ad Yield & Pricing"
+      file_path: ./dashboard/ad_yield.lvdash.json
+      warehouse_id: ${var.warehouse_id}
+      parent_path: ${var.workspace_folder}
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${var.schema}
+      embed_credentials: true
+
+  apps:
+    ad_yield_app:
+      name: ${var.app_name}
+      description: "Aurora Crest Ad Yield Copilot — pacing & make-good risk, avails forecast, floor-price leaks, AI recovery plans written back to Lakebase"
+      source_code_path: ./app
+      # The app's runtime config (replaces app.yaml). The Genie agent id is not known at
+      # deploy time — the app reads it at boot from <catalog>.<schema>.app_config (written by the setup job).
+      config:
+        command: ['node', '--env-file-if-exists=.env', 'dist/server.js']
+        env:
+          - name: NODE_ENV
+            value: production
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: LAKEBASE_ENDPOINT
+            value_from: postgres
+          - name: DEMO_CATALOG
+            value: ${var.catalog}
+          - name: DEMO_SCHEMA
+            value: ${var.schema}
+          - name: DASHBOARD_ID
+            value: ${resources.dashboards.ad_yield_dashboard.id}
+          - name: LAKEBASE_PROJECT_ID
+            value: ${var.lakebase_project_id}
+          - name: NOTICE_MODEL
+            value: databricks-claude-sonnet-4-5
+          - name: AGENT_MLFLOW_EXPERIMENT_PATH
+            value: ${resources.experiments.agent_traces.name}
+      user_api_scopes:
+        - serving.serving-endpoints
+        - ai-gateway
+        - dashboards.genie
+        - sql
+        - sql.statement-execution
+        - postgres
+        - catalog.catalogs:read
+        - catalog.schemas:read
+        - catalog.tables:read
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+        - name: agent-traces
+          experiment:
+            experiment_id: ${resources.experiments.agent_traces.id}
+            permission: CAN_EDIT
+
+  jobs:
+    ad_yield_setup:
+      name: "[MEDIA] Ad Yield Copilot - Setup"
+      description: "Synthetic ad-sales data → ai_forecast avails → gold pacing / spare avails / yield leaks + metric view → Genie agent (tables + docs) → app grants + app_config"
+      tasks:
+        - task_key: generate_data
+          spark_python_task:
+            python_file: ./data_generation/generate_data.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: forecast_avails
+          depends_on: [{task_key: generate_data}]
+          spark_python_task:
+            python_file: ./src/forecast/forecast_avails.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}", "--warehouse-id", "${var.warehouse_id}"]
+          environment_key: sdk_latest
+
+        - task_key: build_gold
+          depends_on: [{task_key: forecast_avails}]
+          spark_python_task:
+            python_file: ./src/gold/build_gold.py
+            parameters: ["--catalog", "${var.catalog}", "--schema", "${var.schema}"]
+          environment_key: default
+
+        - task_key: upload_ad_sales_docs
+          depends_on: [{task_key: generate_data}]
+          notebook_task:
+            notebook_path: ./src/deploy/upload_ad_sales_docs.py
+            base_parameters: {catalog: "${var.catalog}", schema: "${var.schema}"}
+          environment_key: default
+
+        - task_key: deploy_genie
+          depends_on: [{task_key: build_gold}, {task_key: upload_ad_sales_docs}]
+          notebook_task:
+            notebook_path: ./src/deploy/deploy_genie.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              warehouse_id: "${var.warehouse_id}"
+              parent_path: "${var.workspace_folder}"
+          environment_key: sdk_latest
+
+        - task_key: grant_app_access
+          depends_on: [{task_key: deploy_genie}]
+          notebook_task:
+            notebook_path: ./src/deploy/grant_app_access.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+          environment_key: sdk_latest
+
+        - task_key: export_resources
+          depends_on: [{task_key: grant_app_access}]
+          notebook_task:
+            notebook_path: ./src/deploy/export_resources.py
+            base_parameters:
+              catalog: "${var.catalog}"
+              schema: "${var.schema}"
+              app_name: "${var.app_name}"
+              dashboard_id: "${resources.dashboards.ad_yield_dashboard.id}"
+              warehouse_id: "${var.warehouse_id}"
+              genie_space_id: "{{tasks.deploy_genie.values.genie_space_id}}"
+              documents_volume: "{{tasks.deploy_genie.values.documents_volume}}"
+              lakebase_project_id: "${var.lakebase_project_id}"
+              agent_mlflow_experiment_path: "${resources.experiments.agent_traces.name}"
+          environment_key: sdk_latest
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "4"
+        - environment_key: sdk_latest
+          spec:
+            client: "4"
+            dependencies:
+              - "databricks-sdk>=0.114.0"

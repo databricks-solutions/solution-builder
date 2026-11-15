@@ -10,10 +10,9 @@ import type { ThinkingEntry } from '../db/schema.js';
 import { sseError } from './sse.js';
 
 type ChatConfig = {
-  /** MAS endpoint name. Passed through to `streamAgentTurn` and from
-   * there into the AgentContext used by refundops.ts. Replace with
-   * `genieSpaceId` if your demo uses Genie. */
-  masEndpointName: string;
+  /** Genie Agent space id. Passed through to `streamAgentTurn` and from
+   * there into the AgentContext used by refundops.ts. */
+  genieSpaceId: string;
   agentModel?: string;
 };
 
@@ -21,8 +20,8 @@ type ChatConfig = {
  * /api/chat/stream entry point.
  *
  * Drives the OpenAI Agents SDK loop in agent-stream.ts. The agent's
- * `ask_data` tool is what reaches the configured Databricks data backend
- * (MAS endpoint OR Genie space — see refundops.ts dispatcher).
+ * `ask_data` tool is what reaches the configured Genie Agent
+ * (see tools/genie.ts).
  *
  * Robustness:
  *   1. Persist the user message FIRST so a crash mid-stream still leaves
@@ -178,7 +177,7 @@ export async function handleChatStream(args: {
       req,
       res,
       userEmail,
-      masEndpointName: config.masEndpointName,
+      genieSpaceId: config.genieSpaceId,
       databricksHost: host,
       // Foundation Model endpoint name. Needs the OpenAI Responses API
       // (refundops.ts `setOpenAIAPI('responses')`). `databricks-gpt-5-4` is the

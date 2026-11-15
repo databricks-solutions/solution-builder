@@ -1,0 +1,25 @@
+{
+    "short_description": "A state SOC misses a low-and-slow password spray that ends in MFA fatigue, lateral movement and DNS exfiltration of taxpayer files. UEBA (an Isolation Forest registered in Unity Catalog) ranks the entities; a Threat Hunting Copilot app on Lakebase runs an agent that pivots across sign-in, VPN, EDR and DNS logs, maps the incident to MITRE ATT&CK, asks the IR playbook (the Genie agent over the documents) for severity, deadlines and containment, and writes the analyst's incident case back; the CISO tracks MTTD/MTTR, alert noise and ATT&CK coverage in an AI/BI dashboard and Genie.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "unity-catalog",
+            "ml-training",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "mlflow-tracing"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "zerobus",
+            "sdp",
+            "ai-functions",
+            "unstructured-documents",
+            "databricks-one"
+        ]
+    },
+    "created_resources": {}
+}

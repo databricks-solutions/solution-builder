@@ -1,7 +1,7 @@
 /**
  * "Where the affected customers live" — bubble map.
  *
- * Real world map (OSM/CARTO Positron raster tiles via react-leaflet) with
+ * Real world map (OpenStreetMap raster tiles via react-leaflet) with
  * one CircleMarker per (city, country). Radius = sqrt-scaled customer
  * count. When the agent's bulk write fires `dataMutated`, every bucket
  * is refetched and the bubbles whose `total` changed get a brief stroke-
@@ -165,10 +165,14 @@ export function CityMap({ status, lot }: Props) {
             className="h-full w-full"
             style={{ background: 'var(--muted)' }}
           >
+            {/* Keyless OpenStreetMap tiles (CARTO's basemaps now need an API
+                key and return 'API KEY REQUIRED' tiles). OSM's tile policy
+                requires a Referer and may block requests without one, so pin
+                the policy here instead of inheriting the page's. */}
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-              subdomains={['a', 'b', 'c', 'd']}
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              referrerPolicy="strict-origin-when-cross-origin"
               maxZoom={19}
             />
             <FitBoundsOnSetChange cities={cities} />

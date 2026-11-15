@@ -1,0 +1,26 @@
+{
+    "short_description": "Heart-failure readmissions on one cardiac unit jumped from 17% to 26% in six months. The Readmission Copilot (Databricks App on Lakebase) finds why: weekend discharges leave without a booked 7-day follow-up since the unit lost its weekend navigator. AI Functions read every discharge note for social risks the EHR never captures, a UC-registered 30-day readmission model ranks this week's discharges and shows how much a booked follow-up lowers each patient's risk, and the Genie agent over the care pathways grounds each patient's transition plan. The coordinator approves the plan and the outreach tasks are written back to Lakebase. An AI/BI dashboard and Genie cover readmissions and the estimated CMS HRRP penalty.",
+    "capabilities": {
+        "buildable": [
+            "synthetic-data-gen",
+            "ai-functions",
+            "unity-catalog",
+            "ml-training-serving",
+            "unstructured-documents",
+            "aibi-dashboards",
+            "genie",
+            "lakebase",
+            "databricks-apps",
+            "lakeflow-jobs"
+        ],
+        "talking_track": [
+            "lakeflow-connect",
+            "sdp",
+            "genie-one",
+            "mlflow-tracing",
+            "ai-gateway",
+            "model-serving"
+        ]
+    },
+    "created_resources": {}
+}

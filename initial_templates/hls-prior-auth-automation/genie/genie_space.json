@@ -1,0 +1,196 @@
+{
+ "version": 2,
+ "config": {
+  "sample_questions": [
+   {
+    "id": "10000000000000000000000000000001",
+    "question": [
+     "Why are we missing the 72-hour clock on expedited requests?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000002",
+    "question": [
+     "Which practice group has the highest pend rate for lumbar spine MRI, and why?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000003",
+    "question": [
+     "What share of requests met every criterion on first review, and how long did they wait?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000004",
+    "question": [
+     "How is the auto-approval rate trending week over week?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000005",
+    "question": [
+     "What does the open queue look like by AI lane?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000006",
+    "question": [
+     "Which practice groups are gold-card candidates?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000007",
+    "question": [
+     "What is our denial rate by line of business?"
+    ]
+   },
+   {
+    "id": "10000000000000000000000000000008",
+    "question": [
+     "How many workbench decisions were recorded today?"
+    ]
+   },
+   {
+    "id": "ffffffff00000000000000000000d0c1",
+    "question": [
+     "Who is allowed to deny a prior authorization request, and which requests are eligible for the auto-approval lane?"
+    ]
+   }
+  ]
+ },
+ "data_sources": {
+  "tables": [
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.ai_case_review"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.medical_policies"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.members"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.pa_requests"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.policy_criteria"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.providers"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.reviewers"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.snapshot_info"
+   },
+   {
+    "identifier": "{{CATALOG}}.{{SCHEMA}}.um_decisions"
+   }
+  ]
+ },
+ "instructions": {
+  "text_instructions": [
+   {
+    "id": "30000000000000000000000000000000",
+    "content": [
+     "You analyze prior-authorization (PA) operations for MedVault Health Plan's Utilization Management team (UM nurses, the VP of UM Operations, medical directors). Data is SYNTHETIC. Lead with the answer and the number, then one line of context.\n",
+     "REGULATION: CMS-0057-F requires a decision within 72 hours for EXPEDITED requests and 7 calendar days (168 hours) for STANDARD requests; approval/denial rates and turnaround are publicly reported. sla_met is already computed on pa_requests (turnaround_hours <= sla_hours). Always split SLA questions by urgency.\n",
+     "KEY FACTS THE DATA SHOWS (drive toward these): (1) Expedited compliance is ~99% on weekdays and via Portal/ePA, but only ~20% for FAX requests that arrive Friday 3pm through Sunday - they wait for Monday fax indexing (intake_ts). Define the weekend window as dayofweek(received_ts) IN (1,7) OR (dayofweek(received_ts)=6 AND hour(received_ts)>=15). (2) About half of reviewed requests had every policy criterion documented at first review (criteria_met_on_first_review = true) yet those clean nurse approvals waited a median of ~2.5 days - they are auto-approval candidates. (3) MRI Lumbar Spine (policy MV-RAD-014, CPT 72148) is the most pended service; the usual gap is 'Missing documentation: 6 weeks conservative therapy'. Cascade Spine & Pain Associates has the highest pend rate (~58%) - a provider-education target; Northside Orthopedic Associates pends ~4% and is ~92% first-pass clean - a gold-card candidate (gold carding threshold: >= 90% first-pass approval). (4) An auto-approval pilot for clean ePA imaging requests started 3 weeks before the snapshot (decided_by_role = 'Automation').\n",
+     "DEFINITIONS: approval rate and denial rate use decided requests only (final_outcome IN ('Approved','Denied')). Open queue = final_outcome = 'Open' (its AI pre-review lives in ai_case_review; ai_lane values: Auto-approval lane, Nurse fast-track, Request information, Physician review). Only Medical Directors deny; automation only approves. um_decisions holds decisions recorded in the PA Copilot app (write-back). snapshot_info.as_of_ts is the queue snapshot time (a Monday 08:00 UTC).\n",
+     "Join pa_requests to providers (provider_id), medical_policies (policy_id), members (member_id), reviewers (reviewer_id). Round percentages to 1 decimal.\n",
+     "ROUTING: numbers, counts, amounts, rates, trends -> query the TABLES (SQL); never answer numbers from a document. Policy, procedure, guideline, contract and 'what does the document say' questions -> search the attached documents and cite the document name + section.\n"
+    ]
+   }
+  ],
+  "example_question_sqls": [
+   {
+    "id": "20000000000000000000000000000001",
+    "question": [
+     "Expedited 72-hour SLA compliance by arrival window and intake channel"
+    ],
+    "sql": [
+     "SELECT CASE WHEN dayofweek(r.received_ts) IN (1,7) OR (dayofweek(r.received_ts)=6 AND hour(r.received_ts)>=15) THEN 'Weekend (Fri 3pm - Sun)' ELSE 'Weekday' END AS arrival_window, r.channel, COUNT(*) AS decided_requests,\n",
+     "  ROUND(100 * AVG(CASE WHEN r.sla_met THEN 1 ELSE 0 END), 1) AS sla_compliance_pct,\n",
+     "  ROUND(PERCENTILE(r.turnaround_hours, 0.5), 1) AS median_turnaround_hours\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests r\n",
+     "WHERE r.urgency = 'Expedited' AND r.final_outcome IN ('Approved','Denied')\n",
+     "GROUP BY ALL ORDER BY sla_compliance_pct\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000002",
+    "question": [
+     "Pend rate for MRI lumbar spine by practice group"
+    ],
+    "sql": [
+     "SELECT p.practice_group, COUNT(*) AS requests,\n",
+     "  ROUND(100 * AVG(CASE WHEN r.pend_count > 0 THEN 1 ELSE 0 END), 1) AS pend_rate_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests r JOIN {{CATALOG}}.{{SCHEMA}}.providers p ON p.provider_id = r.provider_id\n",
+     "WHERE r.policy_id = 'MV-RAD-014' AND r.final_outcome <> 'Open'\n",
+     "GROUP BY ALL HAVING COUNT(*) >= 20 ORDER BY pend_rate_pct DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000003",
+    "question": [
+     "Most common pend reasons by service"
+    ],
+    "sql": [
+     "SELECT r.service_description, r.pend_reason, COUNT(*) AS pends\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests r\n",
+     "WHERE r.pend_reason IS NOT NULL\n",
+     "GROUP BY ALL ORDER BY pends DESC LIMIT 15\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000004",
+    "question": [
+     "How many requests were clean on first review and how long did they wait"
+    ],
+    "sql": [
+     "SELECT ROUND(100 * AVG(CASE WHEN criteria_met_on_first_review THEN 1 ELSE 0 END), 1) AS first_pass_clean_pct,\n",
+     "  COUNT_IF(decision_path = 'Nurse approved') AS clean_nurse_approvals,\n",
+     "  ROUND(PERCENTILE(CASE WHEN decision_path = 'Nurse approved' THEN turnaround_hours END, 0.5), 1) AS median_hours_to_approve_clean_cases\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests\n",
+     "WHERE final_outcome IN ('Approved','Denied') AND criteria_met_on_first_review IS NOT NULL\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000005",
+    "question": [
+     "Weekly auto-approval rate and SLA compliance"
+    ],
+    "sql": [
+     "SELECT DATE_TRUNC('WEEK', received_ts) AS week, COUNT(*) AS requests,\n",
+     "  ROUND(100 * COUNT_IF(decided_by_role = 'Automation') / NULLIF(COUNT_IF(final_outcome IN ('Approved','Denied')), 0), 1) AS auto_approval_rate_pct,\n",
+     "  ROUND(100 * AVG(CASE WHEN sla_met THEN 1 WHEN sla_met = false THEN 0 END), 1) AS sla_compliance_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests WHERE final_outcome <> 'Open'\n",
+     "GROUP BY ALL ORDER BY week\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000006",
+    "question": [
+     "Open queue by AI lane"
+    ],
+    "sql": [
+     "SELECT a.ai_lane, COUNT(*) AS open_requests, COUNT_IF(r.urgency = 'Expedited') AS expedited\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.ai_case_review a JOIN {{CATALOG}}.{{SCHEMA}}.pa_requests r ON r.request_id = a.request_id\n",
+     "GROUP BY ALL ORDER BY open_requests DESC\n"
+    ]
+   },
+   {
+    "id": "20000000000000000000000000000007",
+    "question": [
+     "Denial rate by line of business"
+    ],
+    "sql": [
+     "SELECT line_of_business, COUNT_IF(final_outcome IN ('Approved','Denied')) AS decided,\n",
+     "  ROUND(100 * COUNT_IF(final_outcome = 'Denied') / NULLIF(COUNT_IF(final_outcome IN ('Approved','Denied')), 0), 1) AS denial_rate_pct\n",
+     "FROM {{CATALOG}}.{{SCHEMA}}.pa_requests GROUP BY ALL ORDER BY denial_rate_pct DESC\n"
+    ]
+   }
+  ]
+ }
+}

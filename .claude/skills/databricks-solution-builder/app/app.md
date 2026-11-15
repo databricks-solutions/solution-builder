@@ -1,18 +1,19 @@
 # App Generation — Databricks Apps from Template
 
-Invoked as the **final stage** of demo generation, after all other resources (pipeline, dashboard, Genie, KA, MAS) are built and working.
+Invoked as the **final stage** of demo generation, after all other resources (pipeline, dashboard, Genie Agent, documents volume) are built and working.
 
 ## Template overview
 
-Full-stack Node.js/React Databricks App. The assistant doesn't just answer — it **investigates via MAS, drafts actions, writes to Lakebase on approval**. Wiring + scripted demo chain live in `config/app.json`; home-page narrative copy (hero persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` so each demo can reshape the landing freely.
+Full-stack Node.js/React Databricks App. The assistant doesn't just answer — it **investigates via the Genie Agent (`ask_data`), drafts actions, writes to Lakebase on approval**. Wiring + scripted demo chain live in `config/app.json`; home-page narrative copy (hero persona, headline, situation, goal, starter questions, featured action) is hardcoded at the top of `HomeView.tsx` so each demo can reshape the landing freely.
 
 ### Required resources
 
-Genie, Dashboard, MAS are slow to create and during the initial build can be built in parallel. If they're in the spec and story, and you don't see the values in resources.json, use these placeholder in the conf file: __LATE_FILL_GENIE__, __LATE_FILL_DASHBOARD__, __LATE_FILL_MAS__
+The Genie Agent and Dashboard are slow to create and during the initial build can be built in parallel. If they're in the spec and story, and you don't see the values in resources.json, use these placeholders in the conf file: __LATE_FILL_GENIE__, __LATE_FILL_DASHBOARD__
 
 | Component | Required? | Notes |
 |-----------|-----------|-------|
-| **MAS or Genie endpoint** | Strongly recommended | Assistant delegates data/doc questions to MAS. Genie endpoint works as fallback, or pure open ai agent with custom tools. Use __LATE_FILL_MAS__ if the MAS is being built and is not yet in resources.json |
+| **Genie Agent space** | Strongly recommended | The `ask_data` tool asks it for both SQL (the tables) and documents (the PDF volume). Use __LATE_FILL_GENIE__ while the space is being built and is not yet in resources.json. |
+| **Documents volume** | Optional | Only with the `unstructured-documents` capability: a dedicated MANAGED UC volume holding only the PDFs, attached to the Genie Agent and indexed (`SUCCEEDED`) before the first question. Sets `pdfVolumePath`. No documents, no volume. |
 | **Lakebase** | Yes | OLTP mirror of Delta — the write-capable operations surface. |
 | **SQL Warehouse** | Yes | Powers analytics page + Delta→Lakebase sync. |
 | **Delta tables** | Yes | Source of truth, synced to Lakebase at boot. |
@@ -28,10 +29,10 @@ Chat UI (dock + full-page), streaming with thinking panel, MLflow tracing per tu
 |------|---------------|
 | **Config** | `config/app.json` — branding, scripted demo chain (`assistantScript`), data sources, resource IDs (agent endpoint, warehouse, MLflow, dashboard) |
 | **Home narrative** | `client/src/home/HomeView.tsx` top-of-file constants — `HERO`, `STORY` (headline/situation/goal), `STARTER_QUESTIONS`, `FEATURED_ACTION`. Rewrite these to match the demo; the template values are an example, not a pattern to preserve |
-| **Domain schema** | `server/db/schema.ts` is the SINGLE source of truth for the Lakebase tables (keep chat state as-is). Preserve the append-only JSONB audit columns pattern — powers the operations timeline, delete the example-specific one. **You only edit `schema.ts`** — the SQL migration under `drizzle/` is a build artifact, regenerated from it by `npm run db:generate` (wired into `prebuild`/`predev`, so `npm run build` and `./start.sh` both regenerate automatically). Never hand-edit or commit a migration `.sql`, and never rely on the old one — a stale migration = the app boots the wrong tables and crashes (`relation "app.<table>" does not exist`). If you ever run drizzle-kit directly while debugging: `rm -rf drizzle/* && npm run db:generate`. |
+| **Domain schema** | `server/db/schema.ts` is the SINGLE source of truth for the Lakebase tables (keep chat state as-is). Preserve the append-only JSONB audit columns pattern — powers the operations timeline, delete the example-specific one. **You only edit `schema.ts`** — the SQL migration under `drizzle/` is a build artifact, regenerated from it by `npm run db:generate` (wired into `prebuild`/`predev`, so `npm run build` and `./start.sh` both regenerate automatically). Never hand-edit or commit a migration `.sql`, and never rely on the old one — a stale migration = the app boots the wrong tables and crashes (`relation "app.<table>" does not exist`). If you ever run drizzle-kit directly while debugging: `rm -rf drizzle/* && npm run db:generate`. The from-scratch baseline is deterministic (`0000_init`, pinned `when` — `scripts/db-generate.js`), so regenerating it is a no-op against a DB that already applied the same schema (no redeploy 503). But a wiped-and-regenerated baseline is also SKIPPED by a DB that applied an OLDER schema (boot logs `[migrate] WARNING … will be SKIPPED`) — after the app has run against a database, either keep `drizzle/` and let `db:generate` add an incremental migration, or point the app at a fresh database. |
 | **Data sync** | Delta→Lakebase SELECTs for the domain's data subset |
 | **Domain queries** | Lookup + bulk-update helpers for the operations entity |
-| **Agent** | Tools + instructions. MAS/Genie passthrough typically stays; domain tools (find, batch-process, create, emails...) get rewritten to follow the story |
+| **Agent** | Tools + instructions. The `ask_data` Genie Agent tool typically stays; domain tools (find, batch-process, create, emails...) get rewritten to follow the story |
 | **Analytics SQL** | Warehouse queries for the domain's charts |
 | **Frontend** | Home page journey cards, operations page (columns, drawer tabs, detail content), analytics charts if layout changes |
 | **Theming** | `client/src/index.css` `:root` block — all colors are CSS custom properties. Change the palette there to rebrand (primary, accent, status tints, tier badges, charts). No hardcoded colors in components |
@@ -64,11 +65,13 @@ rsync -a \
 
 ### Step 3: Customize the template
 
-**The template's component set is an EXAMPLE, not the contract. Your contract is the demo's spec (`specifications/app/` + README).** The template you copied is wired for the full LuxeBeauty stack — MAS + Genie + embedded dashboard + Knowledge Assistant + ML premium tiering + a returns-queue operations page + tiered-offer agent tools. **Your demo almost certainly has a different set.** Before customizing, diff the two:
+> **The reference app is a scaffold, NOT a UI to reproduce.** Change pages, layout, navigation, components, and look so it reads as a real tool for THIS use-case — matching the LuxeBeauty shape is the failure mode (looks-like-the-template-with-new-labels is the top "feels generic" complaint). Be bold: redraw the information architecture for the demo's persona; keep only the plumbing (see "entirely different app" below). Nothing in the UI is sacred except the reusable infrastructure.
 
-- **Fewer components than the template** → *remove* the wiring, don't relabel it. The demo has no dashboard? Delete the Dashboard route + sidebar entry, don't ship an empty iframe. No ML tiering? Strip the premium-tier logic (see the "no ML" example below), don't leave dead `final_tier` branches. No KA, no MAS? Collapse the agent down to what's actually there. A relabeled-but-still-present component reads as "they forgot to finish the template."
+**The template's component set is an EXAMPLE, not the contract. Your contract is the demo's spec (`specifications/app/` + README).** The template you copied is wired for the full LuxeBeauty stack — a Genie Agent (tables + documents) + embedded dashboard + ML premium tiering + a returns-queue operations page + tiered-offer agent tools. **Your demo almost certainly has a different set.** Before customizing, diff the two:
 
-  **The canonical "fewer" case is the Simple demo** (the generator's default home-page tab): synthetic data → Unity Catalog → AI/BI Dashboard → **Genie**, with an optional App + Lakebase toggle — and **no SDP, no Knowledge Assistant, no MAS, no ML**. When a Simple demo ships an app, the agent's data tool is **Genie, used directly — not MAS** (the template defaults to MAS). Concretely: leave `masEndpointName` empty and set `genieSpaceId` in `config/app.json`, then in `server/agent/<name>.ts` `makeTools` swap the `ask_mas` tool for the `askGenieTool` (Genie-space) path — the comments in `config/app.json` next to those two fields point at exactly this swap. Then strip ML tiering (the "no ML" example below) and drop the KA/MAS-specific agent instructions. The result is a leaner app where the *only* data path is Genie — not a full-stack template with MAS quietly pointed at nothing.
+- **Fewer components than the template** → *remove* the wiring, don't relabel it. The demo has no dashboard? Delete the Dashboard route + sidebar entry, don't ship an empty iframe. No ML tiering? Strip the premium-tier logic (see the "no ML" example below), don't leave dead `final_tier` branches. No Genie Agent, no documents? Collapse the agent down to what's actually there. A relabeled-but-still-present component reads as "they forgot to finish the template."
+
+  **The canonical "fewer" case is the Simple demo** (the generator's default home-page tab): synthetic data → Unity Catalog → AI/BI Dashboard → **Genie**, with an optional App + Lakebase toggle — and **no SDP, no ML, and usually no documents volume**. When a Simple demo ships an app, the agent's data tool is the Genie Agent: set `genieSpaceId` in `config/app.json` (it is the only data path). Leave out the documents volume unless the demo has PDFs. Then strip ML tiering (the "no ML" example below) and drop any document-specific agent instructions. The result is a leaner app where the *only* data path is the Genie Agent.
 - **More / different components than the template** → *add* them. The demo's spec calls for a second operations entity, an extra page, a map the template never had, an agent tool the template never had, a different primary surface? Build it. The template gives you the *patterns* (3-phase action chain, append-only audit columns, KPI cards that tick on write, the thinking panel, Delta→Lakebase sync) — apply those patterns to whatever the spec describes, even where the template has no matching file. Don't constrain the demo to the template's shape.
 
 - **Entirely different app requirement?** That's fine — **you're due for a big template update.** The template is a starting point, not a cage. If the spec describes an app whose shape barely overlaps the LuxeBeauty returns console — different pages, a different navigation, a different primary interaction, no operations-queue at all — then **rewrite the pages and layout wholesale.** Replace `HomeView.tsx`, delete and recreate the operations page, restructure the sidebar/routes, change the whole information architecture. Keep only the genuinely-reusable plumbing (chat dock + streaming + thinking panel, MLflow tracing, OBO auth, the Delta→Lakebase sync framework, Drizzle migrations, the `${VAR}` config substitution) — everything above that layer is yours to redraw. Don't contort the demo to fit the template's screens; reshape the screens to fit the demo.
@@ -84,14 +87,13 @@ Key patterns to preserve:
 - **Append-only audit columns** on the primary entity — powers the Activity tab timeline.
 - **`assistantScript`** in config with `triggerAfter` keywords — drives the scripted demo path.
 - **KPI cards** that tick live when the agent writes — the real-time feedback loop.
-- **Thinking panel** streaming MAS sub-agent activity — the transparency demo moment.
+- **Thinking panel** streaming the Genie Agent's SQL and document-search steps — the transparency demo moment.
 - **Reset demo** button (header) — truncates all Lakebase tables and re-syncs from Delta. The demo makes real writes (approvals, emails, audit trail), so a one-click reset to restart from the beginning of the story is essential. Keep this unless explicitly told otherwise.
 
 Handle missing components example during this step:
-- **No MAS, has Genie**: Point `ask_data` to Genie endpoint. Streaming interface is compatible.
-- **No MAS, no Genie**: Use a pure OpenAI Agents SDK agent with custom tools (no `ask_data` passthrough).
+- **No Genie space**: drop the `ask_data` tool and `genieSpaceId`; use a pure OpenAI Agents SDK agent with custom tools.
+- **No documents**: don't attach a volume (leave `pdfVolumePath` unset and drop the `unstructured-documents` capability). The Genie Agent answers from the tables only.
 - **No dashboard**: Remove Dashboard route + sidebar entry.
-- **No KA**: MAS routes everything to Genie — no code change needed.
 - **No ML / no premium tiering** (e.g. Simple-tab demos): clear `data.tables.customerPremium` in `app.json` so `sync.ts` skips the predictions sync. Drop `find_lot_premium_breakdown` from the agent's `makeTools`, collapse `process_return_batch`'s `tier_offers` to a single `offer`, and rewrite the agent `instructions` to a flat-offer flow (one `create_coupon`, one email template). UI premium badges already render conditional on `final_tier != null`, so they auto-hide.
 
 Make sure you do an extensive review - no mention to the template specific use-case, everything is migrate to the new app story, rename/delete file to support the new specification, review the full implementation to make sure it's all up to date and we'll be able to start and make the app work.
@@ -118,16 +120,35 @@ The template ships with one look (editorial, neutral, light-mode-first). Reused 
   - **`company_official_website_screenshot`** (`brand/website.png`): open and look at it — echo the real site's layout, typography, and tone.
 - **Without it** — pick a palette + type + density from the domain's conventions: industrial/ops → dark, strong accent, tight; financial/exec → muted, sharp contrast; consumer → warm, editorial, roomier. One bold accent tied to the hero element. Flip `:root` to dark if the domain reads better dark (SCADA, security ops, traders). Swap Geist/Fraunces for what fits (Google Fonts via `<link>` in `index.html`).
 
-**Name it for the story** (both cases): set `config/app.json` `branding.appName` (the big in-app title) to fit the company + use-case — e.g. `"<Company> Returns Console"` — and fix the browser tab (`client/index.html` `<title>` still says `mas-chat-demo`) to match.
+**Name it for the story** (both cases): set `config/app.json` `branding.appName` (the big in-app title) to fit the company + use-case — e.g. `"<Company> Returns Console"` — and set the browser tab (`client/index.html` `<title>`, shipped as the placeholder `My Demo App`) to the same name.
+
+**Give it a unique usage-tracker id.** The template ships the dbdemos usage tracker (`server/lib/tracker.ts`: one anonymous page-view event, `@databricks.com` users hashed) **off**. Turn it on by setting `config/app.json` → `"dbdemosAppId": "${DBDEMOS_APP_ID:<demo-slug>-<resource_suffix>}"` (e.g. `luxebeauty-returns-a3f2c1`), using the `resource_suffix` from `resources.json`. The suffix is what makes it unique: building the same demo twice must not report as one app. A project forked from a seed template already has `<template-id>-<resource_suffix>`; keep it.
 
 **Sanity check:** open the running app side-by-side with the LuxeBeauty template. If it just looks like the template with a new accent color, you've only done the button — keep going until it reads as this demo's (or this company's) real tool.
 
-read `resources.json` to get the available resource ids to use (ex: mas endpoint)
+#### Fleet-verified checks (from reviewing every generated app)
+
+The moves that separate "a real tool" from "the template re-skinned" — apply ALL (they're cheap):
+
+- **Light-vs-dark is a PERSONA decision — the #1 residual tell.** The template defaults to light + Fraunces (editorial serif): right for consumer/retail/content/marketing, OK for exec/finance, but **WRONG for any ops/security/trading/observability console — a SOC/NOC/trading/monitoring tool must be dark**. For those also swap Fraunces for a technical font (Space Grotesk / condensed / mono). A structurally-bespoke app in the wrong theme still reads as "LuxeBeauty re-skinned".
+- **A theme flip (light→dark) is ~40 lines of tokens + a font link, but four things bypass tokens** — grep domain views for `bg-[#`, `bg-white`, `text-[#`, `text-white`: (a) hero-internal `bg-white`/`text-white/60` over a colored hero are usually fine — leave; (b) hardcoded hex pills/callouts in the domain `ui.tsx` + workbench — darken; (c) a near-black `--chart-1` **vanishes as a dark series** — remap to a bright stop; (d) if `--primary` is the darkest brand stop, **filled buttons disappear** — point it at a brighter stop.
+- **Sweep for template residue** before shipping: grep `luxe|returns|refund|Refunds \(90d\)|take action on returns` **including CSS comments + chat empty-state copy** (a `/* Refunds (90d) counter */` in `index.css`, a `"take action on returns"` placeholder survive into non-returns demos and read as unfinished).
+- **Fix the chart-SQL `@param` defaults to the REAL catalog/schema.** `config/queries/*.sql` ship with `-- @param catalog STRING = <default>` / `schema = <default>` set to a wrong (un-prefixed/sibling) catalog. It's a type-generator-only input — runtime binds the real `:catalog`/`:schema` from `config/app.json` so charts render — but a wrong default throws `TABLE_OR_VIEW_NOT_FOUND`/`INSUFFICIENT_PERMISSIONS` at every boot and degrades chart row types to `unknown`. Set every `@param` default = the demo's deployed catalog/schema (incl. `sb_`/env prefix).
+- **The "Ask the copilot" chat FAB overlaps content on first paint** (starter chips, table edges, a map, a right rail) on essentially every app — a fixed bottom-right pill with no bottom padding reserved on scroll containers. Reserve bottom padding on main scroll areas (or shrink/auto-hide the idle pill).
+
+#### Plumbing is shared; its SHAPE is not — these variants are valid
+
+Keep the reusable plumbing (chat streaming + Thinking panel, MLflow tracing, OBO auth, Delta→Lakebase sync, Drizzle, `${VAR}` config), but don't force the template's exact wiring:
+
+- **No ChatDock when the copilot IS the primary action** — an investigator/case tool can embed the agent as an in-workflow SSE stream on the case page (e.g. a "Draft the SAR" button streaming evidence tools inline) instead of a side dock. Reads *more* bespoke.
+- **No Lakebase when there's no write-heavy OLTP need** — a read-mostly ops/analytics app can read/write Delta via the warehouse with an in-memory chat store. (The resource table lists Lakebase as the default write-back surface; not mandatory without durable write-back.)
+
+read `resources.json` to get the available resource ids to use (ex: Genie space id)
 
 When this app step runs, add the following fields to `created_resources` in `resources.json` — the UI's Products card uses them to render the "Open" buttons for Lakebase and the App:
 
-- `lakebase_project_id` — UUID (`databricks postgres get-project | jq -r .uid`). Powers the `lakebase/projects/<uuid>` link.
-- `lakebase_project_slug` — human-readable slug. Used by CLI commands and DAB variable substitution.
+- `lakebase_project_id` — the **UUID** (`databricks postgres get-project | jq -r .uid`), NOT the slug/name. Powers the `lakebase/projects/<uuid>` link (the slug 404s). See the fuller note under Step 3.
+- `lakebase_project_slug` — human-readable slug (the name). Used by CLI commands and DAB variable substitution.
 - `lakebase_database` — DB name (`dbgen_<demo-short-name>`).
 - `app.name` — record as soon as the app's initial setup is done (scaffold + config), BEFORE deploy. `app.name` alone marks the app capability "built" in the UI (a preview-only app that never deploys still counts). `app.id`/`app.url` are added later, only after the deploy step.
 - `agent_mlflow_experiment_path` — the MLflow experiment for AGENT traces (distinct from any ML-training `mlflow_experiment_path`). Convention: `/Shared/solution_builder/<app_name>-agent-traces`. **You usually don't need to set anything** — when `AGENT_MLFLOW_EXPERIMENT_PATH` is unset, the app self-derives exactly this path from the auto-injected `DATABRICKS_APP_NAME` at boot and get-or-creates the experiment. Persist this key (and/or set the env var) only to pin an explicit non-default path.
@@ -135,7 +156,7 @@ When this app step runs, add the following fields to `created_resources` in `res
 **`config/app.json` — `agentModel` and `agentEndpointName`:** the assistant talks to TWO things, don't conflate them.
 
 - `agentModel` — the FM endpoint for the Agents SDK loop. **Use `databricks-gpt-5-4` or a newer GPT with `openai/v1/responses` enabled** (check the endpoint's `api_types`). The SDK uses the Responses API, which Databricks gates per-model — so the version isn't the constraint, Responses support is. Claude/non-Responses models 400 (`"Responses API passthrough is not supported…"`). Use the exact endpoint name; don't abbreviate.
-- `agentEndpointName` — only used when `mode='mas'` (raw MAS passthrough). For the agent loop it's a no-op label. If the demo has no MAS, leave it empty or set it to the Genie space description; routing happens in code.
+- `genieSpaceId` — the Genie Agent space the `ask_data` tool queries (tables + the documents volume). Required for the data tool; empty → the tool is not registered.
 
 ### Step 4: Configure environment
 
@@ -153,7 +174,7 @@ per run mode, but the SAME names everywhere:
 
 The key env vars `config/app.json` reads: `DEMO_CATALOG`, `DEMO_SCHEMA` (the
 demo's UC catalog/schema), `DASHBOARD_ID`, `PIPELINE_ID`, `WAREHOUSE_ID`,
-`GENIE_SPACE_ID`, `KA_ENDPOINT_NAME`, `MAS_ENDPOINT_NAME`,
+`GENIE_SPACE_ID`,
 `AGENT_MLFLOW_EXPERIMENT_PATH`. Unset → that field degrades (inert tile /
 skipped feature); the app still boots. So **the agent never edits resource IDs
 into `config/app.json`** — it sets them in `.env` (preview/local) or lets the
@@ -171,7 +192,7 @@ there if you want traces. Set it explicitly (env or `resources.json`'s
 
 Note the **interactive `deploy.sh` uploads `app.yaml` verbatim and harvests
 nothing** from `resources.json` — so the OTHER resource vars (`DEMO_CATALOG`,
-`GENIE_SPACE_ID`, `MAS_ENDPOINT_NAME`, `DASHBOARD_ID`, …) still must be present
+`GENIE_SPACE_ID`, `DASHBOARD_ID`, …) still must be present
 in `app.yaml`'s `env:` block when deploying interactively (only the DAB path's
 `finalize_app.sh` injects them). The MLflow path is the one that no longer
 needs it.
@@ -191,26 +212,28 @@ Run `./scripts/lakebase_setup_db.sh` once to ensure the Lakebase project + branc
 
 `<demo-short-name>` is short, lowercase, - (e.g. `dbge-luxebeauty`). The script derives the resource slug as `db-` + name with `_` → `-`. Branch defaults to `production`.
 
-Without `--project-id` the script uses the shared `dbdemos-asset-generator` project (auto-bumps to `-2`, `-3`, … up to `-9` if full). Pass `--project-id` for a dedicated databricks lakebase project (no fallback — fails loudly if full).
+Without `--project-id` the script distributes demos across a shared project pool (`dbdemos-asset-generator`, then `-2` … `-9`): it picks the first project holding fewer than `SHARED_PROJECT_MAX_DBS` databases (default 50), rolling to the next as they fill. This keeps any one project's branch under Lakebase's roles-per-branch limit (each database auto-adds ~2 zeroETL roles). Pass `--project-id` for a dedicated databricks lakebase project (no pool fallback — fails loudly if full).
 
-The script prints the connection values at the end — copy them straight into `.env` for local dev (see below).
+The script prints TWO blocks at the end:
+1. a **`.env` block** (`LAKEBASE_PROJECT_ID=…`, `PGHOST=…`, …) — copy straight into `.env` for local dev (see below);
+2. a **`resources.json` block** — the exact `lakebase_project_id` / `lakebase_project_slug` values to record (it resolves the uid for you).
 
-Save **both** the project UUID and the slug into `resources.json`. They serve different jobs:
+Save **both** the project UUID and the slug into `resources.json`. They serve different jobs — and it is easy to get them backwards, so read this carefully:
 
-- **`lakebase_project_id`** — the UUID (`uid` field). Powers the workspace UI link (`{host}/lakebase/projects/<uuid>`). The slug alone **does not resolve** in the browser.
-- **`lakebase_project_slug`** — the human-readable slug. Stays in CLI commands, DAB variable substitution, and any resource path that uses `projects/<slug>/branches/...`.
+- **`lakebase_project_id`** — the **UUID** (`uid` field). Powers the workspace UI link (`{host}/lakebase/projects/<uuid>`). The slug alone **does not resolve** in the browser → the "Open Lakebase" button 404s.
+- **`lakebase_project_slug`** — the human-readable slug (the name). Stays in CLI commands, DAB variable substitution, and any resource path `projects/<slug>/branches/...`.
 
-Fetch the UUID via the `uid` field of `get-project`:
+⚠️ **Do NOT copy the `.env` block's `LAKEBASE_PROJECT_ID` into `resources.json`'s `lakebase_project_id`.** They collide by name but differ by meaning: the ENV var `LAKEBASE_PROJECT_ID` holds the **slug** (used in connection/resource paths), whereas the resources.json field `lakebase_project_id` holds the **UUID**. Take the UUID from the script's `resources.json` block (or resolve it yourself):
 
 ```bash
 databricks postgres get-project "projects/<slug>" -o json | jq -r '.uid'
 # e.g. projects/my-app → <project-uuid>
 ```
 
-Then write both:
+Then write both (UUID in `_id`, slug in `_slug`):
 
 ```json
-"lakebase_project_id": "<uid from get-project>",
+"lakebase_project_id": "<uid from get-project — a UUID, NOT the slug>",
 "lakebase_project_slug": "<slug passed to lakebase_setup_db.sh>",
 "lakebase_database": "dbgen_<demo_short_name>"
 ```
@@ -247,8 +270,6 @@ DEMO_SCHEMA=<schema>
 DASHBOARD_ID=
 PIPELINE_ID=
 GENIE_SPACE_ID=
-KA_ENDPOINT_NAME=
-MAS_ENDPOINT_NAME=
 # Agent-traces experiment. Leave EMPTY in most cases — the app self-derives
 # /Shared/solution_builder/<DATABRICKS_APP_NAME>-agent-traces at boot when this
 # is unset (and get-or-creates it). Set it only to pin a non-default path, or
@@ -281,7 +302,7 @@ Static checks first:
 
 - **Type-check with ZERO errors** — run the script that actually compiles server + client. `npm run build` here is a deliberate no-op; use `npm run typecheck` (or `build:source`). Stubbed/placeholder components that don't compile fail this.
 - **No leftover template identity** — grep the app (`client/`, `server/`, `config/`) for the template's example domain/brand + example table/entity names. Zero hits.
-- `config/app.json` resource IDs match `resources.json`
+- `config/app.json` resource IDs match `resources.json`, and `dbdemosAppId` is `<demo-slug>-<resource_suffix>` (not empty, not another demo's id)
 - `data.tables` names match pipeline's actual Delta table names
 - Agent tools reference correct Lakebase schema columns
 
@@ -353,13 +374,13 @@ Make sure `.env` has `APP_NAME` set to the resolved name and the Lakebase values
 ./scripts/deploy.sh
 ```
 
-The script reads `.env` and does it all: rebuilds `dist/` from source (never ships a stale build), uploads source, creates the App if missing, deploys (which applies the OBO scopes from `app.yaml`'s `user_authorization.scopes` — incl. `model-serving`, needed by the agent's `/serving-endpoints/responses` call), then runs `lakebase_grant_app_credential.sh` (creates/grants the SP's Postgres role + reassigns any stale prior-SP ownership), starts the App, and prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (quota, name taken, permission denied) surface as one-line actionable errors.
+The script reads `.env` and does it all: rebuilds `dist/` from source (never ships a stale build), uploads source, creates the App if missing, deploys (which applies the OBO scopes from `app.yaml`'s `user_authorization.scopes` — incl. `model-serving`, needed by the agent's `/serving-endpoints/responses` call), then runs `lakebase_grant_app_credential.sh` (creates/grants the SP's Postgres role; stale prior-SP ownership is only reassigned with the opt-in `--reassign-stale`), starts the App, and prints URL + status + the `databricks apps logs` tail command. Idempotent on every step. Common failures (quota, name taken, permission denied) surface as one-line actionable errors.
 
 **⚠️ Scopes come from `app.yaml`, not from `apps create/update`.** The agent's OBO token gets its scopes from `app.yaml`'s `user_authorization.scopes` (applied at `apps deploy`). Do NOT set `user_api_scopes` via `databricks apps update --json` on this interactive path — it overrides app.yaml's scopes with a *different vocabulary* (`serving.serving-endpoints` ≠ `model-serving`) and the agent then 403s `Invalid scope, required scopes: model-serving`. If the agent 403s, the fix is in `app.yaml` (+ redeploy), not an out-of-band `apps update`.
 
 **No resource binding on this path** (no action needed): the `valueFrom:` refs in `app.yaml` only resolve via DAB; interactively the app has `resources: []` and reads PG*/warehouse from `.env` + platform injection. `deploy.sh` runs `lakebase_grant_app_credential.sh` to create/grant the SP's Postgres role.
 
-**Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. `lakebase_grant_app_credential.sh` fixes this automatically (reassigns ownership via `postgres delete-role --reassign-owned-to`). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
+**Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. On a **dedicated** Lakebase project, re-run `lakebase_grant_app_credential.sh … --reassign-stale` (reassigns ownership via `postgres delete-role --reassign-owned-to`). It is opt-in on purpose: roles are branch-wide, so on a **shared** project (`dbdemos-asset-generator`) every other SP role belongs to ANOTHER demo's live app — never pass the flag there (drop the old app's database instead, or reassign only that one role by hand). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
 
 **After deploying, add the `id` to the app block in `resources.json` `created_resources`** (`name` was already recorded at the end of Step 5):
 
@@ -390,7 +411,7 @@ The deploy is **5 commands** (the user runs them; the skill does NOT run
 ./app/scripts/lakebase_setup_db.sh --db-name dbgen_<demo>
 # 2. Provision resource shells + setup job
 databricks bundle deploy --var catalog=… --var schema=… --var warehouse_id=…
-# 3. Run the setup job (data → pipeline → MV/ML → genie/ka/mas → export_resources)
+# 3. Run the setup job (data → pipeline → MV/ML → genie → export_resources)
 databricks bundle run <demo>_setup --var …
 # 4. Grant the app SP on Lakebase schemas (post-deploy)
 ./app/scripts/lakebase_grant_app_credential.sh --app-name … --project-id … --db-name …
@@ -398,8 +419,8 @@ databricks bundle run <demo>_setup --var …
 ./app/scripts/finalize_app.sh
 ```
 
-Why env is finalized OUTSIDE the bundle (steps 3+5): the Genie/KA/MAS endpoint
-IDs only exist AFTER the setup job's SDK tasks run, so the bundle can't know
+Why env is finalized OUTSIDE the bundle (steps 3+5): the Genie Agent space ID
+only exists AFTER the setup job's SDK tasks run, so the bundle can't know
 them at `deploy` time. The job's last task (`export_resources`) exits a JSON
 manifest of every resolved ID; `finalize_app.sh` reads it back
 (`get-run-output`) and writes `app.yaml`'s env. This keeps a bare

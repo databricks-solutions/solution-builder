@@ -1,0 +1,330 @@
+/* ════════════════════════════════════════════════════════════════════
+   theme.css — every style a workshop CELL uses.
+   - Tokens first (.gcw custom properties): change brand colors/fonts here.
+   - Then shared components, then one block per diagram component.
+   - Inlined into the HTML preview AND (pruned per cell) into each notebook
+     %md-sandbox cell. Preview chrome (sidebar, cell frame) is in shell.css.
+   ════════════════════════════════════════════════════════════════════ */
+/* ── Tokens + base: every cell is scoped under .gcw ── */
+.gcw { --ink:#1b2733; --muted:#5b6773; --border:#e3e8ee; --accent:#ff3621;
+  --code-bg:#0d1b26; --code-ink:#e6edf3; --prompt-bg:#fff7ed;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-family:var(--font); color:var(--ink); line-height:1.55; font-size:14px;
+  -webkit-font-smoothing:antialiased; }
+.gcw *, .gcw *::before, .gcw *::after { box-sizing:border-box; }
+.gcw h1 { font-size:26px; margin:4px 0 12px; line-height:1.2; }
+.gcw h2 { font-size:19px; margin:2px 0 8px; }
+.gcw h3 { font-size:15px; margin:16px 0 6px; }
+.gcw p { margin:10px 0; }
+.gcw a { color:var(--accent); text-decoration:none; }
+.gcw a:hover { text-decoration:underline; }
+.gcw code { font-family:var(--mono); font-size:.88em; background:#eef2f6; padding:1px 5px; border-radius:4px; }
+.gcw ul, .gcw ol { margin:10px 0; padding-left:22px; }
+.gcw li { margin:4px 0; }
+.gcw table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+.gcw th, .gcw td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+.gcw th { background:#f2f5f8; }
+.gcw hr { border:none; border-top:1px solid var(--border); margin:22px 0; }
+.gcw .lead { font-size:17px; color:var(--ink); margin:6px 0 4px; font-weight:500; line-height:1.45; }
+.gcw .check { color:#166534; font-weight:600; }
+/* Genie Code inline marks */
+.gcw .gc-mark { display:inline-flex; vertical-align:-0.16em; }
+.gcw .gc-mark svg { width:1.05em; height:1.05em; }
+.gcw h1 .gc-logo-inline { display:inline-flex; vertical-align:-0.10em; }
+.gcw h1 .gc-logo-inline svg { width:0.95em; height:0.95em; }
+/* callout note */
+.gcw blockquote.note { margin:12px 0; padding:10px 16px; border-left:3px solid #cbd5e1;
+  background:#f5f8fb; color:var(--muted); border-radius:0 6px 6px 0; }
+.gcw blockquote.note p { margin:6px 0; }
+/* the copyable Ask-the-Assistant prompt */
+.gcw .prompt { position:relative; margin:12px 0; padding:14px 46px 14px 16px;
+  background:var(--prompt-bg); border:1px solid #fed7aa; border-left:3px solid #f59e0b; border-radius:0 8px 8px 0; }
+.gcw .prompt .prompt-label { display:inline-flex; align-items:center; gap:6px;
+  font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#b45309; margin-bottom:6px; }
+.gcw .prompt p { margin:4px 0; font-style:italic; color:#7c2d12; }
+.gcw .prompt .copy { position:absolute; top:10px; right:10px; border:1px solid #fbbf24;
+  background:#fffbeb; color:#92400e; border-radius:6px; font-size:11px; padding:3px 8px; cursor:pointer; }
+.gcw .prompt .copy:hover { background:#fef3c7; }
+.gcw .prompt .copy.done { background:#dcfce7; border-color:#86efac; color:#166534; }
+/* raw-code block (in a md cell) */
+.gcw pre.plain { background:#eef2f6; padding:10px 14px; border-radius:6px; font-family:var(--mono); font-size:13px; overflow-x:auto; margin:12px 0; }
+/* ── story hero ── */
+.gcw .story-hero { display:grid; grid-template-columns:1.15fr 1fr; border:1px solid var(--border);
+  border-radius:12px; overflow:hidden; margin:16px 0 4px; background:#fff; }
+.gcw .story-hero .narr { padding:20px 22px; }
+.gcw .story-hero .narr .tag { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase; color:#b45309; background:#fff7ed; border:1px solid #fed7aa; border-radius:999px; padding:3px 10px; margin-bottom:10px; }
+.gcw .story-hero .narr p { margin:8px 0; font-size:14px; }
+.gcw .story-hero .narr .big { font-size:15px; }
+.gcw .story-hero .narr .big strong { color:#c2410c; }
+.gcw .story-hero .viz { background:linear-gradient(180deg,#0d1b26,#12222f); color:#cdd7e0;
+  padding:20px 22px; display:flex; flex-direction:column; justify-content:center; }
+.gcw .story-hero .viz .viz-title { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:#7d93a6; margin-bottom:4px; }
+.gcw .story-hero .viz .viz-num { font-size:30px; font-weight:700; color:#fff; line-height:1; }
+.gcw .story-hero .viz .viz-num .up { color:#ff6b52; font-size:15px; font-weight:600; margin-left:8px; }
+.gcw .story-hero .viz .spark { margin-top:14px; }
+.gcw .story-hero .viz .cap { font-size:11px; color:#7d93a6; margin-top:8px; }
+/* ── Genie Code pitch card ── */
+.gcw .gc-pitch { border:1px solid #fed7aa; border-radius:12px; overflow:hidden;
+  background:linear-gradient(180deg,#fffdf9,#fff7ed); margin:6px 0; }
+.gcw .gc-pitch .top { display:flex; align-items:flex-start; gap:14px; padding:18px 22px 4px; }
+.gcw .gc-pitch .top .glyph svg { width:42px; height:42px; }
+.gcw .gc-pitch .top .txt .name { font-size:17px; font-weight:700; color:var(--ink); }
+.gcw .gc-pitch .top .txt .tag { font-size:13px; color:#b45309; font-weight:600; margin-top:1px; }
+.gcw .gc-pitch .top .txt p { font-size:13.5px; margin:8px 0 0; color:var(--ink); }
+.gcw .gc-pitch .chips { display:flex; flex-wrap:wrap; gap:8px; padding:12px 22px 6px; }
+.gcw .gc-pitch .chips .chip { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink);
+  background:#fff; border:1px solid #f3d9b8; border-radius:999px; padding:5px 12px; }
+.gcw .gc-pitch .chips .chip .ci { font-size:14px; }
+.gcw .gc-pitch .proof { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 22px 16px;
+  font-size:12.5px; color:var(--muted); }
+.gcw .gc-pitch .proof .stat { font-weight:700; color:#c2410c; font-size:15px; }
+.gcw .gc-pitch .proof .sep { color:#e6c9a3; }
+/* ── how-it-works cards (number floats LEFT of title) ── */
+.gcw .how-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:12px 0 4px; }
+.gcw .how-cards .hc { display:flex; align-items:flex-start; gap:11px; border:1px solid var(--border);
+  border-radius:10px; padding:14px 15px; background:#fbfcfd; }
+.gcw .how-cards .hc .n { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:999px; background:var(--accent); color:#fff; font-size:13px; font-weight:700; }
+.gcw .how-cards .hc .body .h { font-weight:600; font-size:13.5px; margin-bottom:3px; }
+.gcw .how-cards .hc .body .d { font-size:12.5px; color:var(--muted); }
+/* ── flow strip = clickable step cards (real architecture icons); one per notebook ── */
+.gcw .flow-strip { display:flex; align-items:stretch; flex-wrap:wrap; gap:6px; margin:16px 0 4px; }
+.gcw .flow-strip .fstep { position:relative; flex:1 1 0; min-width:120px; text-align:center; text-decoration:none;
+  border:1px solid var(--border); border-radius:12px; background:#fff; padding:16px 10px 14px; color:var(--ink);
+  transition:border-color .12s, box-shadow .12s, transform .12s; display:flex; flex-direction:column; align-items:center; }
+.gcw .flow-strip a.fstep:hover { border-color:#f6a58e; box-shadow:0 4px 14px rgba(255,95,70,.14); transform:translateY(-2px); }
+.gcw .flow-strip .fstep .step-n { position:absolute; top:8px; left:9px; display:inline-flex; align-items:center; justify-content:center;
+  width:20px; height:20px; border-radius:999px; background:#fff1ec; color:#c2410c; font-size:11px; font-weight:700; }
+.gcw .flow-strip .fstep .opt-tag { order:9; display:inline-block; margin-top:8px; padding:1px 7px; border-radius:999px; background:#f1f4f7; font-size:9px; letter-spacing:.05em; text-transform:uppercase; color:#8a95a1; }
+.gcw .flow-strip .fstep .ico { height:34px; display:flex; align-items:center; justify-content:center; margin-top:2px; }
+.gcw .flow-strip .fstep .ico svg { width:30px; height:30px; }
+.gcw .flow-strip .fstep .lbl { font-size:13px; font-weight:700; margin-top:9px; color:var(--ink); }
+.gcw .flow-strip .fstep .sub { font-size:11px; color:var(--muted); margin-top:3px; line-height:1.35; }
+.gcw .flow-strip .farrow { align-self:center; color:#c4cdd6; font-size:16px; padding:0 1px; }
+/* ── step logo tile: animated icon used in the flow strip + every notebook title ── */
+.gcw .step-logo { position:relative; display:inline-flex; align-items:center; justify-content:center; flex:none;
+  width:42px; height:42px; border-radius:12px; overflow:hidden;
+  background:linear-gradient(145deg,#fff6f2 0%,#ffe1d8 100%); border:1px solid #ffd0c6;
+  box-shadow:0 2px 8px rgba(255,95,70,.12); animation:gcw-float 3.6s ease-in-out infinite; }
+.gcw .step-logo svg { width:24px !important; height:24px !important; position:relative; z-index:1; }
+.gcw .step-logo::after { content:""; position:absolute; inset:-40%; z-index:2; pointer-events:none;
+  background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.75) 50%,transparent 58%);
+  transform:translateX(-120%); animation:gcw-shine 5s ease-in-out infinite; }
+.gcw .step-logo.s2 { animation-delay:.3s; } .gcw .step-logo.s2::after { animation-delay:.8s; }
+.gcw .step-logo.s3 { animation-delay:.6s; } .gcw .step-logo.s3::after { animation-delay:1.6s; }
+.gcw .step-logo.s4 { animation-delay:.9s; } .gcw .step-logo.s4::after { animation-delay:2.4s; }
+.gcw .step-logo.s5 { animation-delay:1.2s; } .gcw .step-logo.s5::after { animation-delay:3.2s; }
+.gcw .step-logo.s6 { animation-delay:1.5s; } .gcw .step-logo.s6::after { animation-delay:4s; }
+.gcw .step-logo.s3 svg, .gcw .step-logo.s5 svg { animation:gcw-spin 14s linear infinite; }
+.gcw .step-logo.s4 svg, .gcw .step-logo.s6 svg { animation:gcw-pulse 2.8s ease-in-out infinite; }
+.gcw a.fstep:hover .step-logo { animation-play-state:paused; transform:scale(1.08) rotate(-4deg); transition:transform .2s; }
+.gcw .step-logo.lg { width:52px; height:52px; border-radius:14px; overflow:visible; }
+.gcw .step-logo.lg svg { width:30px !important; height:30px !important; }
+.gcw .step-logo.lg::after { inset:0; border-radius:14px; background-size:300% 100%; }
+.gcw .step-logo b { position:absolute; z-index:3; right:-6px; bottom:-6px; min-width:20px; height:20px; padding:0 5px;
+  border-radius:999px; background:var(--accent); color:#fff; font-size:11px; font-weight:700; line-height:20px; text-align:center;
+  box-shadow:0 0 0 2px #fff; }
+.gcw h1.nb-title { display:flex; align-items:center; gap:16px; }
+@keyframes gcw-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-3px); } }
+@keyframes gcw-shine { 0%,70% { transform:translateX(-120%); } 100% { transform:translateX(120%); } }
+@keyframes gcw-spin { to { transform:rotate(360deg); } }
+@keyframes gcw-pulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { .gcw .step-logo, .gcw .step-logo svg, .gcw .step-logo::after { animation:none !important; } }
+/* ── "next step" button at the end of each notebook ── */
+.gcw a.next-card { display:inline-flex; align-items:center; gap:14px; margin:14px 0 4px; padding:10px 14px 10px 10px; min-width:300px;
+  border:1.5px solid #ffd0c6; border-radius:14px; background:#fff; text-decoration:none; color:var(--ink);
+  box-shadow:0 2px 10px rgba(255,95,70,.08); transition:transform .15s, box-shadow .15s, border-color .15s; }
+.gcw a.next-card:hover { text-decoration:none; transform:translateY(-2px); border-color:#ff8a73; box-shadow:0 8px 22px rgba(255,95,70,.18); }
+.gcw a.next-card .nc-txt { display:flex; flex-direction:column; line-height:1.25; flex:1; }
+.gcw a.next-card .nc-txt small { font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#ff3621; }
+.gcw a.next-card .nc-txt b { font-size:15px; }
+.gcw a.next-card .nc-txt em { font-size:12px; color:var(--muted); font-style:normal; }
+.gcw a.next-card .nc-go { display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%;
+  background:#fff1ee; color:#ff3621; transition:transform .15s, background .15s; }
+.gcw a.next-card:hover .nc-go { transform:translateX(3px); background:#ff3621; color:#fff; }
+/* ── code cell (dark) ── */
+.gcw.codecell { background:var(--code-bg); border:1px solid #12222f; border-radius:10px; overflow:hidden; }
+.gcw.codecell .lang-tag { display:inline-block; font-family:var(--mono); font-size:10px; color:#7d93a6;
+  padding:8px 22px 0; text-transform:uppercase; letter-spacing:.08em; }
+.gcw.codecell pre { margin:0; padding:14px 22px 18px; overflow-x:auto; }
+.gcw.codecell pre code { font-family:var(--mono); font-size:13px; color:var(--code-ink); white-space:pre; background:none; padding:0; border-radius:0; }
+
+/* ── .uc-tree — Unity Catalog hierarchy diagram (used in notebooks/01_setup_and_explore/02) ── */
+.uc-tree { --uc-coral:#FF5F46; --uc-red:#ff3621; --uc-line:#d4dae1; float:right; width:340px; margin:4px 0 12px 28px; font-size:14px; }
+/* each level is a row: node pill (+ optional description) */
+.uc-node { display:flex; align-items:center; }
+.uc-node .pill { display:inline-flex; align-items:center; gap:8px; border:1.5px solid var(--border); border-radius:8px; padding:6px 11px; background:#fff; font-weight:700; color:var(--ink); white-space:nowrap; }
+.uc-node .pill svg { flex:none; }
+.uc-node .uc-desc { color:var(--muted); font-size:12px; font-weight:400; margin-left:9px; }
+/* nesting: children indented, with a vertical guide + elbow to each child */
+.uc-children { margin-left:11px; padding-left:22px; border-left:2px solid var(--uc-line); }
+.uc-children > .uc-branch { position:relative; margin-top:9px; }
+.uc-children > .uc-branch::before { content:""; position:absolute; left:-22px; top:16px; width:20px; height:2px; background:var(--uc-line); }
+/* last child: mask the vertical guide below its elbow */
+.uc-children > .uc-branch:last-child::after { content:""; position:absolute; left:-24px; top:17px; height:200px; width:3px; background:#fff; }
+.uc-cat .pill { border-color:#ffd0c6; }  .uc-cat .pill svg { color:var(--uc-red); }
+.uc-sch .pill { border-color:#ffc4b8; }  .uc-sch .pill svg { color:var(--uc-coral); }
+.uc-tables { margin-left:11px; padding-left:22px; border-left:2px solid var(--uc-line); }
+.uc-tables .uc-branch { position:relative; margin-top:7px; }
+.uc-tables .uc-branch::before { content:""; position:absolute; left:-22px; top:11px; width:20px; height:2px; background:var(--uc-line); }
+.uc-tables .uc-branch:last-child::after { content:""; position:absolute; left:-24px; top:12px; height:200px; width:3px; background:#fff; }
+.uc-tbl { display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:13px; color:var(--ink); }
+.uc-tbl svg { color:#8a95a1; flex:none; }
+.uc-tbl.vol svg { color:var(--uc-coral); }
+.uc-tag { font-family:var(--mono); font-size:11px; font-weight:600; color:#8a95a1; background:#eef1f5; border-radius:5px; padding:2px 7px; margin-left:8px; }
+
+
+/* ── .xo-* — prompt → "you should see" thumbnails (used in notebooks/01_setup_and_explore/04) ── */
+.xo-pair { display:grid; grid-template-columns:minmax(0,1.5fr) 28px minmax(0,1fr); gap:8px; align-items:stretch; margin:8px 0 12px; }
+.xo-pair > blockquote.prompt { margin:0; }
+.xo-pair .prompt-label { display:block; padding-right:64px; }
+.xo { display:flex; flex-direction:column; justify-content:center; gap:8px; border:1.5px solid var(--border); border-radius:10px; background:#fff; padding:10px 14px; }
+.xo-cap { font-size:12px; color:var(--muted); line-height:1.35; }
+.xo-cap b { color:var(--ink); }
+.xo-tbls { display:flex; gap:8px; align-items:stretch; }
+.xo-tbl { flex:1 1 0; min-width:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; font-family:var(--mono); font-size:9.5px; }
+.xo-tn { padding:3px 7px; font-weight:700; color:#ff3621; background:#fff1ee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.xo-th, .xo-tr { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; padding:3px 7px; }
+.xo-th { color:#8a95a1; border-bottom:1px solid var(--border); }
+.xo-th span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.xo-tr i { display:block; height:5px; margin:2px 0; border-radius:2px; background:#e3e8ee; }
+.xo-more { flex:none; align-self:center; font-size:10.5px; line-height:1.2; color:#8a95a1; text-align:center; }
+.xo-files { display:flex; flex-wrap:wrap; gap:5px; }
+.xo-file { font-family:var(--mono); font-size:10.5px; color:#5b6773; background:#f1f4f7; border-radius:4px; padding:2px 6px; }
+.xo-file.hot { color:#ff3621; background:#fff1ee; }
+.xo-spark { display:flex; align-items:flex-end; gap:3px; height:54px; position:relative; }
+.xo-spark i { flex:1 1 0; background:#d4dce4; border-radius:2px 2px 0 0; }
+.xo-spark i.up { background:#ffb3a6; }  .xo-spark i.pk { background:#ff3621; }
+.xo-hbars { display:flex; flex-direction:column; gap:4px; }
+.xo-hbars i { display:block; height:8px; border-radius:2px; background:#d4dce4; }
+.xo-hbars i.bad { background:#ff3621; }
+.xo-arrow { align-self:center; justify-self:center; width:28px; height:28px; border-radius:50%; background:#fff1ee; color:#ff3621; display:flex; align-items:center; justify-content:center; }
+.xo-head { display:grid; grid-template-columns:minmax(0,1.5fr) 28px minmax(0,1fr); gap:8px; margin:10px 0 -2px; }
+.xo-lbl { grid-column:3; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#ff3621; }
+@media (max-width:900px) { .xo-pair { grid-template-columns:1fr; } .xo-arrow { transform:rotate(90deg); } .xo-head { display:none; } }
+
+
+/* Side diagrams (.uc-tree, .med, .dq, .jobd, .dom) float right; prompts and notes always start below
+   them, so a short paragraph beside a tall diagram can't slide a box underneath it. */
+.gcw blockquote { clear:both; }
+
+/* ── .med — medallion raw → silver → gold diagram (used in notebooks/02_build_pipeline/02) ── */
+.med { --m-raw:#8a95a1; --m-silver:#FF5F46; --m-gold:#c07a12; float:right; width:auto; max-width:50%; margin:4px 0 12px 28px; display:flex; align-items:center; }
+.med-col { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:6px; }
+.med-arrow { flex:none; color:#c3ccd6; font-size:20px; padding:0 10px; align-self:center; }
+.med-col h4 { margin:0 0 4px; font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:700; }
+.med-raw h4 { color:var(--m-raw); }  .med-silver h4 { color:var(--m-silver); }  .med-gold h4 { color:var(--m-gold); }
+.med-tbl { display:flex; align-items:center; gap:7px; border:1.5px solid var(--border); border-radius:7px; background:#fff; padding:5px 9px; font-family:var(--mono); font-size:11.5px; color:var(--ink); white-space:nowrap; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.med-tbl svg { flex:none; }
+.med-raw .med-tbl svg { color:var(--m-raw); }
+.med-silver .med-tbl { border-color:#ffd0c6; }  .med-silver .med-tbl svg { color:var(--m-silver); }
+.med-gold .med-tbl { border-color:#f0dcae; }  .med-gold .med-tbl svg { color:var(--m-gold); }
+
+
+/* ── .dq — data-quality expectations card (used in notebooks/02_build_pipeline/03) ── */
+.dq { float:right; width:300px; margin:4px 0 12px 28px; }
+.dq h4 { margin:0 0 6px; font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:700; color:#FF5F46; }
+.dq-card { border:1.5px solid #ffd0c6; border-radius:8px; background:#fff; padding:6px 9px 8px; margin-bottom:8px; }
+.dq-card .med-tbl { border:none; padding:0; background:none; }
+.dq-card .med-tbl svg { color:#FF5F46; }
+.dq-rules { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; padding-top:6px; border-top:1px dashed #e3e8ee; }
+.dq-rule { font-family:var(--mono); font-size:10.5px; color:#1f6b3f; background:#e9f6ee; border-radius:4px; padding:1px 6px; white-space:nowrap; }
+.dq-legend { font-size:11px; color:#8a95a1; display:flex; align-items:center; gap:6px; }
+
+
+/* ── .jobd — Lakeflow Job card (used in notebooks/02_build_pipeline/05) ── */
+.jobd { float:right; width:290px; margin:4px 0 12px 28px; border:1.5px solid var(--border); border-radius:10px; background:#fbfcfd; padding:12px; }
+.jobd-head { display:flex; align-items:center; gap:10px; }
+.jobd-head .step-logo { width:36px; height:36px; border-radius:10px; }
+.jobd-head .step-logo svg { width:22px !important; height:22px !important; }
+.jobd-name { font-weight:700; font-size:13px; color:var(--ink); line-height:1.25; }
+.jobd-name small { display:block; font-weight:400; font-size:11px; color:var(--muted); }
+.jobd-task { display:flex; align-items:center; gap:8px; margin:10px 0 0 17px; padding:7px 10px; border:1.5px solid #ffd0c6; border-radius:8px; background:#fff; font-family:var(--mono); font-size:11.5px; color:var(--ink); position:relative; }
+.jobd-task::before { content:""; position:absolute; left:-17px; top:-11px; width:15px; height:26px; border-left:2px solid #d4dae1; border-bottom:2px solid #d4dae1; border-bottom-left-radius:6px; }
+.jobd-task svg { width:16px; height:16px; flex:none; }
+.jobd-sched { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; padding-top:9px; border-top:1px dashed #e3e8ee; font-size:11.5px; color:var(--muted); }
+.jobd-pill { font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#8a95a1; background:#eef1f5; border-radius:999px; padding:2px 8px; white-space:nowrap; }
+
+
+/* ── .kpi-row — KPI counters with skeleton values (used in notebooks/03_dashboard_and_genie/02) ── */
+.kpi-row { display:flex; gap:12px; margin:14px 0 4px; }
+.kpi { flex:1 1 0; border:1.5px solid var(--border); border-radius:10px; padding:12px 14px; background:#fff; }
+.kpi .k-label { font-size:11px; letter-spacing:.03em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.kpi .k-num { font-size:22px; font-weight:800; color:var(--ink); margin-top:4px; font-variant-numeric:tabular-nums; }
+.kpi.hot .k-num { color:#c0341d; }
+.kpi .k-sub { font-size:11px; color:#9aa4b0; margin-top:2px; }
+.kpi .k-num { display:flex; align-items:center; gap:5px; height:30px; }
+.kpi .k-cur { font-size:18px; font-weight:700; color:#c3ccd6; }
+.kpi.hot .k-cur { color:#f6a58e; }
+.kpi .k-sk { display:block; height:16px; border-radius:5px; background:linear-gradient(90deg,#eef1f5 25%,#f8f9fb 50%,#eef1f5 75%); background-size:200% 100%; animation:kpi-sk 1.6s ease-in-out infinite; }
+.kpi.hot .k-sk { background:linear-gradient(90deg,#ffe1d8 25%,#fff3ef 50%,#ffe1d8 75%); background-size:200% 100%; }
+@keyframes kpi-sk { 0% { background-position:100% 0; } 100% { background-position:-100% 0; } }
+@media (prefers-reduced-motion: reduce) { .kpi .k-sk { animation:none; } }
+
+
+/* ── .filt-panel — global filters mock (used in notebooks/03_dashboard_and_genie/04) ── */
+.filt-panel { float:left; width:210px; margin:4px 24px 10px 0; border:1.5px solid var(--border); border-radius:9px; background:#fbfcfd; padding:11px; }
+.filt-panel h4 { margin:0 0 9px; font-size:12px; font-weight:700; color:var(--ink); }
+.filt-f { margin-bottom:9px; }
+.filt-f:last-child { margin-bottom:0; }
+.filt-f .cap { font-size:10.5px; color:var(--muted); font-weight:600; display:block; margin-bottom:3px; }
+.filt-ctl { display:flex; align-items:center; justify-content:space-between; border:1.5px solid var(--border); border-radius:6px; background:#fff; padding:5px 9px; font-size:12px; color:var(--ink); }
+.filt-ctl .chev { color:#9aa4b0; font-size:9px; }
+.filt-date { border:1.5px solid var(--border); border-radius:6px; background:#fff; padding:5px 9px; font-family:var(--mono); font-size:10.5px; color:#9aa4b0; white-space:nowrap; }
+
+
+/* ── .g1 — business users → Genie One → agent flow (used in notebooks/03_dashboard_and_genie/06) ── */
+.g1 { --g1:#FF5F46; margin:10px 0 14px; }
+.g1-box { display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; border:1.5px solid var(--border); border-radius:10px; padding:12px 16px; background:#fbfcfd; font-size:13px; }
+.g1-step { display:flex; align-items:center; gap:10px; text-align:left; }
+.g1-sep { color:#c3ccd6; font-size:18px; }
+.g1-user { font-weight:700; color:var(--ink); }
+.g1-sub { color:var(--muted); font-size:11px; margin-top:2px; }
+.g1-one { border:1.5px solid #ffd0c6; border-radius:9px; background:#fff6f4; padding:8px 12px; font-weight:700; color:#c0341d; margin:8px 0; }
+.g1-arrow { color:#c3ccd6; font-size:16px; line-height:1.1; }
+.g1-hero { margin:0; display:flex; align-items:center; justify-content:center; gap:10px; text-align:left; }
+.g1-logo { position:relative; width:44px; height:44px; border-radius:12px; flex:none; display:flex; align-items:center; justify-content:center;
+  background:radial-gradient(circle at 50% 35%,#fff 0%,#fff1ec 55%,#ffe1d8 100%); border:1.5px solid #ffd0c6;
+  box-shadow:0 6px 18px rgba(255,95,70,.18); }
+.g1-logo::before { content:""; position:absolute; inset:-6px; border-radius:15px; border:1.5px solid #ffd0c6; opacity:0; animation:g1-ring 3.2s ease-out infinite; }
+.g1-logo svg { width:30px; height:30px; overflow:visible; }
+.g1-logo .g-lamp, .g1-logo .g-base { animation:g1-float 3.2s ease-in-out infinite; }
+.g1-logo .g-star { transform-box:fill-box; transform-origin:center; animation:g1-twinkle 3.2s ease-in-out infinite; }
+.g1-name { font-weight:800; font-size:14px; line-height:1.2; color:#c0341d; letter-spacing:.01em; }
+@keyframes g1-float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-4px); } }
+@keyframes g1-twinkle { 0%,100% { transform:translateY(0) scale(1) rotate(0); } 50% { transform:translateY(-6px) scale(1.15) rotate(12deg); } }
+@keyframes g1-ring { 0% { opacity:.9; transform:scale(.92); } 100% { opacity:0; transform:scale(1.18); } }
+@media (prefers-reduced-motion: reduce) { .g1-logo *, .g1-logo::before { animation:none !important; } }
+.g1-agent { display:inline-flex; align-items:center; gap:6px; border:1.5px solid #ffd0c6; border-radius:7px; background:#fff; padding:6px 10px; font-family:var(--mono); font-size:12px; color:var(--ink); }
+.g1-agent .badge { font-family:var(--font); font-size:10px; font-weight:700; color:#1a7f4b; background:#e7f6ee; border-radius:4px; padding:1px 5px; }
+
+
+/* ── .sem — semantics stack diagram (used in notebooks/04_business_semantics/02) ── */
+.sem { --sem:#FF5F46; margin:16px 0 8px; border:1.5px solid var(--border); border-radius:11px; overflow:hidden; }
+.sem-row { display:flex; align-items:stretch; border-top:1.5px solid var(--border); }
+.sem-row:first-child { border-top:none; }
+.sem-layer { flex:0 0 172px; padding:11px 14px; font-weight:700; color:var(--ink); display:flex; align-items:center; gap:9px; border-right:1.5px solid var(--border); }
+.sem-layer .dot { width:9px; height:9px; border-radius:2px; flex:none; }
+.sem-what { flex:1 1 0; padding:11px 14px; font-size:13px; color:var(--ink); display:flex; align-items:center; }
+.sem-what .k { color:var(--muted); }
+.sem-raw { background:#f6f7f9; }         .sem-raw .dot { background:#8a95a1; }
+.sem-mv { background:#fff6f4; }           .sem-mv .dot { background:var(--sem); }
+.sem-page { background:#fff; }            .sem-page .dot { background:#c07a12; }
+.sem-onto { background:#f4f0fb; }         .sem-onto .dot { background:#7b5ea8; }
+.sem-one { background:#e7f6ee; }          .sem-one .dot { background:#1a7f4b; }
+
+
+/* ── .dom — Discover domain card (used in notebooks/04_business_semantics/06) ── */
+.dom { float:right; width:250px; margin:4px 0 10px 24px; border:1.5px solid #ffd0c6; border-radius:10px; background:#fff; padding:11px 12px; }
+.dom-head { display:flex; align-items:center; gap:9px; }
+.dom-head .step-logo { width:32px; height:32px; border-radius:9px; }
+.dom-head .step-logo svg { width:20px !important; height:20px !important; }
+.dom-name { font-weight:700; font-size:13px; line-height:1.2; }
+.dom-name small { display:block; font-weight:400; font-size:11px; color:var(--muted); }
+.dom-assets { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+.dom-assets span { font-family:var(--mono); font-size:10.5px; background:#f1f4f7; color:#5b6773; border-radius:4px; padding:1px 6px; }
+.dom-pub { margin-top:9px; font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:#1f8a4c; }
+.dom-steps { margin:8px 0; padding-left:20px; }
+

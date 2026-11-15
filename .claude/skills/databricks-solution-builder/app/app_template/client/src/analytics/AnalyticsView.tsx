@@ -107,7 +107,7 @@ export function AnalyticsView() {
           <ChartCard
             title="Daily refund value"
             scope="Last 30 days"
-            className="lg:col-span-3"
+            className="lg:col-span-3 min-w-0"
           >
             <ChartData chartKey="daily_refund_trend" height={260}>
               {(rows) => (
@@ -117,6 +117,7 @@ export function AnalyticsView() {
                   yKey="total_refund_usd"
                   colors={[BRAND_PALETTE[0]]}
                   height={260}
+                  showLegend={false}
                   smooth
                 />
               )}
@@ -126,7 +127,7 @@ export function AnalyticsView() {
           <ChartCard
             title="Top products by returns"
             scope="All time"
-            className="lg:col-span-2"
+            className="lg:col-span-2 min-w-0"
           >
             <ChartData chartKey="returns_by_product" height={260}>
               {(rows) => (

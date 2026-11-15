@@ -1,17 +1,17 @@
 # App Specification — Overview, Home & Assistant
 
-> **Build-time note.** Read `DEMO_SKILL_DIR/app/app.md` FIRST and follow it end-to-end — that's the playbook (rsync template → customize → Lakebase → env → smoke test → deploy). This is **not** a from-scratch build: the template at `DEMO_SKILL_DIR/app/app_template/` is a Node.js + React + Express (`@databricks/appkit`) app with Lakebase, MAS streaming, MLflow tracing, OBO auth, chat dock, and scripted demo chain already wired. You rsync it into `PROJECT/app/`, read `TEMPLATE_MAP.md` for what's preserved vs customized, then rewrite domain pieces (home narrative, agent tools, Lakebase schema, analytics SQL, theming) to match the story. Typically run as a subagent spawned once 01-lakeflow.B is ready. **Do NOT rebuild in Streamlit / Gradio** — you'd lose streaming, MLflow, the scripted chain, and the OBO/audit pattern. On conflict: `app.md` governs *how*, this spec governs *what*.
+> **Build-time note.** Read `DEMO_SKILL_DIR/app/app.md` FIRST and follow it end-to-end — that's the playbook (rsync template → customize → Lakebase → env → smoke test → deploy). This is **not** a from-scratch build: the template at `DEMO_SKILL_DIR/app/app_template/` is a Node.js + React + Express (`@databricks/appkit`) app with Lakebase, Genie Agent streaming, MLflow tracing, OBO auth, chat dock, and scripted demo chain already wired. You rsync it into `PROJECT/app/`, read `TEMPLATE_MAP.md` for what's preserved vs customized, then rewrite domain pieces (home narrative, agent tools, Lakebase schema, analytics SQL, theming) to match the story. Typically run as a subagent spawned once 01-lakeflow.B is ready. **Do NOT rebuild in Streamlit / Gradio** — you'd lose streaming, MLflow, the scripted chain, and the OBO/audit pattern. On conflict: `app.md` governs *how*, this spec governs *what*.
 
 ## Pitch
 
-AI assistant that **investigates, personalizes the fix using an ML model, and executes it** in one conversation — not just answers questions. Claire watches every step happen live: MAS routes across Genie + KA, traces the returns spike to one production lot, then **looks up the premium-classifier output** (`app.customer_premium`, mirrored from the Delta predictions table the ML notebook in `03-ml-premium.md` writes) to split the 250 affected customers — finding ~18 already-tagged premiums plus ~49 hidden premiums the model surfaces — drafts two apology emails (20% coupon for the ~67 premiums, 5% goodwill for the ~183 standard), bulk-approves refunds. Operations queue updates in real time with the tier each row got. Every action is traced in MLflow.
+AI assistant that **investigates, personalizes the fix using an ML model, and executes it** in one conversation — not just answers questions. Claire watches every step happen live: the Genie Agent answers across the tables and the documents, traces the returns spike to one production lot, then **looks up the premium-classifier output** (`app.customer_premium`, mirrored from the Delta predictions table the ML notebook in `03-ml-premium.md` writes) to split the 250 affected customers — finding ~18 already-tagged premiums plus ~49 hidden premiums the model surfaces — drafts two apology emails (20% coupon for the ~67 premiums, 5% goodwill for the ~183 standard), bulk-approves refunds. Operations queue updates in real time with the tier each row got. Every action is traced in MLflow.
 
 ## Databricks capabilities mapped
 
 | Capability | Where it shows |
 |-----------|---------------|
 | **SQL Warehouse on Delta** | Analytics charts query live Delta tables |
-| **Multi-Agent Supervisor** | `ask_data` tool routes to Genie (data) + KA (docs); sub-agent activity streams into Thinking panel |
+| **Genie Agent** | `ask_data` tool asks the Genie Agent (Agent mode), which queries the tables and searches the documents volume (PDFs); its SQL and document-search steps stream into the Thinking panel |
 | **Lakebase** | OLTP write surface — approve returns, append audit trail, record emails, **read premium predictions (synced from Delta `gold_customer_premium_predictions`)**. Same UC governance as Delta |
 | **ML model (UC-registered)** | `customer_premium_classifier` model's batch predictions feed the agent's tiering — `app.customer_premium(customer_id, premium_prob, final_tier, premium_status_labeled, predicted_at)` is one of the mirrored tables |
 | **AI Functions (`ai_classify`)** | Anger score (0–1) extracted in SDP from each return's `return_reason_text`, mirrored on the returns row. Operations queue is sortable by anger so operators can triage the most upset customers first. |
@@ -37,12 +37,12 @@ Lives on every page. Two surfaces, one brain:
 ### Thinking panel
 Top-right floating panel, streams live during agent turns:
 - Reasoning steps as model thinks
-- MAS sub-agent activity: "data_analyst querying Genie", "incident_expert searching KA"
+- Genie Agent activity: "querying tables", "searching documents"
 - Tool calls with inputs/results (SQL run, lot ID found, etc.)
 - Auto-dismisses after completion. Persisted on message as `thinking[]` JSONB → survives reload (collapsed by default, expandable "Reasoning · N tools" toggle).
 
 ### Human-in-the-loop
-**Read-only queries** — assistant calls MAS, synthesizes answer. No side effects.
+**Read-only queries** — assistant calls the Genie Agent, synthesizes answer. No side effects.
 
 **Action chains** — strict 3-phase:
 1. **Discover** — find affected returns, **look up the per-customer `final_tier`** in Lakebase (sourced from the premium classifier's predictions, plus the labeled-vs-predicted breakdown), count by tier, calculate totals (read-only)
@@ -51,17 +51,17 @@ Top-right floating panel, streams live during agent turns:
 
 ### MLflow tracing
 Under every assistant message:
-- **"View trace"** → MLflow span tree (agent turn → tool calls → MAS sub-calls)
+- **"View trace"** → MLflow span tree (agent turn → tool calls → Genie Agent steps)
 - **Thumbs up/down** → human-source assessments on the trace (down opens rationale modal)
-- Header links to both experiments (agent traces + MAS traces)
+- Header links to the agent traces experiment
 
 ### Agent tools (LuxeBeauty)
 
-The agent has five tools, chained in a fixed order so the demo loop is visible: (1) **ask MAS** (which routes to Genie + KA) to investigate, (2) **read Lakebase** for the operational context, (3) **read the ML predictions** in Lakebase to plan the tiering, (4) **draft** the per-tier coupons, (5) **write Lakebase** atomically after approval.
+The agent has five tools, chained in a fixed order so the demo loop is visible: (1) **ask the Genie Agent** (`ask_data`; tables + documents) to investigate, (2) **read Lakebase** for the operational context, (3) **read the ML predictions** in Lakebase to plan the tiering, (4) **draft** the per-tier coupons, (5) **write Lakebase** atomically after approval.
 
 | Tool | What it does | Phase |
 |------|-------------|-------|
-| `ask_data` | Delegates to MAS — routes to Genie or KA, streams sub-agent progress to Thinking panel | Investigation |
+| `ask_data` | Asks the Genie Agent (tables + documents volume); streams its SQL and document-search steps to the Thinking panel | Investigation |
 | `find_returns_for_lot` | Queries Lakebase: pending returns for a lot (count, customers, refund subtotal, **each row's `final_tier` + `premium_status_labeled`** joined from `app.customer_premium`, plus the row's `anger_score`) | Discovery |
 | `find_lot_premium_breakdown` | Queries Lakebase: for the affected lot, returns `{total, premium_count, standard_count, premium_labeled_count, premium_predicted_hidden_count, premium_refund_usd, standard_refund_usd, top_countries[]}` — joins `app.returns` × `app.customers` × `app.customer_premium`. **This is the demo's "ML in the loop" moment** — the agent calls it after identifying the lot and quotes the labeled-vs-hidden split in the draft. | Discovery |
 | `create_coupon` | Generates a coupon code (pure function, fake). Called TWICE in the tiered flow — once per tier with the appropriate `percent_off`. | Draft |
@@ -88,7 +88,7 @@ Narrative landing — tells the story in 10s, plays it in 90s.
 Assistant supports a scripted chain via `config.assistantScript`. After each response, a "Suggested next" chip appears if trigger keywords are detected in the previous answer. Chips are convenience — Claire can always type freely.
 
 **Step 1 — "Why do I have so many returns?"**
-Always available. MAS delegates to data_analyst (Genie) + incident_expert (KA). Thinking panel shows routing live. Answer: 3x spike, SKU-1001/1002/1003, one lot, "grainy texture", homogenizer incident. Suggests handling the affected customers.
+Always available. The Genie Agent queries the tables and searches the documents. Thinking panel shows its steps live. Answer: 3x spike, SKU-1001/1002/1003, one lot, "grainy texture", homogenizer incident. Suggests handling the affected customers.
 
 **Step 2 — "Handle these 250 customers. Use the premium classifier to decide who gets the bigger save."**
 Unlocks when "lot"/"batch"/"customers" in previous answer. Agent calls `find_lot_premium_breakdown` → quotes the split (e.g. "~67 premium of 250 — only 18 already tagged by CS; the model found ~49 more hidden premiums. FR + IT lead the cohort"). Calls `create_coupon` twice (20% + 5%). Drafts TWO emails (warmer apology for premium, lighter goodwill for standard). Shows both drafts + the labeled-vs-hidden breakdown + total refund. Stops and waits.
@@ -96,6 +96,6 @@ Unlocks when "lot"/"batch"/"customers" in previous answer. Agent calls `find_lot
 **Step 3 — "Yes — send both and approve the refunds."**
 Unlocks when "tier"/"premium"/"coupon" mentioned. `process_return_batch` runs one atomic UPDATE on Lakebase: per-row tier lookup picks the right template, personalized email lands on the row, status → approved, `coupon_pct_applied` recorded. Then emits `dataMutated`. On screen: the Pending KPI card visibly drops (250 → 0), the Approved card jumps (… → +250), affected-lot rows in the queue flip status and gain the per-row **20%** or **5%** `Offer` badge, the country panel + premium panel re-render, and any open drawer re-fetches its audit timeline — all without Claire touching anything. **That live cascade is the story beat — confirm it works before demoing.**
 
-**Performance:** Agent prompt steers toward narrow MAS questions (20-40s). Broad questions take 90s+. The premium lookup is a Lakebase JOIN — sub-second, doesn't bloat the turn.
+**Performance:** Agent prompt steers toward narrow questions (the Genie Agent runs several SQL and document steps per question). Broad questions take longer. The premium lookup is a Lakebase JOIN — sub-second, doesn't bloat the turn.
 
 All narrative config lives in `config/app.json` — persona, story, starter questions, assistantScript (with triggerAfter keywords), featuredAction, resource IDs. Read it directly.

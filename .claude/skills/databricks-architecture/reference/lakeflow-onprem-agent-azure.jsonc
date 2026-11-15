@@ -1,0 +1,109 @@
+// =============================================================================
+// LAKEFLOW CONNECT FROM ON-PREMISES WITH NO INBOUND CONNECTION: THE ON-PREM AGENT
+// (AZURE, FRONT-END PRIVATE LINK)
+//
+// JSONC for you to read; emit PLAIN JSON (strip the // lines) when you write
+// architecture.md. Read reference/style-networking.md first.
+//
+// HOW IT WORKS ON DATABRICKS (use this to adapt the diagram to the user's setup):
+//   • For customers whose security policy blocks ANY connection from the cloud into the
+//     on-premises network, but allows outbound HTTPS 443. The agent pushes data out, so
+//     there is no PNG, no reverse SSH tunnel and no open inbound firewall port. It is a
+//     Databricks-native replacement for the ADF Self-Hosted Integration Runtime (SHIR).
+//   • The agent runs next to the source databases, on the customer's own Linux x86_64
+//     host (it needs a PostgreSQL 14+ database for its repository, the Databricks ODBC
+//     driver and the source drivers: Oracle Instant Client, msodbcsql18). It reads the
+//     data locally and only ever connects OUT over HTTPS 443; Databricks never connects
+//     in to the agent.
+//   • Over ExpressRoute or VPN, the agent (1) signs in and sends SQL statements through
+//     the workspace endpoint, via the front-end Private Link endpoint in the hub; and
+//     (2) uploads Parquet files to a Unity Catalog managed volume through the storage
+//     private endpoint.
+//   • A Lakeflow Connect serverless pipeline then reads the staged files through the
+//     NCC private endpoint rule to the storage, and writes them to Delta tables in
+//     Unity Catalog.
+//   • Limits (Private Preview): full refresh only, no CDC in this release; SQL Server
+//     and Oracle only. Jobs are configured and scheduled in the agent's local UI; they
+//     cannot be triggered from the workspace.
+//
+// WHAT IT DEMONSTRATES (layout):
+//   • The top level runs in the direction connections are OPENED: on-premises → agent →
+//     ExpressRoute / VPN → hub gateway → private endpoints → Unity Catalog storage and the
+//     workspace. The traffic starts on-premises, so on-premises is on the left.
+//   • Three paths, three line styles: the agent's upload (red, solid), its sign-in and
+//     SQL statements (red, dashed), and the serverless pipeline reading the staged files
+//     (dark, solid). The shared stretch (agent → gateway) is drawn once.
+//   • The pipeline's edge runs right → left on purpose: it is the one connection that
+//     starts in Databricks, and it ends at the customer's storage, not on-premises.
+//   • The workspace VNet is one card under the hub, joined by a dashed peering line.
+//
+// ADAPT IT: with CDC needed (and inbound allowed through a PNG), use
+// lakeflow-cdc-png-azure.jsonc instead. With no ExpressRoute / VPN, the agent reaches
+// the public workspace and storage endpoints over the internet on 443: drop the hub
+// and the private endpoints, keep the agent and its two outbound paths.
+// =============================================================================
+[
+  {
+    "name": "Lakeflow Connect on-prem agent — Azure",
+    "story": "The customer allows no inbound connection into the on-premises network, only outbound HTTPS 443. A Lakeflow Connect agent runs on the customer's own Linux host next to the SQL Server and Oracle databases and reads them locally. Over ExpressRoute or VPN it signs in and sends SQL statements through the workspace endpoint (front-end Private Link), and uploads Parquet files to a Unity Catalog managed volume through the storage private endpoint. A Lakeflow Connect serverless pipeline reads the staged files through the NCC private endpoint rule and writes them to Delta tables in Unity Catalog. Databricks never connects in to the agent. Private Preview: full refresh only, SQL Server and Oracle only.",
+    "aspect": "16:9",
+    "theme": "technical",
+    "direction": "horizontal",
+    "frame": {"title":"Lakeflow Connect on-prem agent with front-end Private Link","subtitle":"Outbound HTTPS 443 only · no inbound connection to on-premises · Azure · Private Preview"},
+    "options": {"trademarkLogos":true},
+    "layout": "row",
+    "gap": 78,
+    "align": "center",
+    "nodes": [
+      {"id": "onprem", "type": "box", "title": "On-premises", "subtitle": "outbound HTTPS 443 only", "titleIcon": "lucide:building-2", "ai_reasoning": "the security policy is the reason for this pattern; it goes in the subtitle", "layout": "row", "gap": 72, "align": "center", "children": [
+        {"id": "res-subnet", "type": "box", "title": "Resource subnet", "layout": "column", "gap": 140, "align": "center", "children": [
+          {"id": "sqlserver", "type": "logo", "icon": "file:vendor/microsoft-sql-server", "text": "SQL Server", "caption": "bottom", "track": "line-sqlserver"},
+          {"id": "oracle", "type": "logo", "icon": "file:vendor/oracle", "text": "Oracle", "caption": "bottom"}
+        ] },
+        {"id": "agent-subnet", "type": "box", "title": "Agent subnet", "layout": "column", "children": [
+          {"id": "agent", "type": "logo", "icon": "lucide:server", "text": "Lakeflow Connect agent", "caption": "bottom", "ai_reasoning": "the customer's Linux x86_64 host; reads the databases locally, connects only outbound on 443", "track": "line-agent"}
+        ] }
+      ] },
+      {"id": "er", "type": "logo", "icon": "file:cloud/azure/networking/expressroute", "text": "ExpressRoute / VPN", "caption": "bottom", "track": "line-agent"},
+      {"id": "sub", "type": "box", "title": "Azure subscription", "titleIcon": "file:cloud/azure/general/subscription", "layout": "row", "gap": 78, "align": "center", "children": [
+        {"id": "col-gw", "type": "group", "layout": "column", "gap": 72, "align": "start", "children": [
+          {"id": "hub", "type": "box", "title": "Hub VNet", "titleIcon": "file:cloud/azure/networking/virtual-network", "layout": "row", "gap": 97, "align": "center", "children": [
+            {"id": "gw-subnet", "type": "box", "title": "Gateway subnet", "subtitle": "10.0.1.0/27", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "children": [
+              {"id": "gw", "type": "logo", "icon": "file:cloud/azure/networking/vpn-gateway", "text": "VPN / ExpressRoute gateway", "caption": "bottom", "track": "line-agent"}
+            ] },
+            {"id": "pe-subnet", "type": "box", "title": "PE subnet", "subtitle": "10.0.0.0/28", "titleIcon": "file:cloud/azure/networking/subnet", "layout": "column", "gap": 254, "align": "center", "children": [
+              {"id": "fe-pl", "type": "logo", "icon": "file:cloud/azure/networking/private-endpoint", "text": "Front-end Private Link", "caption": "bottom", "ai_reasoning": "private endpoint to the workspace (front-end); the agent's sign-in and SQL statements", "track": "line-sqlserver"},
+              {"id": "st-pe", "type": "logo", "icon": "file:cloud/azure/networking/private-endpoint", "text": "Storage endpoint", "caption": "bottom", "ai_reasoning": "private endpoint to the storage account behind the UC managed volume; the Parquet upload", "track": "line-st-pe"}
+            ] }
+          ] },
+          {"id": "ws-vnet", "type": "card", "title": "Workspace VNet", "icon": "file:cloud/azure/networking/virtual-network", "body": "<b>Private subnet</b><br><b>Public subnet</b><br><b>Endpoint subnet</b>", "ai_reasoning": "peered to the hub; not on these paths, so one card"}
+        ] },
+        {"id": "uc-storage", "type": "box", "title": "UC storage", "titleIcon": "file:cloud/azure/storage/blob-storage", "ai_reasoning": "the customer's storage account behind Unity Catalog; reached privately from both sides", "layout": "column", "gap": 26, "align": "center", "children": [
+          {"id": "volume", "type": "logo", "icon": "file:db/volume", "text": "UC managed volume · Parquet", "caption": "bottom", "ai_reasoning": "where the agent stages its Parquet files", "track": "line-st-pe"},
+          {"id": "delta", "type": "logo", "icon": "file:databricks-line/delta-table", "text": "UC Delta tables", "caption": "bottom", "ai_reasoning": "where the pipeline writes the ingested data"}
+        ] }
+      ] },
+      {"id": "dbx-box", "type": "box", "title": "Azure Databricks", "titleIcon": "file:vendor/databricks", "layout": "column", "gap": 106, "align": "center", "children": [
+        {"id": "ws-endpoint", "type": "logo", "icon": "file:databricks-line/databricks-workspace", "text": "Workspace endpoint", "caption": "bottom", "ai_reasoning": "where the agent signs in and sends its SQL statements", "track": "line-sqlserver"},
+        {"id": "pipeline", "type": "logo", "icon": "file:databricks-line/lakeflow-connect", "text": "Lakeflow Connect serverless pipeline", "caption": "bottom", "track": "line-agent"},
+        {"id": "ncc", "type": "box", "title": "NCC", "layout": "column", "children": [
+          {"id": "pe-rule", "type": "logo", "icon": "file:cloud/azure/networking/private-endpoint", "text": "Private endpoint rule", "caption": "bottom", "ai_reasoning": "the NCC rule that gives serverless a private endpoint to the storage account", "track": "line-st-pe"}
+        ] }
+      ] }
+    ],
+    "edges": [
+      {"id": "e1", "from": "sqlserver", "to": "agent", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e2", "from": "oracle", "to": "agent", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the agent reads both databases locally"},
+      {"id": "e3", "from": "agent", "to": "er", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "outbound only; the 443 rule is in the on-premises subtitle (a label here would straddle two borders)"},
+      {"id": "e4", "from": "er", "to": "gw", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e5", "from": "gw", "to": "fe-pl", "arrow": "end", "color": "#FF5F46", "dashed": true},
+      {"id": "e6", "from": "fe-pl", "to": "ws-endpoint", "arrow": "end", "color": "#FF5F46", "dashed": true, "label": "sign-in + SQL statements", "ai_reasoning": "dashed: control, not data"},
+      {"id": "e7", "from": "gw", "to": "st-pe", "arrow": "end", "color": "#FF5F46"},
+      {"id": "e8", "from": "st-pe", "to": "volume", "arrow": "end", "color": "#FF5F46", "ai_reasoning": "the data upload into the managed volume (no label: it would straddle two borders; Parquet is in the volume caption)"},
+      {"id": "e9", "from": "pipeline", "to": "pe-rule", "arrow": "end", "color": "#1B3139"},
+      {"id": "e10", "from": "pe-rule", "to": "volume", "arrow": "end", "color": "#1B3139", "ai_reasoning": "the pipeline reads the staged files: the only connection that starts in Databricks; it ends at the customer's storage, never on-premises. No label: the gap between the subscription and Databricks borders has no clean slot"},
+      {"id": "e10b", "from": "pe-rule@b", "to": "delta@r", "arrow": "end", "color": "#1B3139", "ai_reasoning": "and writes the Delta tables; leaves from the bottom so it does not share a side with e10"},
+      {"id": "e11", "from": "gw-subnet@b", "to": "ws-vnet@t", "arrow": "both", "dashed": true, "label": "VNet peering"}
+    ]
+  }
+]

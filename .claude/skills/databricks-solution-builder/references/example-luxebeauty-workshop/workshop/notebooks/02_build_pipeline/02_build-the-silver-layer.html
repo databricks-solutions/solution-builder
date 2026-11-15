@@ -1,0 +1,33 @@
+<h2>1/ Build the silver layer</h2>
+<div class="med">
+  <div class="med-col med-raw">
+    <h4>Raw · Volume</h4>
+    <div class="med-tbl"><i data-icon="table"></i>returns</div>
+    <div class="med-tbl"><i data-icon="table"></i>order_items</div>
+    <div class="med-tbl"><i data-icon="table"></i>orders</div>
+    <div class="med-tbl"><i data-icon="table"></i>products</div>
+    <div class="med-tbl"><i data-icon="table"></i>customers</div>
+    <div class="med-tbl"><i data-icon="table"></i>production_lots</div>
+  </div>
+  <div class="med-arrow">→</div>
+  <div class="med-col med-silver">
+    <h4>Silver</h4>
+    <div class="med-tbl"><i data-icon="table"></i>comment_anger_scores</div>
+    <div class="med-tbl"><i data-icon="table"></i>silver_production_lots</div>
+    <div class="med-tbl"><i data-icon="table"></i>silver_order_items</div>
+    <div class="med-tbl"><i data-icon="table"></i>silver_returns</div>
+  </div>
+</div>
+<p>Turn the 6 raw folders into <strong>4 clean silver tables</strong> — deduped, denormalized, and enriched with an AI sentiment score — the layer the gold tables (and then the dashboard + Genie) build on.</p>
+<p>Have Genie Code build all four as SDP source files in a new <code>./data_pipeline</code> folder, reading the raw parquet straight from the Volume (no bronze). It already read <code>CONTEXT.md</code>; the prompt below spells out each table:</p>
+<blockquote class="prompt" style="clear:both;">
+  <span class="prompt-label"><span class="gc-mark"><i data-icon="genie-code"></i></span> Ask Genie Code</span>
+  <button class="copy">Copy</button>
+  <p>Let's build a Spark Declarative Pipeline that reads the raw parquet from my Volume (no bronze) and creates these four silver tables, each as its own source file in a new <code>./data_pipeline</code> folder. Read each raw dataset with <code>read_files('/Volumes/&lt;catalog&gt;/&lt;schema&gt;/raw_data/&lt;folder&gt;', format =&gt; 'parquet')</code>.<br><br>
+  1. <strong>comment_anger_scores</strong> — from <code>raw_data/returns</code>. Take the DISTINCT <code>customer_comment</code> values and score each with <code>ai_classify</code> into an anger score (1.0 = very angry … 0.1 = satisfied). Dedup first so the LLM runs once per distinct comment.<br>
+  2. <strong>silver_production_lots</strong> — clean pass of <code>raw_data/production_lots</code>, keeping <code>incident_summary</code>. This is the drill-down destination Genie will hop to later, so expose it as its own table.<br>
+  3. <strong>silver_order_items</strong> — one clean, denormalized row per order line: join <code>raw_data/order_items</code> with <code>raw_data/orders</code> (order_date, region), <code>raw_data/products</code> (product_name, category), and <code>raw_data/production_lots</code> (facility, production_date).<br>
+  4. <strong>silver_returns</strong> — the cleaned returns fact, one row per return: join <code>raw_data/returns</code> with <code>raw_data/products</code>, <code>raw_data/customers</code>, and <code>raw_data/orders</code> so every dimension is denormalized in-row, join the <code>anger_score</code> from comment_anger_scores, and carry the <code>is_bad_lot</code> flag straight from the raw returns.<br><br>
+  Comment every table and column. Then run the pipeline and confirm every table is green, and give me the Lakeflow SDP link so I can review it.</p>
+</blockquote>
+<blockquote class="note"><p>💡 <strong>AI Functions</strong> — <code>ai_classify</code> is an LLM call inside plain SQL. Try <code>ai_summarize</code> / <code>ai_extract</code> too.</p></blockquote>
