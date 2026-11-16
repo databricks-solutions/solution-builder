@@ -13,4 +13,4 @@ Forked from the solution-builder app template (Node/Express AppKit + React + Lak
 
 Server: `routes/titles.ts`, `db/queries/titles.ts`, `services/retag.ts`, `lib/metadata.ts`, `lib/vs.ts`, `lib/serving.ts`,
 `agent/copilot.ts`, `db/sync.ts` (boot-time Delta → Lakebase mirror of 1,400 titles + 9.7k scenes). Lakebase database
-`dbgen_content_metadata_copilot` in project `dbdemos-asset-generator`. Header **Reset demo** re-syncs from Delta.
+`dbgen_content_metadata_copilot` in project `solution-builder`. Header **Reset demo** re-syncs from Delta.

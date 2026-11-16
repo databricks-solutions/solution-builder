@@ -12,7 +12,7 @@ Forked from the solution-builder app template (Node/Express AppKit + React + Lak
 
 Server: `services/planner.ts` (engine), `routes/planning.ts` (REST + booking + Delta INSERT), `db/queries/plans.ts`,
 `agent/planner.ts`, `db/sync.ts` (Delta loader + reset). Lakebase tables `app.plans`, `app.plan_events` (+ chat tables)
-in database `dbgen_supply_planning_copilot` (project `dbdemos-asset-generator`). Header **Reset demo** truncates the
+in database `dbgen_supply_planning_copilot` (project `solution-builder`). Header **Reset demo** truncates the
 Lakebase tables and deletes the app's rows from `sop_plan_decisions`.
 
 Auth: user OBO token first, one retry as the app service principal on 401/403 (`lib/auth.ts authedFetch`) for the model

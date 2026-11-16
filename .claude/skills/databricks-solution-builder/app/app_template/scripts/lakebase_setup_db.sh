@@ -7,7 +7,7 @@
 #
 # Shared-project distribution (when --project-id is OMITTED):
 #   Demo databases are spread across a POOL of shared projects
-#   (`dbdemos-asset-generator`, then `-2`, `-3`, … `-9` — 10 projects max)
+#   (`solution-builder`, then `-2`, `-3`, … `-9` — 10 projects max)
 #   instead of piling into one. Before creating a database the script
 #   proactively picks the first pool project holding fewer than
 #   SHARED_PROJECT_MAX_DBS databases (default 50), creating the next pool
@@ -38,7 +38,7 @@ set -euo pipefail
 # ── Config / sourceable globals ──────────────────────────────────────────────
 # The base shared-pool project. New demos (no --project-id) are distributed
 # across this project and its numbered siblings.
-SHARED_PROJECT_DEFAULT="dbdemos-asset-generator"
+SHARED_PROJECT_DEFAULT="solution-builder"
 # Max databases per shared-pool project before rolling to the next one. Each
 # database auto-adds ~2 zeroETL roles, so this caps roles-per-branch well under
 # Lakebase's limit. Conservative default; override via the environment.

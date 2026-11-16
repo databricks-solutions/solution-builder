@@ -8,7 +8,7 @@
 #
 # Example:
 #   ./scripts/lakebase_grant_app_credential.sh \
-#     --app-name trade-promo-copilot --project-id dbdemos-asset-generator --db-name dbgen_trade_promo
+#     --app-name trade-promo-copilot --project-id solution-builder --db-name dbgen_trade_promo
 #
 # Defaults: branch=production. `--app-name`, `--project-id`, `--db-name`
 # are required: the script resolves the App's SP UUID via `apps get
@@ -20,7 +20,7 @@
 # --reassign-stale (opt-in, DEDICATED projects only): transfer objects owned by
 # every OTHER service-principal role on the branch to this app's SP and DROP
 # those roles — the fix for a redeploy-after-delete (new SP, schemas still owned
-# by the dead one). NEVER use it on a shared project (dbdemos-asset-generator):
+# by the dead one). NEVER use it on a shared project (solution-builder):
 # there the other SP roles belong to OTHER demos' live apps.
 #
 # Without this script, the App's SP can connect to the database (CONNECT

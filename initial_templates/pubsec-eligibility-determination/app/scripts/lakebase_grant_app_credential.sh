@@ -8,7 +8,7 @@
 #
 # Example:
 #   ./scripts/lakebase_grant_app_credential.sh \
-#     --app-name eligibility-copilot --project-id dbdemos-asset-generator --db-name dbgen_eligibility_copilot
+#     --app-name eligibility-copilot --project-id solution-builder --db-name dbgen_eligibility_copilot
 #
 # Defaults: branch=production. `--app-name`, `--project-id`, `--db-name`
 # are required: the script resolves the App's SP UUID via `apps get

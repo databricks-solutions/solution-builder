@@ -212,7 +212,7 @@ Run `./scripts/lakebase_setup_db.sh` once to ensure the Lakebase project + branc
 
 `<demo-short-name>` is short, lowercase, - (e.g. `dbge-luxebeauty`). The script derives the resource slug as `db-` + name with `_` → `-`. Branch defaults to `production`.
 
-Without `--project-id` the script distributes demos across a shared project pool (`dbdemos-asset-generator`, then `-2` … `-9`): it picks the first project holding fewer than `SHARED_PROJECT_MAX_DBS` databases (default 50), rolling to the next as they fill. This keeps any one project's branch under Lakebase's roles-per-branch limit (each database auto-adds ~2 zeroETL roles). Pass `--project-id` for a dedicated databricks lakebase project (no pool fallback — fails loudly if full).
+Without `--project-id` the script distributes demos across a shared project pool (`solution-builder`, then `-2` … `-9`): it picks the first project holding fewer than `SHARED_PROJECT_MAX_DBS` databases (default 50), rolling to the next as they fill. This keeps any one project's branch under Lakebase's roles-per-branch limit (each database auto-adds ~2 zeroETL roles). Pass `--project-id` for a dedicated databricks lakebase project (no pool fallback — fails loudly if full).
 
 The script prints TWO blocks at the end:
 1. a **`.env` block** (`LAKEBASE_PROJECT_ID=…`, `PGHOST=…`, …) — copy straight into `.env` for local dev (see below);
@@ -380,7 +380,7 @@ The script reads `.env` and does it all: rebuilds `dist/` from source (never shi
 
 **No resource binding on this path** (no action needed): the `valueFrom:` refs in `app.yaml` only resolve via DAB; interactively the app has `resources: []` and reads PG*/warehouse from `.env` + platform injection. `deploy.sh` runs `lakebase_grant_app_credential.sh` to create/grant the SP's Postgres role.
 
-**Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. On a **dedicated** Lakebase project, re-run `lakebase_grant_app_credential.sh … --reassign-stale` (reassigns ownership via `postgres delete-role --reassign-owned-to`). It is opt-in on purpose: roles are branch-wide, so on a **shared** project (`dbdemos-asset-generator`) every other SP role belongs to ANOTHER demo's live app — never pass the flag there (drop the old app's database instead, or reassign only that one role by hand). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
+**Redeploy after a delete:** the recreated app gets a new SP, but the old SP still owns the Lakebase schemas → boot `28P01`/`must be owner`. On a **dedicated** Lakebase project, re-run `lakebase_grant_app_credential.sh … --reassign-stale` (reassigns ownership via `postgres delete-role --reassign-owned-to`). It is opt-in on purpose: roles are branch-wide, so on a **shared** project (`solution-builder`) every other SP role belongs to ANOTHER demo's live app — never pass the flag there (drop the old app's database instead, or reassign only that one role by hand). If you ever hit it by hand, that's the one command (use the role's `name` path, not the SP UUID).
 
 **After deploying, add the `id` to the app block in `resources.json` `created_resources`** (`name` was already recorded at the end of Step 5):
 

@@ -1364,7 +1364,7 @@ def _resolve_mlflow_experiment_id(
 # to hold that UUID (the skill + lakebase_setup_db.sh now record `get-project`'s
 # `uid` — see app.md), in which case _resolve returns it unchanged (fast path).
 # But EXISTING projects (created before that fix) stored the human NAME there
-# (e.g. `dbdemos-asset-generator`), which would 404 — so when the value isn't a
+# (e.g. `solution-builder`), which would 404 — so when the value isn't a
 # UUID we resolve name→uid via the SDK, cached. This heals old projects with no
 # data migration and is a harmless no-op for new ones. Drop-oldest bound like the
 # MLflow cache. Keyed by the stored ref (name), so only non-UUID values populate it.
@@ -1386,7 +1386,7 @@ def _resolve_lakebase_project_uid(
 
     `project_ref` is resources.json's `lakebase_project_id`:
     - If it's already a UUID (the current/expected shape), return it unchanged.
-    - If it's a NAME (`dbdemos-asset-generator` — the shape older projects stored),
+    - If it's a NAME (`solution-builder` — the shape older projects stored),
       list projects and match on the name (last segment of the SDK's
       `projects/<name>`), returning its `uid`. Cached in-process by name.
     Returns None if the SDK is unavailable or no project matches — caller then
@@ -1575,7 +1575,7 @@ def _build_deployed_links(
             ))
 
     # Lakebase project — resources.json stores the project NAME
-    # (`dbdemos-asset-generator`), but the /lakebase/projects/<uid> page routes
+    # (`solution-builder`), but the /lakebase/projects/<uid> page routes
     # by the project UUID. Resolve name→uid via the SDK (cached; no-op if the
     # value is already a uid). Skip the link if it can't be resolved rather than
     # emit a 404. Works for EXISTING projects with no data migration — resolution

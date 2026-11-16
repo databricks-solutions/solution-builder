@@ -53,28 +53,28 @@ echo "lakebase_setup_db.sh — proactive shared-project selection"
 
 check "script is sourceable (main-guard present)" "function" "$(type -t pick_shared_project)"
 
-TEST_MISSING=""; TEST_COUNTS="dbdemos-asset-generator=10"
-check "base under cap -> base" "dbdemos-asset-generator" "$(pick_shared_project)"
+TEST_MISSING=""; TEST_COUNTS="solution-builder=10"
+check "base under cap -> base" "solution-builder" "$(pick_shared_project)"
 
-TEST_MISSING=""; TEST_COUNTS="dbdemos-asset-generator=60;dbdemos-asset-generator-2=5"
-check "base full -> -2" "dbdemos-asset-generator-2" "$(pick_shared_project)"
+TEST_MISSING=""; TEST_COUNTS="solution-builder=60;solution-builder-2=5"
+check "base full -> -2" "solution-builder-2" "$(pick_shared_project)"
 
-TEST_MISSING="dbdemos-asset-generator-3"; TEST_COUNTS="dbdemos-asset-generator=60;dbdemos-asset-generator-2=99"
-check "base+-2 full, -3 fresh -> -3" "dbdemos-asset-generator-3" "$(pick_shared_project)"
+TEST_MISSING="solution-builder-3"; TEST_COUNTS="solution-builder=60;solution-builder-2=99"
+check "base+-2 full, -3 fresh -> -3" "solution-builder-3" "$(pick_shared_project)"
 
-TEST_MISSING=""; TEST_COUNTS="dbdemos-asset-generator=99;dbdemos-asset-generator-2=99;dbdemos-asset-generator-3=99;dbdemos-asset-generator-4=99;dbdemos-asset-generator-5=99;dbdemos-asset-generator-6=99;dbdemos-asset-generator-7=99;dbdemos-asset-generator-8=99;dbdemos-asset-generator-9=99"
+TEST_MISSING=""; TEST_COUNTS="solution-builder=99;solution-builder-2=99;solution-builder-3=99;solution-builder-4=99;solution-builder-5=99;solution-builder-6=99;solution-builder-7=99;solution-builder-8=99;solution-builder-9=99"
 out="$(pick_shared_project)"; rc=$?
 check "whole pool full -> empty output" "" "$out"
 check "whole pool full -> nonzero return" "1" "$rc"
 
-TEST_MISSING=""; TEST_COUNTS="dbdemos-asset-generator=10"; SHARED_PROJECT_MAX_DBS=5
-check "cap override: base(10) over max(5) -> -2" "dbdemos-asset-generator-2" "$(pick_shared_project)"
+TEST_MISSING=""; TEST_COUNTS="solution-builder=10"; SHARED_PROJECT_MAX_DBS=5
+check "cap override: base(10) over max(5) -> -2" "solution-builder-2" "$(pick_shared_project)"
 SHARED_PROJECT_MAX_DBS=50
 
 # Regression for finding #1: a transient list-databases failure must read as an
 # EMPTY (0-db) project and be CHOSEN, not crash the `-lt` compare and get skipped.
-TEST_MISSING=""; TEST_COUNTS=""; TEST_FAIL_LIST="dbdemos-asset-generator"
-check "transient list-databases failure -> base reads 0 -> PICKED (#1)" "dbdemos-asset-generator" "$(pick_shared_project)"
+TEST_MISSING=""; TEST_COUNTS=""; TEST_FAIL_LIST="solution-builder"
+check "transient list-databases failure -> base reads 0 -> PICKED (#1)" "solution-builder" "$(pick_shared_project)"
 TEST_FAIL_LIST=""
 
 # Strict-mode guard for finding #1: under the REAL `set -euo pipefail`,

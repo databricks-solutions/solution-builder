@@ -43,7 +43,7 @@ variables:
     default: "luxebeauty-demo"
   lakebase_project_slug:
     description: "Existing Lakebase (autoscaling) project the app database lives in"
-    default: "dbdemos-asset-generator"
+    default: "solution-builder"
   lakebase_branch_id:
     description: "Lakebase branch within the project"
     default: "production"

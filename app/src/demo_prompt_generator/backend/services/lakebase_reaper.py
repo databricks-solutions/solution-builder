@@ -2,7 +2,7 @@
 
 Every Lakebase-backed demo the build agent creates lands as a
 `db-dbgen-<slug>[-<hex>]` database in the shared pool project(s)
-(`dbdemos-asset-generator`, `-2`…). Each `CREATE DATABASE` auto-provisions ~2
+(`solution-builder`, `-2`…). Each `CREATE DATABASE` auto-provisions ~2
 zeroETL roles, and roles-per-branch is a HARD Lakebase limit — so a *deleted*
 demo's leftover db keeps costing roles until it's dropped. PR #202 stopped NEW
 dbs piling onto the maxed base branch (proactive pool distribution); this reaper
@@ -32,7 +32,7 @@ Tunables (env, all optional):
   LAKEBASE_DEAD_DB_MIN_AGE_DAYS   default 14 — never reap a db younger than this
   LAKEBASE_DEAD_DB_MAX_PER_RUN    default 25 — cap drops per sweep
   LAKEBASE_DEAD_DB_REAP_INTERVAL  default 21600 (6h) — sweep cadence
-  LAKEBASE_SHARED_PROJECT         default dbdemos-asset-generator — pool base slug
+  LAKEBASE_SHARED_PROJECT         default solution-builder — pool base slug
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ DEAD_DB_MAX_PER_RUN = _env_int("LAKEBASE_DEAD_DB_MAX_PER_RUN", 25)
 
 
 def _shared_pool_base() -> str:
-    return os.environ.get("LAKEBASE_SHARED_PROJECT", "dbdemos-asset-generator")
+    return os.environ.get("LAKEBASE_SHARED_PROJECT", "solution-builder")
 
 
 def pool_projects() -> list[str]:
@@ -85,7 +85,7 @@ def _reap_armed() -> bool:
 # ── Data ──────────────────────────────────────────────────────────────────────
 @dataclass
 class DbCandidate:
-    project_slug: str          # pool project the db lives in (dbdemos-asset-generator[-N])
+    project_slug: str          # pool project the db lives in (solution-builder[-N])
     name: str                  # full resource path projects/…/databases/db-dbgen-…
     db_id: str                 # the leaf: db-dbgen-<slug>[-<hex>]
     create_time: datetime | None

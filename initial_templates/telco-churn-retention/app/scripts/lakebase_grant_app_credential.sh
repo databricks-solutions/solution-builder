@@ -8,7 +8,7 @@
 #
 # Example:
 #   ./scripts/lakebase_grant_app_credential.sh \
-#     --app-name dbgen-luxebeauty --project-id dbdemos-asset-generator --db-name dbgen_luxebeauty
+#     --app-name dbgen-luxebeauty --project-id solution-builder --db-name dbgen_luxebeauty
 #
 # Defaults: branch=production. `--app-name`, `--project-id`, `--db-name`
 # are required: the script resolves the App's SP UUID via `apps get

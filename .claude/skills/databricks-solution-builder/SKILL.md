@@ -131,7 +131,7 @@ You must keep this exact naming convention.
       "deployment_note": "Deployed via `databricks apps deploy` — see app.md Step 6"
     },
     "lakebase_project_id": "<uid from `databricks postgres get-project | jq -r .uid`>",
-    "lakebase_project_slug": "dbdemos-asset-generator",
+    "lakebase_project_slug": "solution-builder",
     "lakebase_database": "dbgen_luxebeauty_a3f2c1"
   }
 }

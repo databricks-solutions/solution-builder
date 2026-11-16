@@ -55,7 +55,7 @@ variables:
       resources.json's `lakebase_project_id`, which holds the project UUID for
       the workspace UI link (`/lakebase/projects/<uuid>`). Different values,
       different purposes — see app/app.md.
-    default: "dbdemos-asset-generator"
+    default: "solution-builder"
   lakebase_branch_id:
     description: "Lakebase branch within the project"
     default: "production"

@@ -7,7 +7,7 @@
 #
 # Examples:
 #   ./scripts/lakebase_setup_db.sh --db-name dbgen_warranty_copilot
-#       → uses shared `dbdemos-asset-generator` project; if it's full, falls
+#       → uses shared `solution-builder` project; if it's full, falls
 #         back to `-2`, `-3`, ... up to `-9`. Branch defaults to `production`.
 #
 #   ./scripts/lakebase_setup_db.sh --db-name dbgen_warranty_copilot --project-id my-private-project
@@ -52,7 +52,7 @@ fi
 
 # When --project-id is omitted, use the shared default with auto-bump
 # fallback on capacity errors. When passed explicitly, fail loudly.
-SHARED_PROJECT_DEFAULT="dbdemos-asset-generator"
+SHARED_PROJECT_DEFAULT="solution-builder"
 USE_SHARED_DEFAULT=false
 if [[ -z "$PROJECT_ID" ]]; then
     PROJECT_ID="$SHARED_PROJECT_DEFAULT"

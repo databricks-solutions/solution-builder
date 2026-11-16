@@ -8,7 +8,7 @@
 #
 # Example:
 #   ./scripts/lakebase_grant_app_credential.sh \
-#     --app-name warranty-copilot --project-id dbdemos-asset-generator --db-name dbgen_warranty_copilot
+#     --app-name warranty-copilot --project-id solution-builder --db-name dbgen_warranty_copilot
 #
 # Defaults: branch=production. `--app-name`, `--project-id`, `--db-name`
 # are required: the script resolves the App's SP UUID via `apps get
@@ -137,7 +137,7 @@ for r in json.load(sys.stdin):
 "
 )"
 # SAFETY: only with --reassign-stale (a DEDICATED project after the app was deleted + recreated).
-# On a shared project (dbdemos-asset-generator) the other SP roles are OTHER demos' apps.
+# On a shared project (solution-builder) the other SP roles are OTHER demos' apps.
 if [[ "$REASSIGN_STALE" == "1" && -n "$STALE_ROLE_NAMES" ]]; then
     NEW_ROLE_PATH="$BRANCH_PATH/roles/$SP_ROLE"
     while IFS= read -r old_path; do
